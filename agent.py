@@ -74,11 +74,13 @@ decision is genuinely the user's to make, use ask_human instead of guessing.
 Never modify your own source code (the coding agent's files); those writes are refused.
 
 You have a persistent memory directory, /memories, private to this project and kept between
-sessions. At the start of every task, view /memories and read what is relevant before doing
-anything else. As you work, record what would help a future session: build/test commands,
-project conventions and structure, the user's preferences and corrections, and decisions
-with their reasons. Keep it short and organized (update or delete stale notes rather than
-appending duplicates). Never store secrets such as API keys, passwords or tokens.
+sessions. Its current contents are given to you in a <memory> block with the first instruction
+of each session, so do not view it again. Update memory at most once per task, at the very end,
+and only if you learned something durable and new that a future session would need: build/test
+commands, project conventions and structure, the user's preferences and corrections, decisions
+with their reasons. Keep everything in /memories/notes.md, make small edits (str_replace or
+insert) rather than rewriting it, and skip the update entirely when nothing new was learned.
+Never store secrets such as API keys, passwords or tokens.
 
 After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
@@ -477,6 +479,21 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
     )
 
 
+def memory_snapshot() -> str:
+    """All memory files, read locally, to hand Claude at the start of a session (no tool calls)."""
+    files = sorted(p for p in memory_tool.memory_root.rglob("*") if p.is_file() and not p.name.startswith("."))
+    if not files:
+        return "<memory>\n(empty -- nothing saved for this project yet)\n</memory>"
+    parts = []
+    for p in files:
+        try:
+            text = p.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        parts.append(f'<file path="/memories/{p.relative_to(memory_tool.memory_root).as_posix()}">\n{text}\n</file>')
+    return "<memory>\n" + truncate("\n".join(parts)) + "\n</memory>"
+
+
 def tool_memory(**command) -> str:
     result = memory_tool.call(command)
     if command.get("command") != "view":
@@ -517,6 +534,7 @@ def run_tool(block) -> dict:
 def stream_response(client: anthropic.Anthropic, messages: list):
     """Stream one model response to the terminal and return the final message."""
     with client.messages.stream(
+        cache_control={"type": "ephemeral"},  # cache the growing prefix: each loop step re-reads it cheaply
         model=MODEL,
         max_tokens=MAX_TOKENS,
         system=SYSTEM_PROMPT.format(workspace=WORKSPACE),
@@ -597,10 +615,17 @@ def load_conversation() -> list:
         print(f"Could not read {conversation_file} ({e}); starting a new conversation.")
         return []
 
-    user_turns = [m for m in messages if m["role"] == "user" and isinstance(m["content"], str)]
+    def instruction(m: dict) -> str | None:
+        """The user's typed text, or None for tool-result messages."""
+        if isinstance(m["content"], str):
+            return m["content"]
+        texts = [b["text"] for b in m["content"] if b.get("type") == "text"]
+        return texts[-1] if texts else None  # last text block; the first may be the memory snapshot
+
+    user_turns = [t for m in messages if m["role"] == "user" and (t := instruction(m)) is not None]
     print(f"Resumed conversation: {len(user_turns)} earlier instruction(s).")
     if user_turns:
-        print(f"\033[2mLast instruction: {user_turns[-1]['content'][:200]}\033[0m")
+        print(f"\033[2mLast instruction: {user_turns[-1][:200]}\033[0m")
     last_text = next(
         (b["text"] for m in reversed(messages) if m["role"] == "assistant"
          for b in reversed(m["content"]) if b.get("type") == "text"),
@@ -611,13 +636,24 @@ def load_conversation() -> list:
     return messages
 
 
+_memory_sent = False  # the memory snapshot goes with the first instruction of each session
+
+
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     """Run one user instruction through the agent loop. Returns False if it failed."""
+    global _memory_sent
     checkpoint = len(messages)
-    messages.append({"role": "user", "content": text})
+    if _memory_sent:
+        messages.append({"role": "user", "content": text})
+    else:
+        messages.append({"role": "user", "content": [
+            {"type": "text", "text": memory_snapshot()},
+            {"type": "text", "text": text},
+        ]})
     try:
         run_turn(client, messages)
         save_conversation(messages)
+        _memory_sent = True
         return True
     except KeyboardInterrupt:
         print("\n[interrupted]")
