@@ -37,6 +37,13 @@ Usage:
     python agent.py -d path/to/project "..." -i   # keep chatting after the task
     python agent.py -d path/to/project            # interactive mode only
     python agent.py -d path/to/project -r         # resume the last conversation in this project
+    python agent.py -d path/to/project "..." --auto   # autonomous mode (see below)
+
+Autonomous mode (--auto, or /auto in interactive mode to toggle, /mode to show): edits,
+new files and run_python are applied without asking (diffs are still printed), and ask_human
+does not wait -- Claude decides and states its assumptions. Workspace confinement,
+self-protection and the subprocess block still apply; Ctrl+C stops it. AGENT_MAX_STEPS (default
+100) caps the model calls per instruction in every mode.
 
 `path:line` references in the output are clickable links that open the file at that line.
 Set AGENT_EDITOR to vscode (default), cursor, file, or none.
@@ -114,6 +121,10 @@ if WEB_SEARCH not in ("20250305", "20260209", "off"):
     raise SystemExit(f"AGENT_WEB_SEARCH must be 20250305, 20260209 or off (got {WEB_SEARCH!r})")
 WEB_SEARCH_MAX_USES = 5  # searches allowed per model response
 
+MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "100"))  # model calls per instruction
+AUTO_MODE = False  # autonomous mode: no approval prompts; set by --auto or /auto
+_mode_note: str | None = None  # tells Claude about a mode change with the next instruction
+
 # The agent must never modify its own source code or its skills (project skills are added in main()).
 PROTECTED_PATHS = [Path(__file__).resolve(), BUNDLED_SKILLS]
 
@@ -130,6 +141,10 @@ diff and must approve every change. If the user rejects a change, read their fee
 and adjust rather than retrying the same edit. When a requirement is ambiguous or a
 decision is genuinely the user's to make, use ask_human instead of guessing.
 Never modify your own source code (the coding agent's files); those writes are refused.
+The user can switch you into autonomous mode (announced in a <mode> note): then changes and
+runs are applied without approval, so be deliberate -- read before editing, keep changes
+scoped to the task, verify with run_python, and do not use ask_human (decide, and list your
+assumptions and anything the user should review in your final answer).
 
 You have a persistent memory directory, /memories, private to this project and kept between
 sessions. Its current contents are given to you in a <memory> block with the first instruction
@@ -608,7 +623,11 @@ def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
     print(f"\n\033[1;33m=== {'Modify' if existed else 'Create'} \033[0m{target}\033[1;33m ===\033[0m")
     print(colorize_diff(diff))
 
-    answer = input("\nApply this change? [y]es / [n]o: ").strip().lower()
+    if AUTO_MODE:
+        print("\033[2m(autonomous mode: applied without asking)\033[0m")
+        answer = "y"
+    else:
+        answer = input("\nApply this change? [y]es / [n]o: ").strip().lower()
     if answer not in ("y", "yes"):
         feedback = input("Why not / what should change? (optional): ").strip()
         raise ToolError(
@@ -661,6 +680,12 @@ def tool_write_file(path: str, content: str) -> str:
 
 def tool_ask_human(question: str) -> str:
     print(f"\n\033[1;35m[agent asks]\033[0m {linkify(question)}")
+    if AUTO_MODE:
+        print("\033[2m(autonomous mode: not waiting for an answer)\033[0m")
+        return (
+            "Autonomous mode is on and the user is not available. Choose the most reasonable "
+            "option yourself, continue, and list this assumption in your final answer."
+        )
     answer = input("Your answer: ").strip()
     return answer or "(the user gave no answer)"
 
@@ -687,7 +712,7 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
     print("\n\033[1;33m=== Run Python ===\033[0m")
     print(f"({'uv run python' if UV else sys.executable}, subprocesses blocked)")
     print(code if code else "python " + " ".join(args))
-    if not _always_allow_python:
+    if not (_always_allow_python or AUTO_MODE):
         answer = input("\nRun this? [y]es / [n]o / [a]lways for this session: ").strip().lower()
         if answer in ("a", "always"):
             _always_allow_python = True
@@ -852,8 +877,8 @@ def stream_response(client: anthropic.Anthropic, messages: list):
 
 
 def run_turn(client: anthropic.Anthropic, messages: list) -> None:
-    """Call the model repeatedly until it stops asking for tools."""
-    while True:
+    """Call the model repeatedly until it stops asking for tools (at most MAX_STEPS calls)."""
+    for _ in range(MAX_STEPS):
         response = stream_response(client, messages)
         tool_uses = [b for b in response.content if b.type == "tool_use"]
 
@@ -879,6 +904,8 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
         elif response.stop_reason == "refusal":
             print("\n[the model declined this request]")
         return
+    print(f"\n[stopped: reached AGENT_MAX_STEPS={MAX_STEPS} model calls for this instruction; "
+          "send another instruction to continue]")
 
 
 def save_conversation(messages: list) -> None:
@@ -925,20 +952,20 @@ _memory_sent = False  # memory and the skill list go with the first instruction 
 
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     """Run one user instruction through the agent loop. Returns False if it failed."""
-    global _memory_sent
+    global _memory_sent, _mode_note
     checkpoint = len(messages)
-    if _memory_sent:
-        messages.append({"role": "user", "content": text})
+    blocks = [] if _memory_sent else [memory_snapshot(), skills_catalog()]
+    if _mode_note:
+        blocks.append(_mode_note)
+    if blocks:
+        messages.append({"role": "user", "content": [{"type": "text", "text": t} for t in [*blocks, text]]})
     else:
-        messages.append({"role": "user", "content": [
-            {"type": "text", "text": memory_snapshot()},
-            {"type": "text", "text": skills_catalog()},
-            {"type": "text", "text": text},
-        ]})
+        messages.append({"role": "user", "content": text})
     try:
         run_turn(client, messages)
         save_conversation(messages)
         _memory_sent = True
+        _mode_note = None
         return True
     except KeyboardInterrupt:
         print("\n[interrupted]")
@@ -952,12 +979,27 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     return False
 
 
+def set_auto_mode(on: bool) -> None:
+    """Switch autonomous mode and queue a note so Claude learns it with the next instruction."""
+    global AUTO_MODE, _mode_note
+    AUTO_MODE = on
+    if on:
+        _mode_note = ("<mode>Autonomous mode is ON: your edits, new files and run_python calls are "
+                      "applied without asking, and ask_human will not be answered.</mode>")
+        print("\033[1;33mAutonomous mode ON\033[0m -- edits and Python runs are applied without asking. "
+              "Ctrl+C stops the agent; /auto turns this off.")
+    else:
+        _mode_note = "<mode>Autonomous mode is OFF: the user approves each change again.</mode>"
+        print("Autonomous mode OFF -- every edit and Python run needs your approval.")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Personal coding agent (Claude on Azure).")
     parser.add_argument("instruction", nargs="?", help="Task for the agent. Omit to start in interactive mode.")
     parser.add_argument("-d", "--dir", default=".", help="Project directory the agent works in (default: current directory).")
     parser.add_argument("-i", "--interactive", action="store_true", help="Keep chatting after the instruction finishes.")
     parser.add_argument("-r", "--resume", action="store_true", help="Continue the last conversation in this project.")
+    parser.add_argument("--auto", action="store_true", help="Autonomous mode: apply edits and Python runs without asking.")
     return parser.parse_args()
 
 
@@ -982,13 +1024,15 @@ def main() -> None:
     print(f"Skills: {', '.join(sorted(skills)) or '(none)'}")
     print(f"Web search: {'off' if WEB_SEARCH == 'off' else 'web_search_' + WEB_SEARCH}")
     messages = load_conversation() if args.resume else []
+    if args.auto:
+        set_auto_mode(True)
 
     if args.instruction:
         ok = send(client, messages, args.instruction)
         if not args.interactive:
             raise SystemExit(0 if ok else 1)
 
-    print("Interactive mode. Type 'exit' to quit.")
+    print("Interactive mode. Type 'exit' to quit, /auto to toggle autonomous mode, /mode to show it.")
     while True:
         try:
             user_input = input("\n\033[1mYou:\033[0m ").strip()
@@ -996,6 +1040,12 @@ def main() -> None:
             break
         if user_input.lower() in ("exit", "quit"):
             break
+        if user_input.lower() == "/auto":
+            set_auto_mode(not AUTO_MODE)
+            continue
+        if user_input.lower() == "/mode":
+            print(f"Autonomous mode is {'ON' if AUTO_MODE else 'OFF'}.")
+            continue
         if user_input:
             send(client, messages, user_input)
 
