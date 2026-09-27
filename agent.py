@@ -14,6 +14,14 @@ Tools:
                   the code cannot start subprocesses -- see GUARD_SOURCE)
   - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
                   stored in ~/.coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
+  - load_skill  : load a skill's full instructions when a task matches it
+
+Skills are folders with a SKILL.md (a `name` / `description` header, then instructions), found in:
+    skills/ next to this file            -- shipped with the agent
+    ~/.coding_agent/skills/              -- personal, every project
+    <project>/.agent/skills/             -- per project (can be committed)
+A later location overrides an earlier one with the same skill name. Only names and descriptions
+are sent up front; Claude loads a skill's instructions when it needs them.
 
 Configuration (environment variables or a .env file):
     ANTHROPIC_FOUNDRY_ENDPOINT     https://<resource>.services.ai.azure.com/anthropic
@@ -84,6 +92,9 @@ CWD = WORKSPACE  # the agent's current directory inside the workspace; see chang
 MAX_LISTING_ENTRIES = 500
 
 MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR", "~/.coding_agent/memory")).expanduser()
+BUNDLED_SKILLS = Path(__file__).resolve().parent / "skills"
+PERSONAL_SKILLS = Path("~/.coding_agent/skills").expanduser()
+skills: dict[str, Path] = {}  # skill name -> its SKILL.md; filled in main()
 memory_tool: BetaLocalFilesystemMemoryTool | None = None  # set per project in main()
 conversation_file: Path | None = None  # set per project in main(); used by --resume
 
@@ -92,8 +103,8 @@ EDITOR = os.environ.get("AGENT_EDITOR", "vscode").lower()
 LINKS_ENABLED = EDITOR != "none" and sys.stdout.isatty()
 FILE_REF = re.compile(r"((?:[A-Za-z]:[\\/])?[\w.\-/\\]+\.[A-Za-z0-9]+):(\d+)")
 
-# The agent must never modify its own source code.
-PROTECTED_PATHS = [Path(__file__).resolve()]
+# The agent must never modify its own source code or its skills (project skills are added in main()).
+PROTECTED_PATHS = [Path(__file__).resolve(), BUNDLED_SKILLS]
 
 SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspace}.
 You have a current directory inside it, which starts at the repository root each session;
@@ -125,11 +136,28 @@ one, say so instead of trying to work around the block. When an error comes from
 library, read that library's source in the project's .venv (grep with path=".venv" or
 include_ignored, plus a glob such as "*.py", then read_file) instead of guessing how it works.
 
+Skills: the first instruction of each session also carries a <skills> block listing expert
+playbooks by name and description. When a task falls in a skill's area, call load_skill for it
+before starting and follow it; load several when a task spans areas. Do not load skills that
+are not relevant.
+
 When you refer to a specific place in the code, write it as path:line (for example
 src/app.py:42) with the path relative to the repository root -- the user can click it."""
 
 TOOLS = [
     {"type": "memory_20250818", "name": "memory"},  # Anthropic-defined: no input_schema
+    {
+        "name": "load_skill",
+        "description": (
+            "Load the full instructions of a skill listed in the <skills> block, e.g. before an "
+            "Azure architecture, backend or frontend task. Returns the skill's SKILL.md."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Skill name exactly as listed."}},
+            "required": ["name"],
+        },
+    },
     {
         "name": "list_directory",
         "description": (
@@ -678,6 +706,49 @@ def memory_snapshot() -> str:
     return "<memory>\n" + truncate("\n".join(parts)) + "\n</memory>"
 
 
+def read_skill_header(skill_md: Path) -> dict[str, str]:
+    """Parse the `key: value` lines between the leading `---` markers of a SKILL.md."""
+    lines = skill_md.read_text(encoding="utf-8").splitlines()
+    header: dict[str, str] = {}
+    if lines and lines[0].strip() == "---":
+        for line in lines[1:]:
+            if line.strip() == "---":
+                break
+            key, sep, value = line.partition(":")
+            if sep:
+                header[key.strip()] = value.strip()
+    return header
+
+
+def discover_skills() -> dict[str, Path]:
+    """Find every SKILL.md; later locations override earlier ones with the same name."""
+    found: dict[str, Path] = {}
+    for root in (BUNDLED_SKILLS, PERSONAL_SKILLS, WORKSPACE / ".agent" / "skills"):
+        for skill_md in sorted(root.glob("*/SKILL.md")) if root.is_dir() else []:
+            try:
+                name = read_skill_header(skill_md).get("name") or skill_md.parent.name
+            except (OSError, UnicodeDecodeError):
+                continue
+            found[name] = skill_md
+    return found
+
+
+def skills_catalog() -> str:
+    """Names and descriptions only -- the full instructions are loaded on demand."""
+    if not skills:
+        return "<skills>\n(none installed)\n</skills>"
+    lines = [f"- {name}: {read_skill_header(p).get('description', '')}" for name, p in sorted(skills.items())]
+    return "<skills>\n" + "\n".join(lines) + "\n</skills>"
+
+
+def tool_load_skill(name: str) -> str:
+    skill_md = skills.get(name)
+    if skill_md is None:
+        raise ToolError(f"Unknown skill '{name}'. Available: {', '.join(sorted(skills)) or 'none'}.")
+    print(f"\033[2m[skill] {name}\033[0m")
+    return skill_md.read_text(encoding="utf-8")
+
+
 def tool_memory(**command) -> str:
     result = memory_tool.call(command)
     if command.get("command") != "view":
@@ -696,6 +767,7 @@ TOOL_HANDLERS = {
     "ask_human": tool_ask_human,
     "run_python": tool_run_python,
     "memory": tool_memory,
+    "load_skill": tool_load_skill,
 }
 
 
@@ -806,7 +878,7 @@ def load_conversation() -> list:
         if isinstance(m["content"], str):
             return m["content"]
         texts = [b["text"] for b in m["content"] if b.get("type") == "text"]
-        return texts[-1] if texts else None  # last text block; the first may be the memory snapshot
+        return texts[-1] if texts else None  # last text block; earlier ones may be memory and skills
 
     user_turns = [t for m in messages if m["role"] == "user" and (t := instruction(m)) is not None]
     print(f"Resumed conversation: {len(user_turns)} earlier instruction(s).")
@@ -822,7 +894,7 @@ def load_conversation() -> list:
     return messages
 
 
-_memory_sent = False  # the memory snapshot goes with the first instruction of each session
+_memory_sent = False  # memory and the skill list go with the first instruction of each session
 
 
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
@@ -834,6 +906,7 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     else:
         messages.append({"role": "user", "content": [
             {"type": "text", "text": memory_snapshot()},
+            {"type": "text", "text": skills_catalog()},
             {"type": "text", "text": text},
         ]})
     try:
@@ -863,7 +936,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    global WORKSPACE, CWD, memory_tool, conversation_file
+    global WORKSPACE, CWD, memory_tool, conversation_file, skills
     args = parse_args()
     WORKSPACE = CWD = Path(args.dir).expanduser().resolve()
     if not WORKSPACE.is_dir():
@@ -873,11 +946,14 @@ def main() -> None:
     project_id = f"{WORKSPACE.name}-{hashlib.sha256(str(WORKSPACE).encode()).hexdigest()[:8]}"
     memory_tool = BetaLocalFilesystemMemoryTool(base_path=str(MEMORY_HOME / project_id))
     conversation_file = MEMORY_HOME / project_id / "conversation.json"
+    skills = discover_skills()
+    PROTECTED_PATHS.append(WORKSPACE / ".agent" / "skills")
 
     client = _get_client()
     print(f"Workspace: {WORKSPACE}")
     print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
     print(f"Memory: {memory_tool.memory_root}")
+    print(f"Skills: {', '.join(sorted(skills)) or '(none)'}")
     messages = load_conversation() if args.resume else []
 
     if args.instruction:
