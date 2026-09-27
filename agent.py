@@ -7,14 +7,15 @@ Tools:
   - ask_human   : lets the model ask you a question mid-task
 
 Usage:
-    python agent.py                 # workspace = current directory
-    python agent.py path/to/project # workspace = given directory
+    python agent.py -d path/to/project "Add input validation to the CLI"
+    python agent.py -d path/to/project "..." -i   # keep chatting after the task
+    python agent.py -d path/to/project            # interactive mode only
 """
 
+import argparse
 import difflib
 import os
 import re
-import sys
 from pathlib import Path
 
 import anthropic
@@ -29,9 +30,9 @@ MAX_TOKENS = 16000
 MAX_TOOL_OUTPUT_CHARS = 50_000
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
 
-WORKSPACE = Path(sys.argv[1] if len(sys.argv) > 1 else ".").resolve()
+WORKSPACE = Path(".").resolve()  # set from --dir in main()
 
-SYSTEM_PROMPT = f"""You are a coding agent working in the repository at {WORKSPACE}.
+SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspace}.
 All file paths are relative to that directory.
 
 Use grep and read_file to understand the code before changing it. Read a file before
@@ -269,7 +270,7 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
         response = client.messages.create(
             model=MODEL,
             max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT,
+            system=SYSTEM_PROMPT.format(workspace=WORKSPACE),
             tools=TOOLS,
             thinking={"type": "adaptive"},
             messages=messages,
@@ -299,11 +300,49 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
         return
 
 
+def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
+    """Run one user instruction through the agent loop. Returns False if it failed."""
+    checkpoint = len(messages)
+    messages.append({"role": "user", "content": text})
+    try:
+        run_turn(client, messages)
+        return True
+    except KeyboardInterrupt:
+        print("\n[interrupted]")
+    except anthropic.APIStatusError as e:
+        print(f"\n[API error {e.status_code}] {e.message}")
+    except anthropic.APIConnectionError:
+        print("\n[network error -- check your Foundry endpoint]")
+    # Drop the unfinished turn so the history stays valid for the next request.
+    del messages[checkpoint:]
+    return False
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Personal coding agent (Claude on Azure).")
+    parser.add_argument("instruction", nargs="?", help="Task for the agent. Omit to start in interactive mode.")
+    parser.add_argument("-d", "--dir", default=".", help="Project directory the agent works in (default: current directory).")
+    parser.add_argument("-i", "--interactive", action="store_true", help="Keep chatting after the instruction finishes.")
+    return parser.parse_args()
+
+
 def main() -> None:
+    global WORKSPACE
+    args = parse_args()
+    WORKSPACE = Path(args.dir).expanduser().resolve()
+    if not WORKSPACE.is_dir():
+        raise SystemExit(f"Not a directory: {WORKSPACE}")
+
     client = get_anthropic_client()
     messages: list = []
-    print(f"Coding agent ready. Workspace: {WORKSPACE}\nType 'exit' to quit.")
+    print(f"Workspace: {WORKSPACE}")
 
+    if args.instruction:
+        ok = send(client, messages, args.instruction)
+        if not args.interactive:
+            raise SystemExit(0 if ok else 1)
+
+    print("Interactive mode. Type 'exit' to quit.")
     while True:
         try:
             user_input = input("\n\033[1mYou:\033[0m ").strip()
@@ -311,22 +350,8 @@ def main() -> None:
             break
         if user_input.lower() in ("exit", "quit"):
             break
-        if not user_input:
-            continue
-
-        checkpoint = len(messages)
-        messages.append({"role": "user", "content": user_input})
-        try:
-            run_turn(client, messages)
-            continue
-        except KeyboardInterrupt:
-            print("\n[interrupted]")
-        except anthropic.APIStatusError as e:
-            print(f"\n[API error {e.status_code}] {e.message}")
-        except anthropic.APIConnectionError:
-            print("\n[network error -- check your Foundry endpoint]")
-        # Drop the unfinished turn so the history stays valid for the next request.
-        del messages[checkpoint:]
+        if user_input:
+            send(client, messages, user_input)
 
 
 if __name__ == "__main__":
