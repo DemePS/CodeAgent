@@ -24,10 +24,10 @@ from pathlib import Path
 import anthropic
 
 # Returns an AnthropicFoundry client (API key or Azure AD auth).
-from client_factory import _get_client
+from auth.anthropic import _get_client
 
 # On Foundry this is your *deployment name*; change it if yours differs.
-MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
+MODEL = os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT", "claude-opus-5")
 MAX_TOKENS = 16000
 MAX_TOOL_OUTPUT_CHARS = 50_000
 RUN_TIMEOUT_SECONDS = 120
