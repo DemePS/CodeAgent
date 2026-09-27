@@ -16,12 +16,14 @@ Usage:
     python agent.py -d path/to/project "Add input validation to the CLI"
     python agent.py -d path/to/project "..." -i   # keep chatting after the task
     python agent.py -d path/to/project            # interactive mode only
+    python agent.py -d path/to/project -r         # resume the last conversation in this project
 """
 
 import argparse
 import difflib
 import hashlib
 import inspect
+import json
 import os
 import re
 import shutil
@@ -47,6 +49,7 @@ WORKSPACE = Path(".").resolve()  # set from --dir in main()
 
 MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR", "~/.coding_agent/memory")).expanduser()
 memory_tool: BetaLocalFilesystemMemoryTool | None = None  # set per project in main()
+conversation_file: Path | None = None  # set per project in main(); used by --resume
 
 # The agent must never modify its own source code.
 PROTECTED_PATHS = [Path(__file__).resolve(), Path(inspect.getfile(_get_client)).resolve().parent]
@@ -486,7 +489,8 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
             return
 
         # Append the full content (text, thinking, tool_use) -- not just the text.
-        messages.append({"role": "assistant", "content": response.content})
+        # Stored as plain dicts so the history can be saved to JSON and resumed later.
+        messages.append({"role": "assistant", "content": [b.to_dict() for b in response.content]})
 
         if response.stop_reason == "tool_use":
             # Run every requested tool and return ALL results in one user message.
@@ -503,12 +507,45 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
         return
 
 
+def save_conversation(messages: list) -> None:
+    """Write the history to disk (atomically) so --resume can pick it up."""
+    tmp = conversation_file.with_suffix(".tmp")
+    tmp.write_text(json.dumps(messages, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(conversation_file)
+
+
+def load_conversation() -> list:
+    """Load the saved history, or return [] if there is none."""
+    if not conversation_file.is_file():
+        print("No saved conversation for this project; starting a new one.")
+        return []
+    try:
+        messages = json.loads(conversation_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"Could not read {conversation_file} ({e}); starting a new conversation.")
+        return []
+
+    user_turns = [m for m in messages if m["role"] == "user" and isinstance(m["content"], str)]
+    print(f"Resumed conversation: {len(user_turns)} earlier instruction(s).")
+    if user_turns:
+        print(f"\033[2mLast instruction: {user_turns[-1]['content'][:200]}\033[0m")
+    last_text = next(
+        (b["text"] for m in reversed(messages) if m["role"] == "assistant"
+         for b in reversed(m["content"]) if b.get("type") == "text"),
+        None,
+    )
+    if last_text:
+        print(f"\033[2mLast reply: {last_text[:300]}\033[0m")
+    return messages
+
+
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     """Run one user instruction through the agent loop. Returns False if it failed."""
     checkpoint = len(messages)
     messages.append({"role": "user", "content": text})
     try:
         run_turn(client, messages)
+        save_conversation(messages)
         return True
     except KeyboardInterrupt:
         print("\n[interrupted]")
@@ -518,6 +555,7 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         print("\n[network error -- check your Foundry endpoint]")
     # Drop the unfinished turn so the history stays valid for the next request.
     del messages[checkpoint:]
+    save_conversation(messages)
     return False
 
 
@@ -526,11 +564,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("instruction", nargs="?", help="Task for the agent. Omit to start in interactive mode.")
     parser.add_argument("-d", "--dir", default=".", help="Project directory the agent works in (default: current directory).")
     parser.add_argument("-i", "--interactive", action="store_true", help="Keep chatting after the instruction finishes.")
+    parser.add_argument("-r", "--resume", action="store_true", help="Continue the last conversation in this project.")
     return parser.parse_args()
 
 
 def main() -> None:
-    global WORKSPACE, memory_tool
+    global WORKSPACE, memory_tool, conversation_file
     args = parse_args()
     WORKSPACE = Path(args.dir).expanduser().resolve()
     if not WORKSPACE.is_dir():
@@ -539,12 +578,13 @@ def main() -> None:
     # One memory folder per project, e.g. ~/.coding_agent/memory/myapp-1a2b3c4d/memories/
     project_id = f"{WORKSPACE.name}-{hashlib.sha256(str(WORKSPACE).encode()).hexdigest()[:8]}"
     memory_tool = BetaLocalFilesystemMemoryTool(base_path=str(MEMORY_HOME / project_id))
+    conversation_file = MEMORY_HOME / project_id / "conversation.json"
 
     client = _get_client()
-    messages: list = []
     print(f"Workspace: {WORKSPACE}")
     print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
     print(f"Memory: {memory_tool.memory_root}")
+    messages = load_conversation() if args.resume else []
 
     if args.instruction:
         ok = send(client, messages, args.instruction)
