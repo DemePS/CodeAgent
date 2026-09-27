@@ -6,6 +6,7 @@ Tools:
   - write_file  : create/overwrite a file -- shows a diff and asks permission first
   - ask_human   : lets the model ask you a question mid-task
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
+                  (uses `uv run` when uv is installed, so the project's own environment is used)
 
 Usage:
     python agent.py -d path/to/project "Add input validation to the CLI"
@@ -17,6 +18,7 @@ import argparse
 import difflib
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,6 +33,7 @@ MODEL = os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT", "claude-opus-5")
 MAX_TOKENS = 16000
 MAX_TOOL_OUTPUT_CHARS = 50_000
 RUN_TIMEOUT_SECONDS = 120
+UV = shutil.which("uv")  # None when uv is not installed
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
 
 WORKSPACE = Path(".").resolve()  # set from --dir in main()
@@ -277,9 +280,12 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
     global _always_allow_python
     if bool(code) == bool(args):
         raise ToolError("Pass exactly one of `code` or `args`.")
-    cmd = [sys.executable, "-c", code] if code else [sys.executable, *args]
+    # With uv, `uv run` picks up the project's pyproject.toml / .venv and syncs its dependencies.
+    python = [UV, "run", "--quiet", "python"] if UV else [sys.executable]
+    cmd = [*python, "-c", code] if code else [*python, *args]
 
     print("\n\033[1;33m=== Run Python ===\033[0m")
+    print(f"({'uv run python' if UV else sys.executable})")
     print(code if code else "python " + " ".join(args))
     if not _always_allow_python:
         answer = input("\nRun this? [y]es / [n]o / [a]lways for this session: ").strip().lower()
@@ -404,6 +410,7 @@ def main() -> None:
     client = _get_client()
     messages: list = []
     print(f"Workspace: {WORKSPACE}")
+    print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
 
     if args.instruction:
         ok = send(client, messages, args.instruction)
