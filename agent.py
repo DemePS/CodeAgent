@@ -33,7 +33,7 @@ from auth.anthropic import _get_client
 
 # On Foundry this is your *deployment name*; change it if yours differs.
 MODEL = os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT", "claude-opus-5")
-MAX_TOKENS = 16000
+MAX_TOKENS = 64000  # safe with streaming (no HTTP timeout risk)
 MAX_TOOL_OUTPUT_CHARS = 50_000
 RUN_TIMEOUT_SECONDS = 120
 UV = shutil.which("uv")  # None when uv is not installed
@@ -418,33 +418,55 @@ def run_tool(block) -> dict:
 
 # ---------------------------------------------------------------- agent loop
 
+def stream_response(client: anthropic.Anthropic, messages: list):
+    """Stream one model response to the terminal and return the final message."""
+    with client.messages.stream(
+        model=MODEL,
+        max_tokens=MAX_TOKENS,
+        system=SYSTEM_PROMPT.format(workspace=WORKSPACE),
+        tools=TOOLS,
+        thinking={"type": "adaptive"},
+        messages=messages,
+    ) as stream:
+        for event in stream:
+            if event.type == "content_block_start":
+                block = event.content_block
+                if block.type == "text":
+                    print("\n\033[1;34mClaude:\033[0m ", end="", flush=True)
+                elif block.type == "thinking":
+                    print("\n\033[2m(thinking...)\033[0m", end="", flush=True)
+                elif block.type == "tool_use":
+                    print(f"\n\033[2m-> {block.name}\033[0m", end="", flush=True)
+            elif event.type == "text":
+                print(event.text, end="", flush=True)
+            elif event.type == "content_block_stop" and event.content_block.type == "tool_use":
+                # The full input is only known once the block ends -- show a short summary.
+                args = ", ".join(
+                    f"{k}={v!r}"[:80] for k, v in event.content_block.input.items()
+                    if k not in ("content", "old_string", "new_string")
+                )
+                print(f"\033[2m({args})\033[0m", end="", flush=True)
+        print()
+        return stream.get_final_message()
+
+
 def run_turn(client: anthropic.Anthropic, messages: list) -> None:
     """Call the model repeatedly until it stops asking for tools."""
     while True:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=SYSTEM_PROMPT.format(workspace=WORKSPACE),
-            tools=TOOLS,
-            thinking={"type": "adaptive"},
-            messages=messages,
-        )
+        response = stream_response(client, messages)
+        tool_uses = [b for b in response.content if b.type == "tool_use"]
+
+        if response.stop_reason == "max_tokens" and tool_uses:
+            # A tool call cut off mid-input must not run; drop the turn to keep history valid.
+            print("\n[stopped: hit max_tokens in the middle of a tool call]")
+            return
+
         # Append the full content (text, thinking, tool_use) -- not just the text.
         messages.append({"role": "assistant", "content": response.content})
 
-        for block in response.content:
-            if block.type == "text" and block.text.strip():
-                print(f"\n\033[1;34mClaude:\033[0m {block.text}")
-            elif block.type == "tool_use":
-                args = ", ".join(
-                    f"{k}={v!r}"[:80] for k, v in block.input.items()
-                    if k not in ("content", "old_string", "new_string")
-                )
-                print(f"\033[2m-> {block.name}({args})\033[0m")
-
         if response.stop_reason == "tool_use":
             # Run every requested tool and return ALL results in one user message.
-            results = [run_tool(b) for b in response.content if b.type == "tool_use"]
+            results = [run_tool(b) for b in tool_uses]
             messages.append({"role": "user", "content": results})
             continue
 
