@@ -1,6 +1,8 @@
 """Personal coding agent: Claude on Azure (Microsoft Foundry) with a manual tool-use loop.
 
 Tools:
+  - list_directory   : list the folders and files in a directory
+  - change_directory : move the agent's current directory (never outside the workspace)
   - grep        : regex search across files in the workspace
   - read_file   : read a file (optionally a line range)
   - edit_file   : replace an exact snippet in a file -- shows a diff and asks permission first
@@ -8,7 +10,8 @@ Tools:
                   (edit_file and write_file never touch the agent's own source: this file and the auth package)
   - ask_human   : lets the model ask you a question mid-task
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
-                  (uses `uv run` when uv is installed, so the project's own environment is used)
+                  (uses `uv run` when uv is installed, so the project's own environment is used;
+                  the code cannot start subprocesses -- see GUARD_SOURCE)
   - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
                   stored in ~/.coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
 
@@ -48,6 +51,8 @@ UV = shutil.which("uv")  # None when uv is not installed
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
 
 WORKSPACE = Path(".").resolve()  # set from --dir in main()
+CWD = WORKSPACE  # the agent's current directory inside the workspace; see change_directory
+MAX_LISTING_ENTRIES = 500
 
 MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR", "~/.coding_agent/memory")).expanduser()
 memory_tool: BetaLocalFilesystemMemoryTool | None = None  # set per project in main()
@@ -62,7 +67,9 @@ FILE_REF = re.compile(r"((?:[A-Za-z]:[\\/])?[\w.\-/\\]+\.[A-Za-z0-9]+):(\d+)")
 PROTECTED_PATHS = [Path(__file__).resolve(), Path(sys.modules[_get_client.__module__].__file__).resolve().parent]
 
 SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspace}.
-All file paths are relative to that directory.
+You have a current directory inside it, which starts at the repository root each session;
+relative paths in every tool resolve against it. Use list_directory to explore and
+change_directory to move around -- you can never leave the repository.
 
 Use grep and read_file to understand the code before changing it. Read a file before
 you change it. To change an existing file, use edit_file with an old_string copied exactly
@@ -84,13 +91,43 @@ Never store secrets such as API keys, passwords or tokens.
 
 After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
-fix the code, and run it again.
+fix the code, and run it again. Code run this way cannot start subprocesses; if a test needs
+one, say so instead of trying to work around the block.
 
 When you refer to a specific place in the code, write it as path:line (for example
 src/app.py:42) with the path relative to the repository root -- the user can click it."""
 
 TOOLS = [
     {"type": "memory_20250818", "name": "memory"},  # Anthropic-defined: no input_schema
+    {
+        "name": "list_directory",
+        "description": (
+            "List the folders (ending in /) and files (with sizes) in a directory, one level deep. "
+            "Skips .git, virtual environments, node_modules and caches."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Directory to list, relative to the current directory. Defaults to '.'.",
+                },
+            },
+        },
+    },
+    {
+        "name": "change_directory",
+        "description": (
+            "Change the current directory. Later relative paths in all tools, and run_python, use it. "
+            "Must stay inside the repository; '/' goes back to the repository root. Returns the new "
+            "current directory relative to the root."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "Target directory, relative to the current one."}},
+            "required": ["path"],
+        },
+    },
     {
         "name": "grep",
         "description": (
@@ -104,7 +141,7 @@ TOOLS = [
                 "pattern": {"type": "string", "description": "Python regex to search for."},
                 "path": {
                     "type": "string",
-                    "description": "File or directory to search, relative to the workspace. Defaults to '.'.",
+                    "description": "File or directory to search, relative to the current directory. Defaults to '.'.",
                 },
                 "glob": {
                     "type": "string",
@@ -124,7 +161,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "File path relative to the workspace."},
+                "path": {"type": "string", "description": "File path relative to the current directory."},
                 "start_line": {"type": "integer", "minimum": 1},
                 "end_line": {"type": "integer", "minimum": 1},
             },
@@ -143,7 +180,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "File path relative to the workspace."},
+                "path": {"type": "string", "description": "File path relative to the current directory."},
                 "old_string": {"type": "string", "description": "Exact text to replace."},
                 "new_string": {"type": "string", "description": "Replacement text."},
                 "replace_all": {
@@ -165,7 +202,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "path": {"type": "string", "description": "File path relative to the workspace."},
+                "path": {"type": "string", "description": "File path relative to the current directory."},
                 "content": {"type": "string", "description": "The complete new file content."},
             },
             "required": ["path", "content"],
@@ -188,8 +225,10 @@ TOOLS = [
         "description": (
             "Run Python in the workspace directory to check code for bugs, and return the exit code, "
             "stdout and stderr. Pass either `code` (a snippet, run like `python -c`) or `args` "
-            "(arguments after `python`, e.g. [\"script.py\"], [\"-m\", \"pytest\", \"-q\"], "
-            "[\"-m\", \"py_compile\", \"app.py\"]). The user must approve every run."
+            "(arguments after `python`: a script and its arguments, or -m and a module, e.g. "
+            "[\"script.py\"], [\"-m\", \"pytest\", \"-q\"], [\"-m\", \"py_compile\", \"app.py\"]). "
+            "The code cannot start subprocesses (subprocess, os.system, multiprocessing, ... raise "
+            "PermissionError), so do not rely on them. The user must approve every run."
         ),
         "input_schema": {
             "type": "object",
@@ -211,6 +250,57 @@ TOOLS = [
 ]
 
 
+# Bootstrap that run_python executes instead of the code directly. It installs a CPython audit
+# hook (PEP 578) that blocks every way of starting another process, then runs the snippet,
+# script or module. Audit hooks cannot be removed from Python code once installed.
+# Limits: this guards Python code, not native extensions that call the OS directly -- for
+# real isolation run the agent in a container.
+GUARD_SOURCE = r"""
+import re, runpy, sys
+
+BLOCKED_EVENTS = {
+    "subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
+    "os.fork", "os.forkpty", "os.startfile", "_winapi.CreateProcess",
+}
+# Process-starting C functions reachable through ctypes (libc / kernel32 / shell32).
+BLOCKED_SYMBOLS = re.compile(
+    r"^_?(system|popen|exec\w*|fork\w*|vfork|clone\d?|posix_spawn\w*|spawn\w*|"
+    r"CreateProcess\w*|WinExec|ShellExecute\w*)$"
+)
+
+def guard(event, args):
+    if event in BLOCKED_EVENTS:
+        raise PermissionError(f"Blocked by the coding agent: {event} (starting processes is not allowed)")
+    if event == "ctypes.dlsym" and len(args) > 1 and isinstance(args[1], str) and BLOCKED_SYMBOLS.match(args[1]):
+        raise PermissionError(f"Blocked by the coding agent: ctypes access to {args[1]!r}")
+
+sys.addaudithook(guard)
+
+try:  # the low-level helper behind subprocess is not audited itself -- disable it
+    import _posixsubprocess, subprocess
+    def _blocked(*a, **k):
+        raise PermissionError("Blocked by the coding agent: _posixsubprocess.fork_exec")
+    _posixsubprocess.fork_exec = _blocked
+    subprocess._fork_exec = _blocked
+except ImportError:
+    pass
+
+mode, target, *rest = sys.argv[1:]
+if mode == "code":
+    sys.argv = ["-c", *rest]
+    sys.path[0] = ""
+    exec(compile(target, "<string>", "exec"), {"__name__": "__main__", "__builtins__": __builtins__})
+elif mode == "module":
+    sys.argv = [target, *rest]
+    sys.path[0] = ""
+    runpy.run_module(target, run_name="__main__", alter_sys=True)
+else:
+    sys.argv = [target, *rest]
+    sys.path[0] = __import__("os").path.dirname(__import__("os").path.abspath(target))
+    runpy.run_path(target, run_name="__main__")
+"""
+
+
 class ToolError(Exception):
     """Raised by a tool to return an is_error tool_result to the model."""
 
@@ -218,11 +308,16 @@ class ToolError(Exception):
 # ---------------------------------------------------------------- helpers
 
 def resolve(path: str) -> Path:
-    """Resolve a workspace-relative path and refuse anything outside the workspace."""
-    p = (WORKSPACE / path).resolve()
+    """Resolve a path against the current directory and refuse anything outside the workspace."""
+    p = (CWD / path).resolve()
     if p != WORKSPACE and WORKSPACE not in p.parents:
         raise ToolError(f"Path '{path}' is outside the workspace.")
     return p
+
+
+def display(p: Path) -> str:
+    """How a path is shown to the model: relative to the current directory."""
+    return Path(os.path.relpath(p, CWD)).as_posix()
 
 
 def is_protected(p: Path) -> bool:
@@ -254,12 +349,14 @@ def linkify(text: str) -> str:
         return text
 
     def replace(m: re.Match) -> str:
-        try:
-            p = (WORKSPACE / m.group(1)).resolve()
-        except (OSError, ValueError):
-            return m.group(0)
-        inside = p == WORKSPACE or WORKSPACE in p.parents
-        return file_link(p, int(m.group(2)), m.group(0)) if inside and p.is_file() else m.group(0)
+        for base in (WORKSPACE, CWD):  # references are usually root-relative, but accept either
+            try:
+                p = (base / m.group(1)).resolve()
+            except (OSError, ValueError):
+                continue
+            if (p == WORKSPACE or WORKSPACE in p.parents) and p.is_file():
+                return file_link(p, int(m.group(2)), m.group(0))
+        return m.group(0)
 
     return FILE_REF.sub(replace, text)
 
@@ -301,6 +398,43 @@ def colorize_diff(diff_lines: list[str]) -> str:
 
 # ---------------------------------------------------------------- tools
 
+def tool_list_directory(path: str = ".") -> str:
+    root = resolve(path)
+    if not root.is_dir():
+        raise ToolError(f"Not a directory: {path}")
+    try:
+        entries = sorted(root.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
+    except OSError as e:
+        raise ToolError(f"Cannot list {path}: {e}")
+
+    lines = [f"{display(root)}/"]
+    for e in entries:
+        if e.name in SKIP_DIRS:
+            continue
+        if len(lines) > MAX_LISTING_ENTRIES:
+            lines.append(f"... [stopped after {MAX_LISTING_ENTRIES} entries]")
+            break
+        if e.is_dir():
+            lines.append(f"  {e.name}/")
+        else:
+            try:
+                lines.append(f"  {e.name}  ({e.stat().st_size:,} bytes)")
+            except OSError:
+                lines.append(f"  {e.name}")
+    return "\n".join(lines) if len(lines) > 1 else f"{lines[0]}\n  (empty)"
+
+
+def tool_change_directory(path: str) -> str:
+    global CWD
+    target = WORKSPACE if path.strip() in ("/", "\\") else resolve(path)
+    if not target.is_dir():
+        raise ToolError(f"Not a directory: {path}")
+    CWD = target
+    rel = CWD.relative_to(WORKSPACE).as_posix()
+    print(f"\033[2m[cwd] {'(repository root)' if rel == '.' else rel}\033[0m")
+    return f"Current directory is now: {'.' if rel == '.' else rel} (relative to the repository root)"
+
+
 def tool_grep(pattern: str, path: str = ".", glob: str | None = None, ignore_case: bool = False) -> str:
     try:
         regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
@@ -326,7 +460,7 @@ def tool_grep(pattern: str, path: str = ".", glob: str | None = None, ignore_cas
             with open(f, encoding="utf-8") as fh:
                 for lineno, line in enumerate(fh, 1):
                     if regex.search(line):
-                        matches.append(f"{f.relative_to(WORKSPACE)}:{lineno}: {line.rstrip()}")
+                        matches.append(f"{display(f)}:{lineno}: {line.rstrip()}")
                         if len(matches) >= 500:
                             matches.append("... [stopped after 500 matches; narrow the search]")
                             return "\n".join(matches)
@@ -448,12 +582,20 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
     global _always_allow_python
     if bool(code) == bool(args):
         raise ToolError("Pass exactly one of `code` or `args`.")
+    if code:
+        guarded = ["code", code]
+    elif args[0] == "-m" and len(args) > 1:
+        guarded = ["module", *args[1:]]
+    elif not args[0].startswith("-"):
+        guarded = ["script", *args]
+    else:
+        raise ToolError("args must be a script path or -m <module>, optionally followed by arguments.")
     # With uv, `uv run` picks up the project's pyproject.toml / .venv and syncs its dependencies.
     python = [UV, "run", "--quiet", "python"] if UV else [sys.executable]
-    cmd = [*python, "-c", code] if code else [*python, *args]
+    cmd = [*python, "-c", GUARD_SOURCE, *guarded]
 
     print("\n\033[1;33m=== Run Python ===\033[0m")
-    print(f"({'uv run python' if UV else sys.executable})")
+    print(f"({'uv run python' if UV else sys.executable}, subprocesses blocked)")
     print(code if code else "python " + " ".join(args))
     if not _always_allow_python:
         answer = input("\nRun this? [y]es / [n]o / [a]lways for this session: ").strip().lower()
@@ -467,7 +609,7 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
             )
 
     try:
-        proc = subprocess.run(cmd, cwd=WORKSPACE, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(cmd, cwd=CWD, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise ToolError(f"Timed out after {timeout}s.")
 
@@ -503,6 +645,8 @@ def tool_memory(**command) -> str:
 
 
 TOOL_HANDLERS = {
+    "list_directory": tool_list_directory,
+    "change_directory": tool_change_directory,
     "grep": tool_grep,
     "read_file": tool_read_file,
     "edit_file": tool_edit_file,
@@ -677,9 +821,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    global WORKSPACE, memory_tool, conversation_file
+    global WORKSPACE, CWD, memory_tool, conversation_file
     args = parse_args()
-    WORKSPACE = Path(args.dir).expanduser().resolve()
+    WORKSPACE = CWD = Path(args.dir).expanduser().resolve()
     if not WORKSPACE.is_dir():
         raise SystemExit(f"Not a directory: {WORKSPACE}")
 
