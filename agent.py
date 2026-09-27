@@ -17,6 +17,9 @@ Usage:
     python agent.py -d path/to/project "..." -i   # keep chatting after the task
     python agent.py -d path/to/project            # interactive mode only
     python agent.py -d path/to/project -r         # resume the last conversation in this project
+
+`path:line` references in the output are clickable links that open the file at that line.
+Set AGENT_EDITOR to vscode (default), cursor, file, or none.
 """
 
 import argparse
@@ -51,6 +54,11 @@ MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR", "~/.coding_agent/memory"))
 memory_tool: BetaLocalFilesystemMemoryTool | None = None  # set per project in main()
 conversation_file: Path | None = None  # set per project in main(); used by --resume
 
+# Clickable `path:line` links in the terminal (OSC 8 hyperlinks).
+EDITOR = os.environ.get("AGENT_EDITOR", "vscode").lower()
+LINKS_ENABLED = EDITOR != "none" and sys.stdout.isatty()
+FILE_REF = re.compile(r"((?:[A-Za-z]:[\\/])?[\w.\-/\\]+\.[A-Za-z0-9]+):(\d+)")
+
 # The agent must never modify its own source code.
 PROTECTED_PATHS = [Path(__file__).resolve(), Path(inspect.getfile(_get_client)).resolve().parent]
 
@@ -75,7 +83,10 @@ appending duplicates). Never store secrets such as API keys, passwords or tokens
 
 After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
-fix the code, and run it again."""
+fix the code, and run it again.
+
+When you refer to a specific place in the code, write it as path:line (for example
+src/app.py:42) with the path relative to the repository root -- the user can click it."""
 
 TOOLS = [
     {"type": "memory_20250818", "name": "memory"},  # Anthropic-defined: no input_schema
@@ -224,6 +235,53 @@ def truncate(text: str) -> str:
     return text[:MAX_TOOL_OUTPUT_CHARS] + f"\n... [truncated, {len(text) - MAX_TOOL_OUTPUT_CHARS} more chars]"
 
 
+def file_link(p: Path, line: int, label: str) -> str:
+    """Wrap label in a terminal hyperlink that opens p at the given line."""
+    if not LINKS_ENABLED:
+        return label
+    posix = p.as_posix()
+    if EDITOR in ("vscode", "cursor"):
+        url = f"{EDITOR}://file{'' if posix.startswith('/') else '/'}{posix}:{line}"
+    else:
+        url = p.as_uri()  # plain file:// links cannot carry a line number
+    return f"\033]8;;{url}\033\\{label}\033]8;;\033\\"
+
+
+def linkify(text: str) -> str:
+    """Turn every `path:line` that names an existing workspace file into a clickable link."""
+    if not LINKS_ENABLED:
+        return text
+
+    def replace(m: re.Match) -> str:
+        try:
+            p = (WORKSPACE / m.group(1)).resolve()
+        except (OSError, ValueError):
+            return m.group(0)
+        inside = p == WORKSPACE or WORKSPACE in p.parents
+        return file_link(p, int(m.group(2)), m.group(0)) if inside and p.is_file() else m.group(0)
+
+    return FILE_REF.sub(replace, text)
+
+
+class LinkedPrinter:
+    """Prints streamed text word by word, so a `path:line` split across chunks still gets linked."""
+
+    def __init__(self) -> None:
+        self.pending = ""
+
+    def write(self, text: str) -> None:
+        self.pending += text
+        cut = max(self.pending.rfind(c) for c in " \n\t")
+        if cut >= 0:
+            print(linkify(self.pending[:cut + 1]), end="", flush=True)
+            self.pending = self.pending[cut + 1:]
+
+    def flush(self) -> None:
+        if self.pending:
+            print(linkify(self.pending), end="", flush=True)
+            self.pending = ""
+
+
 def colorize_diff(diff_lines: list[str]) -> str:
     out = []
     for line in diff_lines:
@@ -310,7 +368,19 @@ def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
         tofile=f"b/{path}",
         lineterm="",
     ))
-    print(f"\n\033[1;33m=== {'Modify' if existed else 'Create'} {path} ===\033[0m")
+    # Link the header to the first changed line: start at the first hunk's "+c" line number
+    # ("@@ -a,b +c,d @@") and skip its unchanged context lines.
+    first_line = 1
+    for i, d in enumerate(diff):
+        if d.startswith("@@"):
+            first_line = max(int(re.match(r"@@ -\d+(?:,\d+)? \+(\d+)", d).group(1)), 1)
+            for context in diff[i + 1:]:
+                if not context.startswith(" "):
+                    break
+                first_line += 1
+            break
+    target = file_link(p, first_line, f"{path}:{first_line}") if existed else path
+    print(f"\n\033[1;33m=== {'Modify' if existed else 'Create'} \033[0m{target}\033[1;33m ===\033[0m")
     print(colorize_diff(diff))
 
     answer = input("\nApply this change? [y]es / [n]o: ").strip().lower()
@@ -365,7 +435,7 @@ def tool_write_file(path: str, content: str) -> str:
 
 
 def tool_ask_human(question: str) -> str:
-    print(f"\n\033[1;35m[agent asks]\033[0m {question}")
+    print(f"\n\033[1;35m[agent asks]\033[0m {linkify(question)}")
     answer = input("Your answer: ").strip()
     return answer or "(the user gave no answer)"
 
@@ -455,7 +525,10 @@ def stream_response(client: anthropic.Anthropic, messages: list):
         thinking={"type": "adaptive"},
         messages=messages,
     ) as stream:
+        out = LinkedPrinter()
         for event in stream:
+            if event.type in ("content_block_start", "content_block_stop"):
+                out.flush()
             if event.type == "content_block_start":
                 block = event.content_block
                 if block.type == "text":
@@ -465,7 +538,7 @@ def stream_response(client: anthropic.Anthropic, messages: list):
                 elif block.type == "tool_use":
                     print(f"\n\033[2m-> {block.name}\033[0m", end="", flush=True)
             elif event.type == "text":
-                print(event.text, end="", flush=True)
+                out.write(event.text)
             elif event.type == "content_block_stop" and event.content_block.type == "tool_use":
                 # The full input is only known once the block ends -- show a short summary.
                 args = ", ".join(
@@ -535,7 +608,7 @@ def load_conversation() -> list:
         None,
     )
     if last_text:
-        print(f"\033[2mLast reply: {last_text[:300]}\033[0m")
+        print(f"\033[2mLast reply: {linkify(last_text[:300])}\033[0m")
     return messages
 
 
