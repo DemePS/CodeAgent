@@ -223,7 +223,7 @@ TOOLS = [
     {
         "name": "run_python",
         "description": (
-            "Run Python in the workspace directory to check code for bugs, and return the exit code, "
+            "Run Python in the current directory to check code for bugs, and return the exit code, "
             "stdout and stderr. Pass either `code` (a snippet, run like `python -c`) or `args` "
             "(arguments after `python`: a script and its arguments, or -m and a module, e.g. "
             "[\"script.py\"], [\"-m\", \"pytest\", \"-q\"], [\"-m\", \"py_compile\", \"app.py\"]). "
