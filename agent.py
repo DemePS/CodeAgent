@@ -20,9 +20,8 @@ from pathlib import Path
 
 import anthropic
 
-# Your existing factory -- returns an anthropic.AnthropicFoundry(...) client.
-# Adjust the import path to wherever get_anthropic_client lives.
-from client_factory import get_anthropic_client
+# Returns an AnthropicFoundry client (API key or Azure AD auth).
+from client_factory import _get_client
 
 # On Foundry this is your *deployment name*; change it if yours differs.
 MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
@@ -333,7 +332,7 @@ def main() -> None:
     if not WORKSPACE.is_dir():
         raise SystemExit(f"Not a directory: {WORKSPACE}")
 
-    client = get_anthropic_client()
+    client = _get_client()
     messages: list = []
     print(f"Workspace: {WORKSPACE}")
 
