@@ -7,13 +7,18 @@ Tools:
   - read_file   : read a file (optionally a line range)
   - edit_file   : replace an exact snippet in a file -- shows a diff and asks permission first
   - write_file  : create/overwrite a file -- shows a diff and asks permission first
-                  (edit_file and write_file never touch the agent's own source: this file and the auth package)
+                  (edit_file and write_file never touch the agent's own source: this file)
   - ask_human   : lets the model ask you a question mid-task
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
                   (uses `uv run` when uv is installed, so the project's own environment is used;
                   the code cannot start subprocesses -- see GUARD_SOURCE)
   - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
                   stored in ~/.coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
+
+Configuration (environment variables or a .env file):
+    ANTHROPIC_FOUNDRY_ENDPOINT     https://<resource>.services.ai.azure.com/anthropic
+    ANTHROPIC_FOUNDRY_API_KEY      API key; leave unset to sign in with Azure AD (azure-identity)
+    ANTHROPIC_FOUNDRY_DEPLOYMENT   your Claude deployment name
 
 Usage:
     python agent.py -d path/to/project "Add input validation to the CLI"
@@ -34,13 +39,37 @@ import re
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 import anthropic
+from anthropic import AnthropicFoundry
 from anthropic.tools.memory import BetaLocalFilesystemMemoryTool
+from dotenv import load_dotenv
 
-# Returns an AnthropicFoundry client (API key or Azure AD auth).
-from auth.anthropic import _get_client
+load_dotenv()  # before reading any configuration below
+
+
+@lru_cache(maxsize=1)
+def _get_client() -> AnthropicFoundry:
+    """AnthropicFoundry client: API key if ANTHROPIC_FOUNDRY_API_KEY is set, otherwise Azure AD."""
+    api_key = os.environ.get("ANTHROPIC_FOUNDRY_API_KEY")
+    if api_key:
+        return AnthropicFoundry(
+            api_key=api_key,
+            base_url=os.environ["ANTHROPIC_FOUNDRY_ENDPOINT"],
+            max_retries=2,
+        )
+    from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+
+    scope = os.environ.get("TOKEN_SCOPE", "https://ai.azure.com/.default")
+    token_provider = get_bearer_token_provider(DefaultAzureCredential(), scope)
+    return AnthropicFoundry(
+        azure_ad_token_provider=token_provider,
+        base_url=os.environ["ANTHROPIC_FOUNDRY_ENDPOINT"],
+        max_retries=2,
+    )
+
 
 # On Foundry this is your *deployment name*; change it if yours differs.
 MODEL = os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT", "claude-opus-5")
@@ -64,7 +93,7 @@ LINKS_ENABLED = EDITOR != "none" and sys.stdout.isatty()
 FILE_REF = re.compile(r"((?:[A-Za-z]:[\\/])?[\w.\-/\\]+\.[A-Za-z0-9]+):(\d+)")
 
 # The agent must never modify its own source code.
-PROTECTED_PATHS = [Path(__file__).resolve(), Path(sys.modules[_get_client.__module__].__file__).resolve().parent]
+PROTECTED_PATHS = [Path(__file__).resolve()]
 
 SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspace}.
 You have a current directory inside it, which starts at the repository root each session;
@@ -331,7 +360,7 @@ def display(p: Path) -> str:
 
 
 def is_protected(p: Path) -> bool:
-    """True if p is the agent's own source (this file or anything in the auth package)."""
+    """True if p is the agent's own source code."""
     return any(p == prot or prot in p.parents for prot in PROTECTED_PATHS)
 
 
