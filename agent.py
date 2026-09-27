@@ -166,8 +166,8 @@ TOOLS = [
     {
         "name": "load_skill",
         "description": (
-            "Load the full instructions of a skill listed in the <skills> block, e.g. before an "
-            "Azure architecture, backend or frontend task. Returns the skill's SKILL.md."
+            "Load the full instructions of a skill listed in the <skills> block, e.g. before an AI/LLM, "
+            "Azure, backend or frontend task. Returns the skill's SKILL.md."
         ),
         "input_schema": {
             "type": "object",
