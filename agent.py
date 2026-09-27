@@ -25,7 +25,6 @@ Set AGENT_EDITOR to vscode (default), cursor, file, or none.
 import argparse
 import difflib
 import hashlib
-import inspect
 import json
 import os
 import re
@@ -60,7 +59,7 @@ LINKS_ENABLED = EDITOR != "none" and sys.stdout.isatty()
 FILE_REF = re.compile(r"((?:[A-Za-z]:[\\/])?[\w.\-/\\]+\.[A-Za-z0-9]+):(\d+)")
 
 # The agent must never modify its own source code.
-PROTECTED_PATHS = [Path(__file__).resolve(), Path(inspect.getfile(_get_client)).resolve().parent]
+PROTECTED_PATHS = [Path(__file__).resolve(), Path(sys.modules[_get_client.__module__].__file__).resolve().parent]
 
 SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspace}.
 All file paths are relative to that directory.
