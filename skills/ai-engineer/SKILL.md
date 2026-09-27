@@ -165,7 +165,7 @@ not mean dilution, e.g. code or specs).
 - The analyzer matters as much as the formula: language analyzers (stemming, stop words) for
   prose, keyword/n-gram analyzers for codes and partial matches, synonym maps for domain terms,
   field boosts (title > body).
-- PostgreSQL `tsvector`/`ts_rank` is full-text search but not BM25 (no IDF saturation model);
+- PostgreSQL `tsvector`/`ts_rank` is full-text search but not BM25 (no IDF, no term saturation);
   BM25 in Postgres needs an extension (check it is allowed on Azure Database for PostgreSQL).
   For small or offline corpora, the `rank_bm25` Python package is enough.
 
