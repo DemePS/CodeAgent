@@ -5,6 +5,7 @@ Tools:
   - read_file   : read a file (optionally a line range)
   - write_file  : create/overwrite a file -- shows a diff and asks permission first
   - ask_human   : lets the model ask you a question mid-task
+  - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
 
 Usage:
     python agent.py -d path/to/project "Add input validation to the CLI"
@@ -16,6 +17,8 @@ import argparse
 import difflib
 import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import anthropic
@@ -27,6 +30,7 @@ from client_factory import _get_client
 MODEL = os.environ.get("AGENT_MODEL", "claude-opus-5")
 MAX_TOKENS = 16000
 MAX_TOOL_OUTPUT_CHARS = 50_000
+RUN_TIMEOUT_SECONDS = 120
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
 
 WORKSPACE = Path(".").resolve()  # set from --dir in main()
@@ -38,7 +42,11 @@ Use grep and read_file to understand the code before changing it. Read a file be
 you overwrite it, and write the complete new content with write_file -- the user sees
 a diff and must approve every write. If the user rejects a change, read their feedback
 and adjust rather than retrying the same edit. When a requirement is ambiguous or a
-decision is genuinely the user's to make, use ask_human instead of guessing."""
+decision is genuinely the user's to make, use ask_human instead of guessing.
+
+After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
+the script you changed, or a small snippet that exercises it. If it fails, read the error,
+fix the code, and run it again."""
 
 TOOLS = [
     {
@@ -107,6 +115,31 @@ TOOLS = [
             "type": "object",
             "properties": {"question": {"type": "string"}},
             "required": ["question"],
+        },
+    },
+    {
+        "name": "run_python",
+        "description": (
+            "Run Python in the workspace directory to check code for bugs, and return the exit code, "
+            "stdout and stderr. Pass either `code` (a snippet, run like `python -c`) or `args` "
+            "(arguments after `python`, e.g. [\"script.py\"], [\"-m\", \"pytest\", \"-q\"], "
+            "[\"-m\", \"py_compile\", \"app.py\"]). The user must approve every run."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Python source to execute."},
+                "args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Arguments passed to the Python interpreter.",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": f"Seconds before the run is killed (default {RUN_TIMEOUT_SECONDS}).",
+                },
+            },
         },
     },
 ]
@@ -237,11 +270,47 @@ def tool_ask_human(question: str) -> str:
     return answer or "(the user gave no answer)"
 
 
+_always_allow_python = False
+
+
+def tool_run_python(code: str | None = None, args: list[str] | None = None, timeout: int = RUN_TIMEOUT_SECONDS) -> str:
+    global _always_allow_python
+    if bool(code) == bool(args):
+        raise ToolError("Pass exactly one of `code` or `args`.")
+    cmd = [sys.executable, "-c", code] if code else [sys.executable, *args]
+
+    print("\n\033[1;33m=== Run Python ===\033[0m")
+    print(code if code else "python " + " ".join(args))
+    if not _always_allow_python:
+        answer = input("\nRun this? [y]es / [n]o / [a]lways for this session: ").strip().lower()
+        if answer in ("a", "always"):
+            _always_allow_python = True
+        elif answer not in ("y", "yes"):
+            feedback = input("Why not / what should change? (optional): ").strip()
+            raise ToolError(
+                "The user declined to run this."
+                + (f" User feedback: {feedback}" if feedback else "")
+            )
+
+    try:
+        proc = subprocess.run(cmd, cwd=WORKSPACE, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise ToolError(f"Timed out after {timeout}s.")
+
+    print(f"\033[2m[exit code {proc.returncode}]\033[0m")
+    return truncate(
+        f"exit code: {proc.returncode}\n"
+        f"--- stdout ---\n{proc.stdout or '(empty)'}\n"
+        f"--- stderr ---\n{proc.stderr or '(empty)'}"
+    )
+
+
 TOOL_HANDLERS = {
     "grep": tool_grep,
     "read_file": tool_read_file,
     "write_file": tool_write_file,
     "ask_human": tool_ask_human,
+    "run_python": tool_run_python,
 }
 
 
