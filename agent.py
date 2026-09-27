@@ -3,8 +3,9 @@
 Tools:
   - grep        : regex search across files in the workspace
   - read_file   : read a file (optionally a line range)
+  - edit_file   : replace an exact snippet in a file -- shows a diff and asks permission first
   - write_file  : create/overwrite a file -- shows a diff and asks permission first
-                  (the agent's own source -- this file and the auth package -- is protected)
+                  (edit_file and write_file never touch the agent's own source: this file and the auth package)
   - ask_human   : lets the model ask you a question mid-task
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
                   (uses `uv run` when uv is installed, so the project's own environment is used)
@@ -47,8 +48,10 @@ SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspac
 All file paths are relative to that directory.
 
 Use grep and read_file to understand the code before changing it. Read a file before
-you overwrite it, and write the complete new content with write_file -- the user sees
-a diff and must approve every write. If the user rejects a change, read their feedback
+you change it. To change an existing file, use edit_file with an old_string copied exactly
+from the file (without the line-number prefix) and enough surrounding lines to be unique.
+Use write_file only to create a new file or to rewrite most of a file. The user sees a
+diff and must approve every change. If the user rejects a change, read their feedback
 and adjust rather than retrying the same edit. When a requirement is ambiguous or a
 decision is genuinely the user's to make, use ask_human instead of guessing.
 Never modify your own source code (the coding agent's files); those writes are refused.
@@ -99,9 +102,33 @@ TOOLS = [
         },
     },
     {
+        "name": "edit_file",
+        "description": (
+            "Edit an existing file by replacing an exact snippet. old_string must match the file "
+            "exactly (whitespace and indentation included, without read_file's line-number prefix) "
+            "and must occur exactly once unless replace_all is true -- include surrounding lines "
+            "to make it unique. The user is shown a unified diff and must approve before anything "
+            "is written; if they decline, the result contains their feedback."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to the workspace."},
+                "old_string": {"type": "string", "description": "Exact text to replace."},
+                "new_string": {"type": "string", "description": "Replacement text."},
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "Replace every occurrence instead of requiring a unique match.",
+                },
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+    },
+    {
         "name": "write_file",
         "description": (
-            "Create a file or overwrite it with the given full content. The user is shown a "
+            "Create a new file, or overwrite a file with the given full content. Prefer edit_file "
+            "for changes to an existing file. The user is shown a "
             "unified diff and must approve before anything is written; if they decline, the "
             "result contains their feedback."
         ),
@@ -245,39 +272,78 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
     return truncate(body or "(empty file)")
 
 
-def tool_write_file(path: str, content: str) -> str:
+def writable_path(path: str) -> Path:
+    """Resolve a path the agent may write to, refusing its own source code."""
     p = resolve(path)
     if is_protected(p):
         raise ToolError(f"{path} is part of the coding agent's own source code and cannot be modified.")
     if p.is_dir():
         raise ToolError(f"{path} is a directory.")
-    old = p.read_text(encoding="utf-8") if p.exists() else ""
+    return p
 
-    if old == content:
-        return "No changes: file already has this content."
 
+def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
+    """Show a diff of old -> new, ask the user, and write the file if approved."""
+    existed = p.exists()
     diff = list(difflib.unified_diff(
         old.splitlines(),
-        content.splitlines(),
-        fromfile=f"a/{path}" if p.exists() else "/dev/null",
+        new.splitlines(),
+        fromfile=f"a/{path}" if existed else "/dev/null",
         tofile=f"b/{path}",
         lineterm="",
     ))
-    action = "Modify" if p.exists() else "Create"
-    print(f"\n\033[1;33m=== {action} {path} ===\033[0m")
+    print(f"\n\033[1;33m=== {'Modify' if existed else 'Create'} {path} ===\033[0m")
     print(colorize_diff(diff))
 
     answer = input("\nApply this change? [y]es / [n]o: ").strip().lower()
     if answer not in ("y", "yes"):
         feedback = input("Why not / what should change? (optional): ").strip()
         raise ToolError(
-            "The user rejected this write; the file was NOT modified."
+            "The user rejected this change; the file was NOT modified."
             + (f" User feedback: {feedback}" if feedback else "")
         )
 
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8")
-    return f"{'Modified' if old else 'Created'} {path} ({len(content.splitlines())} lines)."
+    p.write_text(new, encoding="utf-8")
+    return f"{'Modified' if existed else 'Created'} {path} ({len(new.splitlines())} lines)."
+
+
+def tool_edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
+    p = writable_path(path)
+    if not p.is_file():
+        raise ToolError(f"File not found: {path}. Use write_file to create a new file.")
+    try:
+        old = p.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise ToolError(f"{path} is not a UTF-8 text file.")
+
+    if not old_string:
+        raise ToolError("old_string is empty. Use write_file to create or rewrite a whole file.")
+    if old_string == new_string:
+        raise ToolError("old_string and new_string are identical; nothing to change.")
+    count = old.count(old_string)
+    if count == 0:
+        raise ToolError(
+            f"old_string was not found in {path}. Re-read the file with read_file and copy the "
+            "text exactly, including whitespace, without the line-number prefix."
+        )
+    if count > 1 and not replace_all:
+        raise ToolError(
+            f"old_string occurs {count} times in {path}. Add surrounding lines to make it unique, "
+            "or set replace_all to true."
+        )
+
+    new = old.replace(old_string, new_string) if replace_all else old.replace(old_string, new_string, 1)
+    result = confirm_and_write(path, p, old, new)
+    return result + (f" Replaced {count} occurrences." if replace_all and count > 1 else "")
+
+
+def tool_write_file(path: str, content: str) -> str:
+    p = writable_path(path)
+    old = p.read_text(encoding="utf-8") if p.exists() else ""
+    if old == content:
+        return "No changes: file already has this content."
+    return confirm_and_write(path, p, old, content)
 
 
 def tool_ask_human(question: str) -> str:
@@ -327,6 +393,7 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
 TOOL_HANDLERS = {
     "grep": tool_grep,
     "read_file": tool_read_file,
+    "edit_file": tool_edit_file,
     "write_file": tool_write_file,
     "ask_human": tool_ask_human,
     "run_python": tool_run_python,
@@ -369,7 +436,10 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
             if block.type == "text" and block.text.strip():
                 print(f"\n\033[1;34mClaude:\033[0m {block.text}")
             elif block.type == "tool_use":
-                args = ", ".join(f"{k}={v!r}"[:80] for k, v in block.input.items() if k != "content")
+                args = ", ".join(
+                    f"{k}={v!r}"[:80] for k, v in block.input.items()
+                    if k not in ("content", "old_string", "new_string")
+                )
                 print(f"\033[2m-> {block.name}({args})\033[0m")
 
         if response.stop_reason == "tool_use":
