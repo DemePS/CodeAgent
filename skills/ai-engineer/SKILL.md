@@ -1,6 +1,6 @@
 ---
 name: ai-engineer
-description: AI engineer who ships LLM features to production (Claude on Azure AI Foundry, Anthropic Python SDK). Use for prompts and system prompts, tool use, agent loop engineering, MCP servers and clients, writing skills (SKILL.md), structured output, RAG and embeddings, streaming to the UI, prompt caching and cost, evaluations, safety and guardrails, and debugging model behavior.
+description: AI engineer who ships LLM features to production (Claude on Azure AI Foundry, Anthropic Python SDK). Use for prompts and system prompts, tool use, agent loop engineering, MCP servers and clients, writing skills (SKILL.md), structured output, RAG, search indexing and ranking (BM25, vector, hybrid, rerankers), choosing between competing technical solutions, streaming to the UI, prompt caching and cost, evaluations, safety and guardrails, and debugging model behavior.
 ---
 
 # AI engineer (LLM features in production)
@@ -150,16 +150,88 @@ instructions. Only the description is shown up front; the body is loaded when a 
 - Keep schemas small and flat; enumerate allowed values; make "unknown / not found" an explicit
   option so the model does not invent data.
 
-## RAG and retrieval
+## Retrieval and indexing
 
-- Start with good chunking (by document structure, with titles and metadata kept), hybrid
-  search (keyword + vector), and a re-ranking step; measure retrieval quality separately from
-  answer quality.
-- Put retrieved chunks in the prompt with source IDs and ask for answers grounded in them, with
-  citations; answer "not in the documents" rather than guessing.
-- Re-embed when the embedding model changes; store the model name with each vector.
-- On Azure, prefer Azure AI Search for production corpora (see the azure-cloud-architect skill
-  for the infrastructure side).
+Retrieval quality caps answer quality: if the right passage is not in the top results, no
+prompt fixes it. Measure retrieval on its own before tuning the generation step.
+
+**Lexical search (BM25).** Scores documents by query-term matches: rarer terms weigh more
+(IDF), repeated terms saturate (`k1`, typically 1.2-2.0; 1.2 in Lucene/Elasticsearch/Azure AI
+Search), and long documents are normalized (`b`, typically 0.75; lower it when length does
+not mean dilution, e.g. code or specs).
+- Strong on exact terms: product codes, error messages, IDs, names, rare jargon; cheap,
+  fast, explainable, no embeddings to maintain.
+- Weak on vocabulary mismatch: synonyms, paraphrases, cross-language queries.
+- The analyzer matters as much as the formula: language analyzers (stemming, stop words) for
+  prose, keyword/n-gram analyzers for codes and partial matches, synonym maps for domain terms,
+  field boosts (title > body).
+- PostgreSQL `tsvector`/`ts_rank` is full-text search but not BM25 (no IDF saturation model);
+  BM25 in Postgres needs an extension (check it is allowed on Azure Database for PostgreSQL).
+  For small or offline corpora, the `rank_bm25` Python package is enough.
+
+**Vector search (dense embeddings).** Matches meaning; handles paraphrase and multilingual
+queries; weak on exact identifiers, numbers and out-of-domain terms.
+- Pick the embedding model by evaluating it on your queries; store the model name and
+  dimensions with every vector and re-embed everything when the model changes.
+- ANN indexes (HNSW) trade recall for speed: raise `efSearch`/`ef_construction`/`m` for recall,
+  lower for latency and memory. Use exhaustive k-NN as ground truth for small sets and to
+  measure the ANN recall loss. Quantization cuts memory at some recall cost; measure it.
+
+**Hybrid search.** Run BM25 and vector search and fuse the ranked lists, usually with
+Reciprocal Rank Fusion (RRF, `score = sum 1/(k + rank)`, k around 60), which needs no score
+normalization; Azure AI Search hybrid queries use RRF. Hybrid is the safe default for mixed
+query types.
+
+**Reranking.** Retrieve a wide candidate set (e.g. top 50), then rerank with a cross-encoder,
+the Azure AI Search semantic ranker, or an LLM, and keep the top 5-10 for the prompt. Usually
+the biggest single quality gain after hybrid.
+
+**Chunking and enrichment.** Split by document structure (headings, sections, functions),
+around 200-800 tokens with modest overlap; keep title, section path, source and dates as
+metadata; prepend a short context header (document title + section) to each chunk before
+embedding so chunks stay meaningful on their own.
+
+**Query side.** Apply metadata filters (tenant, permissions, date, type) inside the search,
+not after it, so results are both correct and complete; enforce access control at retrieval
+time. Consider query rewriting or multi-query for conversational follow-ups.
+
+**Grounding.** Put retrieved chunks in the prompt with source IDs, ask for answers grounded in
+them with citations, and allow "not found in the documents" instead of guessing.
+
+**Evaluating retrieval.** Build a labeled set of real queries with their relevant documents;
+report Recall@k (did the right chunk make the top k?), MRR or nDCG@10 (how high?), and p95
+latency. Compare configurations on the same set: BM25 vs vector vs hybrid vs hybrid + reranker,
+chunk sizes, analyzers, embedding models.
+
+**Which engine** (then confirm with the evaluation above):
+
+| Situation | Start with |
+|---|---|
+| Production search on Azure, mixed queries, need filters and security trimming | Azure AI Search: BM25 + vector hybrid (RRF) + semantic ranker |
+| Already on PostgreSQL, modest corpus, want one database | pgvector (HNSW) + Postgres full-text, fused with RRF in SQL |
+| Mostly exact lookups: codes, logs, error messages, source code | BM25 alone (Azure AI Search or an Elasticsearch/OpenSearch cluster you already run) |
+| Small, static or offline corpus, prototypes, evals | In-process: `rank_bm25` + a local vector index |
+| Multilingual or paraphrase-heavy natural-language questions | Hybrid with a strong multilingual embedding model + reranker |
+
+## Choosing between solutions
+
+When there are competing options (search engines, models, architectures, libraries), act as
+the arbiter: make the decision explicit, evidence-based and reversible.
+
+1. **Frame it:** the problem, the constraints (latency, cost, data residency, team skills,
+   existing stack), and what "good" means in measurable terms.
+2. **Shortlist 2-3 real options**, including "keep what we have" and the simplest option.
+3. **Score them** on weighted criteria: quality on our own data, latency, cost at expected
+   volume, operational burden, security/compliance, lock-in and migration cost, team
+   familiarity. Weights come from the constraints, not preference.
+4. **Measure, don't argue:** when quality decides, run a small benchmark on real data (e.g.
+   50-200 labeled queries) with each option; report the numbers with their uncertainty.
+5. **Recommend one** with the main trade-off in a sentence, what would change the decision,
+   and how to reverse it. Record it as a short decision record (context, options, decision,
+   consequences) in the repo when the choice is significant.
+6. **Hand disagreements back with evidence:** when options tie or the trade-off is the user's
+   (cost vs quality, speed vs control), present the numbers and ask with ask_human instead of
+   picking silently.
 
 ## Cost and latency
 
@@ -207,3 +279,5 @@ instructions. Only the description is shown up front; the body is loaded when a 
 - [ ] Evals exist for the feature and pass against the baseline
 - [ ] Agent loops are bounded, append-only, and handle every stop reason
 - [ ] MCP servers log to stderr (stdio), return concise results, and authorize per user
+- [ ] Retrieval measured on labeled queries (Recall@k, nDCG) before and after changes
+- [ ] Significant technical choices compared on weighted criteria with measurements
