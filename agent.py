@@ -9,6 +9,8 @@ Tools:
   - ask_human   : lets the model ask you a question mid-task
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
                   (uses `uv run` when uv is installed, so the project's own environment is used)
+  - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
+                  stored in ~/.coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
 
 Usage:
     python agent.py -d path/to/project "Add input validation to the CLI"
@@ -18,6 +20,7 @@ Usage:
 
 import argparse
 import difflib
+import hashlib
 import inspect
 import os
 import re
@@ -27,6 +30,7 @@ import sys
 from pathlib import Path
 
 import anthropic
+from anthropic.tools.memory import BetaLocalFilesystemMemoryTool
 
 # Returns an AnthropicFoundry client (API key or Azure AD auth).
 from auth.anthropic import _get_client
@@ -40,6 +44,9 @@ UV = shutil.which("uv")  # None when uv is not installed
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
 
 WORKSPACE = Path(".").resolve()  # set from --dir in main()
+
+MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR", "~/.coding_agent/memory")).expanduser()
+memory_tool: BetaLocalFilesystemMemoryTool | None = None  # set per project in main()
 
 # The agent must never modify its own source code.
 PROTECTED_PATHS = [Path(__file__).resolve(), Path(inspect.getfile(_get_client)).resolve().parent]
@@ -56,11 +63,19 @@ and adjust rather than retrying the same edit. When a requirement is ambiguous o
 decision is genuinely the user's to make, use ask_human instead of guessing.
 Never modify your own source code (the coding agent's files); those writes are refused.
 
+You have a persistent memory directory, /memories, private to this project and kept between
+sessions. At the start of every task, view /memories and read what is relevant before doing
+anything else. As you work, record what would help a future session: build/test commands,
+project conventions and structure, the user's preferences and corrections, and decisions
+with their reasons. Keep it short and organized (update or delete stale notes rather than
+appending duplicates). Never store secrets such as API keys, passwords or tokens.
+
 After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
 fix the code, and run it again."""
 
 TOOLS = [
+    {"type": "memory_20250818", "name": "memory"},  # Anthropic-defined: no input_schema
     {
         "name": "grep",
         "description": (
@@ -390,6 +405,14 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
     )
 
 
+def tool_memory(**command) -> str:
+    result = memory_tool.call(command)
+    if command.get("command") != "view":
+        target = command.get("path") or command.get("new_path", "")
+        print(f"\033[2m[memory] {command.get('command')} {target}\033[0m")
+    return result
+
+
 TOOL_HANDLERS = {
     "grep": tool_grep,
     "read_file": tool_read_file,
@@ -397,6 +420,7 @@ TOOL_HANDLERS = {
     "write_file": tool_write_file,
     "ask_human": tool_ask_human,
     "run_python": tool_run_python,
+    "memory": tool_memory,
 }
 
 
@@ -443,7 +467,7 @@ def stream_response(client: anthropic.Anthropic, messages: list):
                 # The full input is only known once the block ends -- show a short summary.
                 args = ", ".join(
                     f"{k}={v!r}"[:80] for k, v in event.content_block.input.items()
-                    if k not in ("content", "old_string", "new_string")
+                    if k not in ("content", "old_string", "new_string", "file_text", "old_str", "new_str", "insert_text")
                 )
                 print(f"\033[2m({args})\033[0m", end="", flush=True)
         print()
@@ -506,16 +530,21 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    global WORKSPACE
+    global WORKSPACE, memory_tool
     args = parse_args()
     WORKSPACE = Path(args.dir).expanduser().resolve()
     if not WORKSPACE.is_dir():
         raise SystemExit(f"Not a directory: {WORKSPACE}")
 
+    # One memory folder per project, e.g. ~/.coding_agent/memory/myapp-1a2b3c4d/memories/
+    project_id = f"{WORKSPACE.name}-{hashlib.sha256(str(WORKSPACE).encode()).hexdigest()[:8]}"
+    memory_tool = BetaLocalFilesystemMemoryTool(base_path=str(MEMORY_HOME / project_id))
+
     client = _get_client()
     messages: list = []
     print(f"Workspace: {WORKSPACE}")
     print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
+    print(f"Memory: {memory_tool.memory_root}")
 
     if args.instruction:
         ok = send(client, messages, args.instruction)
