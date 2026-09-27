@@ -15,6 +15,10 @@ Tools:
   - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
                   stored in ~/.coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
   - load_skill  : load a skill's full instructions when a task matches it
+  - web_search  : Anthropic's server-side web search (runs on Anthropic's side; nothing executes
+                  locally). AGENT_WEB_SEARCH=20250305 (default; the only version on Foundry
+                  deployments hosted on Azure), 20260209 (better filtering; Anthropic-hosted
+                  deployments), or off.
 
 Skills are folders with a SKILL.md (a `name` / `description` header, then instructions), found in:
     skills/ next to this file            -- shipped with the agent
@@ -103,6 +107,13 @@ EDITOR = os.environ.get("AGENT_EDITOR", "vscode").lower()
 LINKS_ENABLED = EDITOR != "none" and sys.stdout.isatty()
 FILE_REF = re.compile(r"((?:[A-Za-z]:[\\/])?[\w.\-/\\]+\.[A-Za-z0-9]+):(\d+)")
 
+# Anthropic's web search tool version: 20250305 works everywhere on Foundry, 20260209 only on
+# Anthropic-hosted deployments. "off" removes the tool (e.g. if your organization disabled it).
+WEB_SEARCH = (os.environ.get("AGENT_WEB_SEARCH") or "20250305").strip().lower()
+if WEB_SEARCH not in ("20250305", "20260209", "off"):
+    raise SystemExit(f"AGENT_WEB_SEARCH must be 20250305, 20260209 or off (got {WEB_SEARCH!r})")
+WEB_SEARCH_MAX_USES = 5  # searches allowed per model response
+
 # The agent must never modify its own source code or its skills (project skills are added in main()).
 PROTECTED_PATHS = [Path(__file__).resolve(), BUNDLED_SKILLS]
 
@@ -140,6 +151,12 @@ Skills: the first instruction of each session also carries a <skills> block list
 playbooks by name and description. When a task falls in a skill's area, call load_skill for it
 before starting and follow it; load several when a task spans areas. Do not load skills that
 are not relevant.
+
+Web search (when available): use it for things the repository cannot tell you -- current
+library or framework documentation and versions, error messages from third-party code, Azure
+service behavior and limits. Prefer official documentation, check that what you find matches
+the versions the project uses, and cite the URLs you relied on. Never put secrets, credentials
+or proprietary code in a search query. Do not search for things you can find in the repository.
 
 When you refer to a specific place in the code, write it as path:line (for example
 src/app.py:42) with the path relative to the repository root -- the user can click it."""
@@ -314,7 +331,10 @@ TOOLS = [
             },
         },
     },
-]
+] + (
+    [] if WEB_SEARCH == "off"
+    else [{"type": f"web_search_{WEB_SEARCH}", "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES}]
+)
 
 
 # Bootstrap that run_python executes instead of the code directly. It installs a CPython audit
@@ -810,11 +830,17 @@ def stream_response(client: anthropic.Anthropic, messages: list):
                     print("\n\033[1;34mClaude:\033[0m ", end="", flush=True)
                 elif block.type == "thinking":
                     print("\n\033[2m(thinking...)\033[0m", end="", flush=True)
-                elif block.type == "tool_use":
+                elif block.type in ("tool_use", "server_tool_use"):
                     print(f"\n\033[2m-> {block.name}\033[0m", end="", flush=True)
+                elif block.type == "web_search_tool_result":
+                    results = block.content
+                    if isinstance(results, list):
+                        print(f"\n\033[2m   {len(results)} result(s)\033[0m", end="", flush=True)
+                    else:  # an error object, e.g. max_uses_exceeded or unavailable
+                        print(f"\n\033[2m   web search error: {getattr(results, 'error_code', results)}\033[0m", end="", flush=True)
             elif event.type == "text":
                 out.write(event.text)
-            elif event.type == "content_block_stop" and event.content_block.type == "tool_use":
+            elif event.type == "content_block_stop" and event.content_block.type in ("tool_use", "server_tool_use"):
                 # The full input is only known once the block ends -- show a short summary.
                 args = ", ".join(
                     f"{k}={v!r}"[:80] for k, v in event.content_block.input.items()
@@ -847,7 +873,7 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
             continue
 
         if response.stop_reason == "pause_turn":
-            continue  # resume the paused turn
+            continue  # a long server-side web search paused; re-sending the history resumes it
         if response.stop_reason == "max_tokens":
             print("\n[stopped: hit max_tokens]")
         elif response.stop_reason == "refusal":
@@ -954,6 +980,7 @@ def main() -> None:
     print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
     print(f"Memory: {memory_tool.memory_root}")
     print(f"Skills: {', '.join(sorted(skills)) or '(none)'}")
+    print(f"Web search: {'off' if WEB_SEARCH == 'off' else 'web_search_' + WEB_SEARCH}")
     messages = load_conversation() if args.resume else []
 
     if args.instruction:
