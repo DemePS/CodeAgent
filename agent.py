@@ -92,7 +92,9 @@ Never store secrets such as API keys, passwords or tokens.
 After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
 fix the code, and run it again. Code run this way cannot start subprocesses; if a test needs
-one, say so instead of trying to work around the block.
+one, say so instead of trying to work around the block. When an error comes from an installed
+library, read that library's source in the project's .venv (grep with path=".venv" or
+include_ignored, plus a glob such as "*.py", then read_file) instead of guessing how it works.
 
 When you refer to a specific place in the code, write it as path:line (for example
 src/app.py:42) with the path relative to the repository root -- the user can click it."""
@@ -103,7 +105,8 @@ TOOLS = [
         "name": "list_directory",
         "description": (
             "List the folders (ending in /) and files (with sizes) in a directory, one level deep. "
-            "Skips .git, virtual environments, node_modules and caches."
+            "Hides .git, virtual environments, node_modules and caches inside the listed directory, "
+            "but you can list them directly (e.g. path='.venv/lib')."
         ),
         "input_schema": {
             "type": "object",
@@ -133,7 +136,10 @@ TOOLS = [
         "description": (
             "Search file contents in the workspace with a Python regular expression. "
             "Returns matching lines as 'path:line_number: text'. Use this to locate "
-            "definitions, usages, or strings before reading files."
+            "definitions, usages, or strings before reading files. Skips .git, virtual environments "
+            "(.venv), node_modules and caches, unless path points inside one of them (e.g. "
+            "'.venv/lib') or include_ignored is true -- useful for reading an installed library's "
+            "source while debugging."
         ),
         "input_schema": {
             "type": "object",
@@ -148,6 +154,10 @@ TOOLS = [
                     "description": "Only search files whose name matches this glob, e.g. '*.py'.",
                 },
                 "ignore_case": {"type": "boolean", "description": "Case-insensitive match."},
+                "include_ignored": {
+                    "type": "boolean",
+                    "description": "Also search virtual environments, node_modules and caches (.git is always skipped).",
+                },
             },
             "required": ["pattern"],
         },
@@ -435,7 +445,9 @@ def tool_change_directory(path: str) -> str:
     return f"Current directory is now: {'.' if rel == '.' else rel} (relative to the repository root)"
 
 
-def tool_grep(pattern: str, path: str = ".", glob: str | None = None, ignore_case: bool = False) -> str:
+def tool_grep(
+    pattern: str, path: str = ".", glob: str | None = None, ignore_case: bool = False, include_ignored: bool = False
+) -> str:
     try:
         regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
     except re.error as e:
@@ -445,10 +457,11 @@ def tool_grep(pattern: str, path: str = ".", glob: str | None = None, ignore_cas
     if not root.exists():
         raise ToolError(f"Path not found: {path}")
 
+    skip = {".git"} if include_ignored else SKIP_DIRS
     files = [root] if root.is_file() else (
         Path(dirpath) / name
         for dirpath, dirnames, filenames in os.walk(root)
-        if not dirnames.__setitem__(slice(None), [d for d in dirnames if d not in SKIP_DIRS])
+        if not dirnames.__setitem__(slice(None), [d for d in dirnames if d not in skip])
         for name in filenames
     )
 
