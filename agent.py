@@ -4,6 +4,7 @@ Tools:
   - grep        : regex search across files in the workspace
   - read_file   : read a file (optionally a line range)
   - write_file  : create/overwrite a file -- shows a diff and asks permission first
+                  (the agent's own source -- this file and the auth package -- is protected)
   - ask_human   : lets the model ask you a question mid-task
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
                   (uses `uv run` when uv is installed, so the project's own environment is used)
@@ -16,6 +17,7 @@ Usage:
 
 import argparse
 import difflib
+import inspect
 import os
 import re
 import shutil
@@ -38,6 +40,9 @@ SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cach
 
 WORKSPACE = Path(".").resolve()  # set from --dir in main()
 
+# The agent must never modify its own source code.
+PROTECTED_PATHS = [Path(__file__).resolve(), Path(inspect.getfile(_get_client)).resolve().parent]
+
 SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspace}.
 All file paths are relative to that directory.
 
@@ -46,6 +51,7 @@ you overwrite it, and write the complete new content with write_file -- the user
 a diff and must approve every write. If the user rejects a change, read their feedback
 and adjust rather than retrying the same edit. When a requirement is ambiguous or a
 decision is genuinely the user's to make, use ask_human instead of guessing.
+Never modify your own source code (the coding agent's files); those writes are refused.
 
 After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
@@ -162,6 +168,11 @@ def resolve(path: str) -> Path:
     return p
 
 
+def is_protected(p: Path) -> bool:
+    """True if p is the agent's own source (this file or anything in the auth package)."""
+    return any(p == prot or prot in p.parents for prot in PROTECTED_PATHS)
+
+
 def truncate(text: str) -> str:
     if len(text) <= MAX_TOOL_OUTPUT_CHARS:
         return text
@@ -236,6 +247,8 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
 
 def tool_write_file(path: str, content: str) -> str:
     p = resolve(path)
+    if is_protected(p):
+        raise ToolError(f"{path} is part of the coding agent's own source code and cannot be modified.")
     if p.is_dir():
         raise ToolError(f"{path} is a directory.")
     old = p.read_text(encoding="utf-8") if p.exists() else ""
