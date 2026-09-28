@@ -7,11 +7,12 @@ Tools:
   - read_file   : read a file (optionally a line range)
   - edit_file   : replace an exact snippet in a file -- shows a diff and asks permission first
   - write_file  : create/overwrite a file -- shows a diff and asks permission first
-                  (edit_file and write_file never touch the agent's own source: this file)
+  - delete_file : delete a file -- always asks for human validation, even in autonomous mode
+                  (edit_file, write_file and delete_file never touch the agent's own source)
   - ask_human   : lets the model ask you a question mid-task
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
                   (uses `uv run` when uv is installed, so the project's own environment is used;
-                  the code cannot start subprocesses -- see GUARD_SOURCE)
+                  the code cannot start subprocesses or modify files -- see GUARD_SOURCE)
   - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
                   stored in ~/coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
   - load_skill  : load a skill's full instructions when a task matches it
@@ -41,7 +42,8 @@ Usage:
 
 Autonomous mode (--auto, or /auto in interactive mode to toggle, /mode to show): edits,
 new files and run_python are applied without asking (diffs are still printed), and ask_human
-does not wait -- Claude decides and states its assumptions. Workspace confinement,
+does not wait -- Claude decides and states its assumptions. Deleting a file always waits for
+your approval, even in autonomous mode. Workspace confinement,
 self-protection and the subprocess block still apply; Ctrl+C stops it. AGENT_MAX_STEPS (default
 100) caps the model calls per instruction in every mode.
 
@@ -142,9 +144,10 @@ and adjust rather than retrying the same edit. When a requirement is ambiguous o
 decision is genuinely the user's to make, use ask_human instead of guessing.
 Never modify your own source code (the coding agent's files); those writes are refused.
 The user can switch you into autonomous mode (announced in a <mode> note): then changes and
-runs are applied without approval, so be deliberate -- read before editing, keep changes
-scoped to the task, verify with run_python, and do not use ask_human (decide, and list your
-assumptions and anything the user should review in your final answer).
+runs are applied without approval (except delete_file, which always asks the user), so be
+deliberate -- read before editing, keep changes scoped to the task, verify with run_python, and
+do not use ask_human (decide, and list your assumptions and anything the user should review in
+your final answer).
 
 You have a persistent memory directory, /memories, private to this project and kept between
 sessions. Its current contents are given to you in a <memory> block with the first instruction
@@ -157,8 +160,10 @@ Never store secrets such as API keys, passwords or tokens.
 
 After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
-fix the code, and run it again. Code run this way cannot start subprocesses; if a test needs
-one, say so instead of trying to work around the block. When an error comes from an installed
+fix the code, and run it again. Code run this way cannot start subprocesses and cannot create,
+modify, rename or delete files (only the system temp folder and cache folders are writable):
+change files only with edit_file / write_file and remove them only with delete_file. If a test
+needs a subprocess or writes into the project, say so instead of trying to work around the block. When an error comes from an installed
 library, read that library's source in the project's .venv (grep with path=".venv" or
 include_ignored, plus a glob such as "*.py", then read_file) instead of guessing how it works.
 
@@ -308,6 +313,19 @@ TOOLS = [
         },
     },
     {
+        "name": "delete_file",
+        "description": (
+            "Delete one file. The user must always approve the deletion, in every mode including "
+            "autonomous mode; if they refuse, the result contains their reason. Only delete what the "
+            "task requires, never to work around a problem."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "File path relative to the current directory."}},
+            "required": ["path"],
+        },
+    },
+    {
         "name": "ask_human",
         "description": (
             "Ask the user a question and wait for their answer. Use for clarifications, "
@@ -326,8 +344,10 @@ TOOLS = [
             "stdout and stderr. Pass either `code` (a snippet, run like `python -c`) or `args` "
             "(arguments after `python`: a script and its arguments, or -m and a module, e.g. "
             "[\"script.py\"], [\"-m\", \"pytest\", \"-q\"], [\"-m\", \"py_compile\", \"app.py\"]). "
-            "The code cannot start subprocesses (subprocess, os.system, multiprocessing, ... raise "
-            "PermissionError), so do not rely on them. The user must approve every run."
+            "The code cannot start subprocesses (subprocess, os.system, multiprocessing, ...) and cannot "
+            "create, modify, rename or delete files outside the temp folder and caches -- these raise "
+            "PermissionError. Use edit_file / write_file / delete_file for file changes. The user must "
+            "approve every run."
         ),
         "input_schema": {
             "type": "object",
@@ -358,7 +378,7 @@ TOOLS = [
 # Limits: this guards Python code, not native extensions that call the OS directly -- for
 # real isolation run the agent in a container.
 GUARD_SOURCE = r"""
-import re, runpy, sys
+import os, re, runpy, sys, tempfile
 
 BLOCKED_EVENTS = {
     "subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
@@ -370,11 +390,55 @@ BLOCKED_SYMBOLS = re.compile(
     r"CreateProcess\w*|WinExec|ShellExecute\w*)$"
 )
 
+# Files may only be written in cache folders and in the temp folder (unless the workspace itself is
+# there); the workspace and everything else is read-only.
+TEMP_DIR = os.path.normcase(os.path.abspath(tempfile.gettempdir()))
+WORKSPACE_DIR = os.path.normcase(os.path.abspath(os.environ["AGENT_GUARD_WORKSPACE"]))
+CACHE_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".hypothesis"}
+WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+FILE_EVENTS = {  # event -> indexes of the path arguments it changes
+    "os.remove": (0,), "os.rmdir": (0,), "os.truncate": (0,), "shutil.rmtree": (0,),
+    "os.rename": (0, 1), "os.link": (1,), "os.symlink": (1,),
+}
+
+def writable(path):
+    if isinstance(path, int):  # an already-open file descriptor
+        return True
+    p = os.path.normcase(os.path.abspath(os.fsdecode(path)))
+    parts = re.split(r"[\\/]", p)
+    if p == os.path.normcase(os.devnull) or any(
+        part in CACHE_DIRS or part.startswith("pytest-cache-files-") for part in parts  # pytest's cache staging
+    ):
+        return True
+    if p == WORKSPACE_DIR or p.startswith(WORKSPACE_DIR + os.sep):
+        return False
+    return p == TEMP_DIR or p.startswith(TEMP_DIR + os.sep)
+
+def deny_file(event, path):
+    raise PermissionError(
+        f"Blocked by the coding agent: {event} {os.fsdecode(path)!r} -- run_python cannot create, modify, "
+        "rename or delete files; use edit_file / write_file / delete_file"
+    )
+
 def guard(event, args):
     if event in BLOCKED_EVENTS:
         raise PermissionError(f"Blocked by the coding agent: {event} (starting processes is not allowed)")
     if event == "ctypes.dlsym" and len(args) > 1 and isinstance(args[1], str) and BLOCKED_SYMBOLS.match(args[1]):
         raise PermissionError(f"Blocked by the coding agent: ctypes access to {args[1]!r}")
+    if event == "open":
+        path, mode, flags = (list(args) + [None, None])[:3]
+        writing = (flags & WRITE_FLAGS) if isinstance(flags, int) else any(c in (mode or "") for c in "wax+")
+        if writing and not writable(path):
+            deny_file("open for writing", path)
+    elif event in FILE_EVENTS:
+        for i in FILE_EVENTS[event]:
+            if i < len(args) and args[i] is not None and not writable(args[i]):
+                deny_file(event, args[i])
+    elif event == "sqlite3.connect" and args:
+        db = os.fsdecode(args[0]) if not isinstance(args[0], str) else args[0]
+        in_memory = db in ("", ":memory:") or (db.startswith("file:") and ("mode=memory" in db or "mode=ro" in db))
+        if not in_memory and not db.startswith("file:") and not writable(db):
+            deny_file("sqlite3.connect", db)
 
 sys.addaudithook(guard)
 
@@ -678,6 +742,24 @@ def tool_write_file(path: str, content: str) -> str:
     return confirm_and_write(path, p, old, content)
 
 
+def tool_delete_file(path: str) -> str:
+    p = writable_path(path)
+    if not p.is_file():
+        raise ToolError(f"File not found: {path}")
+    # Deleting cannot be undone, so it always needs human validation -- even in autonomous mode.
+    size = p.stat().st_size
+    print(f"\n\033[1;31m=== Delete {path} ({size:,} bytes) ===\033[0m")
+    if AUTO_MODE:
+        print("\033[2m(autonomous mode: deletions still need your approval)\033[0m")
+    answer = input("Delete this file? [y]es / [n]o: ").strip().lower()
+    if answer not in ("y", "yes"):
+        feedback = input("Why not? (optional): ").strip()
+        raise ToolError("The user refused the deletion; the file was NOT deleted."
+                        + (f" User feedback: {feedback}" if feedback else ""))
+    p.unlink()
+    return f"Deleted {path}."
+
+
 def tool_ask_human(question: str) -> str:
     print(f"\n\033[1;35m[agent asks]\033[0m {linkify(question)}")
     if AUTO_MODE:
@@ -710,7 +792,7 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
     cmd = [*python, "-c", GUARD_SOURCE, *guarded]
 
     print("\n\033[1;33m=== Run Python ===\033[0m")
-    print(f"({'uv run python' if UV else sys.executable}, subprocesses blocked)")
+    print(f"({'uv run python' if UV else sys.executable}, subprocesses and file changes blocked)")
     print(code if code else "python " + " ".join(args))
     if not (_always_allow_python or AUTO_MODE):
         answer = input("\nRun this? [y]es / [n]o / [a]lways for this session: ").strip().lower()
@@ -724,7 +806,10 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
             )
 
     try:
-        proc = subprocess.run(cmd, cwd=CWD, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            cmd, cwd=CWD, capture_output=True, text=True, timeout=timeout,
+            env={**os.environ, "AGENT_GUARD_WORKSPACE": str(WORKSPACE)},  # read by GUARD_SOURCE
+        )
     except subprocess.TimeoutExpired:
         raise ToolError(f"Timed out after {timeout}s.")
 
@@ -809,6 +894,7 @@ TOOL_HANDLERS = {
     "read_file": tool_read_file,
     "edit_file": tool_edit_file,
     "write_file": tool_write_file,
+    "delete_file": tool_delete_file,
     "ask_human": tool_ask_human,
     "run_python": tool_run_python,
     "memory": tool_memory,
@@ -985,7 +1071,8 @@ def set_auto_mode(on: bool) -> None:
     AUTO_MODE = on
     if on:
         _mode_note = ("<mode>Autonomous mode is ON: your edits, new files and run_python calls are "
-                      "applied without asking, and ask_human will not be answered.</mode>")
+                      "applied without asking, and ask_human will not be answered. delete_file still "
+                      "asks the user.</mode>")
         print("\033[1;33mAutonomous mode ON\033[0m -- edits and Python runs are applied without asking. "
               "Ctrl+C stops the agent; /auto turns this off.")
     else:
