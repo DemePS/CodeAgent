@@ -15,7 +15,7 @@ Tools:
                   environment, never rewriting uv.lock; the code cannot start, replace or kill
                   processes or modify files, including through ctypes -- see GUARD_SOURCE)
   - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
-                  stored in $HOME/coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
+                  stored in $HOME/.coding-agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
   - load_skill  : load a skill's full instructions when a task matches it
   - web_search  : Anthropic's server-side web search (runs on Anthropic's side; nothing executes
                   locally). AGENT_WEB_SEARCH=20250305 (default; the only version on Foundry
@@ -24,7 +24,7 @@ Tools:
 
 Skills are folders with a SKILL.md (a `name` / `description` header, then instructions), found in:
     skills/ next to this file            -- shipped with the agent
-    $HOME/coding_agent/skills/           -- personal, every project (override with AGENT_SKILLS_DIR)
+    $HOME/.coding-agent/skills/          -- personal, every project (override with AGENT_SKILLS_DIR)
     <project>/.agent/skills/             -- per project (can be committed)
 A later location overrides an earlier one with the same skill name. Only names and descriptions
 are sent up front; Claude loads a skill's instructions when it needs them.
@@ -111,7 +111,7 @@ MAX_LISTING_ENTRIES = 500
 # Your home folder: $HOME when it is set (as most shells and tools use it), otherwise the OS user
 # folder. On Windows Python itself ignores HOME and uses USERPROFILE, which can point elsewhere.
 HOME_DIR = Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") else Path.home()
-AGENT_HOME = HOME_DIR / "coding_agent"
+AGENT_HOME = HOME_DIR / ".coding-agent"
 MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR") or AGENT_HOME / "memory").expanduser()
 BUNDLED_SKILLS = Path(__file__).resolve().parent / "skills"
 PERSONAL_SKILLS = Path(os.environ.get("AGENT_SKILLS_DIR") or AGENT_HOME / "skills").expanduser()
@@ -1176,7 +1176,7 @@ def main() -> None:
     if not WORKSPACE.is_dir():
         raise SystemExit(f"Not a directory: {WORKSPACE}")
 
-    # One memory folder per project, e.g. ~/coding_agent/memory/myapp-1a2b3c4d/memories/
+    # One memory folder per project, e.g. ~/.coding-agent/memory/myapp-1a2b3c4d/memories/
     project_id = f"{WORKSPACE.name}-{hashlib.sha256(str(WORKSPACE).encode()).hexdigest()[:8]}"
     memory_tool = BetaLocalFilesystemMemoryTool(base_path=str(MEMORY_HOME / project_id))
     conversation_file = MEMORY_HOME / project_id / "conversation.json"
