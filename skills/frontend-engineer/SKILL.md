@@ -21,7 +21,25 @@ the rest of the app.
    are used.
 4. You cannot run `npm`/`pnpm`/`vite`/tests from this agent (subprocesses are blocked). After
    a change, tell the user exactly which command to run (e.g. `npm run typecheck`, `npm test`,
-   `npm run lint`) and what to look at in the browser.
+   `npm run lint`).
+5. Look at the result yourself with screenshot_page (see below) instead of asking the user to
+   describe it.
+
+## Seeing your work
+
+- Ask the user once for the dev server URL (Vite: http://localhost:5173, CRA/Next:
+  http://localhost:3000) and to keep it running; remember the route of the page you work on.
+- Before changing a screen, take a screenshot of it; after the change (the dev server reloads on
+  save), take another and compare. Check console errors and failed requests in the result:
+  they are often the real bug.
+- Check the states and sizes that matter: width 375 (mobile) and 1280 (desktop), dark_mode when
+  the app supports it, full_page for long pages, selector to zoom on one component, and the
+  loading / empty / error states when you can reach them by URL.
+- If the user gives a mockup or design export, open it with view_image and match spacing,
+  typography, colors and alignment to it; list any differences you could not resolve.
+- Use include_text to check exact copy (typos, truncation, encoding such as "Â°" instead of "°").
+- Screenshots start a fresh browser: pages behind a login show the login screen. Say so and ask
+  the user how they want to handle it (a dev-only route, a mock, or checking it themselves).
 
 ## React and TypeScript
 
@@ -91,4 +109,5 @@ the rest of the app.
 - [ ] Responsive from 320 px; no layout shift
 - [ ] Types are strict; no `any`; props and API types match the backend
 - [ ] Uses the project's components, tokens and data-fetching patterns
+- [ ] Checked in screenshots at 375 and 1280 px (and dark mode); no console errors
 - [ ] Tests cover user-visible behavior; commands for the user to run are listed
