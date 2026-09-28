@@ -14,8 +14,6 @@ Tools:
                   (uses `uv run --frozen/--no-sync` when uv is installed: the project's own
                   environment, never rewriting uv.lock; the code cannot start, replace or kill
                   processes or modify files, including through ctypes -- see GUARD_SOURCE)
-  - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
-                  stored in $HOME/.coding-agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
   - load_skill  : load a skill's full instructions when a task matches it
   - web_search  : Anthropic's server-side web search (runs on Anthropic's side; nothing executes
                   locally). AGENT_WEB_SEARCH=20250305 (default; the only version on Foundry
@@ -28,6 +26,15 @@ Skills are folders with a SKILL.md (a `name` / `description` header, then instru
     <project>/.agent/skills/             -- per project (can be committed)
 A later location overrides an earlier one with the same skill name. Only names and descriptions
 are sent up front; Claude loads a skill's instructions when it needs them.
+
+Memory: notes about each project, kept between runs in
+$HOME/.coding-agent/memory/<project>/memories/notes.md (override the root with AGENT_MEMORY_DIR).
+They are given to Claude at the start of each session. Updating them never slows the agent down:
+after each instruction a background thread sends a summary of what happened to a separate
+"memory curator" call, which rewrites notes.md only when something durable was learned. You get
+the next prompt right away; "[memory] ..." shows when the update finishes. AGENT_MEMORY_MODEL
+picks the deployment it uses (default: the main one -- a smaller, cheaper one works well);
+AGENT_MEMORY=off disables updates. On exit the agent waits (up to 60 s) for a pending update.
 
 Configuration (environment variables or a .env file):
     ANTHROPIC_FOUNDRY_ENDPOINT     https://<resource>.services.ai.azure.com/anthropic
@@ -63,14 +70,15 @@ import json
 import os
 import re
 import shutil
+import queue
 import subprocess
 import sys
+import threading
 from functools import lru_cache
 from pathlib import Path
 
 import anthropic
 from anthropic import AnthropicFoundry
-from anthropic.tools.memory import BetaLocalFilesystemMemoryTool
 from dotenv import load_dotenv
 
 load_dotenv()  # before reading any configuration below
@@ -117,7 +125,7 @@ MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR") or AGENT_HOME / "memory").
 BUNDLED_SKILLS = Path(__file__).resolve().parent / "skills"
 PERSONAL_SKILLS = Path(os.environ.get("AGENT_SKILLS_DIR") or AGENT_HOME / "skills").expanduser()
 skills: dict[str, Path] = {}  # skill name -> its SKILL.md; filled in main()
-memory_tool: BetaLocalFilesystemMemoryTool | None = None  # set per project in main()
+MEMORY_DIR: Path | None = None  # this project's memory folder; set in main()
 conversation_file: Path | None = None  # set per project in main(); used by --resume
 
 # Clickable `path:line` links in the terminal (OSC 8 hyperlinks).
@@ -140,6 +148,12 @@ _skills_note: str | None = None  # an updated skill list after /skills, sent wit
 # The agent must never modify its own source code or its skills (project skills are added in main()).
 PROTECTED_PATHS = [Path(__file__).resolve(), BUNDLED_SKILLS]
 
+# Memory is updated in the background by a separate model call after each instruction.
+MEMORY_UPDATES = (os.environ.get("AGENT_MEMORY") or "on").strip().lower() not in ("off", "0", "false", "no")
+MEMORY_MODEL = os.environ.get("AGENT_MEMORY_MODEL") or MODEL
+MEMORY_MAX_CHARS = 12_000  # the curator keeps notes.md under this size
+MEMORY_EXIT_WAIT_SECONDS = 60
+
 SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspace}.
 You have a current directory inside it, which starts at the repository root each session;
 relative paths in every tool resolve against it. Use list_directory to explore and
@@ -159,14 +173,11 @@ deliberate -- read before editing, keep changes scoped to the task, verify with 
 do not use ask_human (decide, and list your assumptions and anything the user should review in
 your final answer).
 
-You have a persistent memory directory, /memories, private to this project and kept between
-sessions. Its current contents are given to you in a <memory> block with the first instruction
-of each session, so do not view it again. Update memory at most once per task, at the very end,
-and only if you learned something durable and new that a future session would need: build/test
-commands, project conventions and structure, the user's preferences and corrections, decisions
-with their reasons. Keep everything in /memories/notes.md, make small edits (str_replace or
-insert) rather than rewriting it, and skip the update entirely when nothing new was learned.
-Never store secrets such as API keys, passwords or tokens.
+Memory: notes from earlier sessions on this project are given to you in a <memory> block with
+the first instruction of each session; rely on them. You do not update memory yourself: after
+each instruction a separate process reviews what happened and saves anything durable (commands,
+conventions, the user's preferences and corrections, decisions). When the user asks you to
+remember something, just acknowledge it -- it will be saved.
 
 After changing code, verify it with run_python: run the tests (e.g. args ["-m", "pytest", "-q"]),
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
@@ -195,7 +206,6 @@ When you refer to a specific place in the code, write it as path:line (for examp
 src/app.py:42) with the path relative to the repository root -- the user can click it."""
 
 TOOLS = [
-    {"type": "memory_20250818", "name": "memory"},  # Anthropic-defined: no input_schema
     {
         "name": "load_skill",
         "description": (
@@ -852,7 +862,7 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
 
 def memory_snapshot() -> str:
     """All memory files, read locally, to hand Claude at the start of a session (no tool calls)."""
-    files = sorted(p for p in memory_tool.memory_root.rglob("*") if p.is_file() and not p.name.startswith("."))
+    files = sorted(p for p in MEMORY_DIR.rglob("*") if p.is_file() and not p.name.startswith(".")) if MEMORY_DIR.is_dir() else []
     if not files:
         return "<memory>\n(empty -- nothing saved for this project yet)\n</memory>"
     parts = []
@@ -861,7 +871,7 @@ def memory_snapshot() -> str:
             text = p.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        parts.append(f'<file path="/memories/{p.relative_to(memory_tool.memory_root).as_posix()}">\n{text}\n</file>')
+        parts.append(f'<file path="/memories/{p.relative_to(MEMORY_DIR).as_posix()}">\n{text}\n</file>')
     return "<memory>\n" + truncate("\n".join(parts)) + "\n</memory>"
 
 
@@ -926,9 +936,10 @@ def discover_skills() -> dict[str, Path]:
 
 def print_locations(verbose: bool) -> None:
     """Show where memory and skills live; with verbose, every folder, skill and setup problem."""
-    print(f"Memory: {memory_tool.memory_root}")
-    notes = sorted(p.name for p in memory_tool.memory_root.glob("*") if p.is_file())
+    print(f"Memory: {MEMORY_DIR}" + ("" if MEMORY_UPDATES else "  (updates off: AGENT_MEMORY=off)"))
+    notes = sorted(p.name for p in MEMORY_DIR.glob("*") if p.is_file()) if MEMORY_DIR.is_dir() else []
     if verbose:
+        print(f"  memory model: {MEMORY_MODEL}")
         print(f"  home folder used: {HOME_DIR}" + ("  (from $HOME)" if os.environ.get("HOME") else "  (your user folder)"))
         print(f"  memory files: {', '.join(notes) or '(none yet)'}")
         print(f"  saved conversation: {conversation_file}" + ("" if conversation_file.is_file() else "  (none yet)"))
@@ -972,14 +983,6 @@ def tool_load_skill(name: str) -> str:
     return skill_md.read_text(encoding="utf-8")
 
 
-def tool_memory(**command) -> str:
-    result = memory_tool.call(command)
-    if command.get("command") != "view":
-        target = command.get("path") or command.get("new_path", "")
-        print(f"\033[2m[memory] {command.get('command')} {target}\033[0m")
-    return result
-
-
 TOOL_HANDLERS = {
     "list_directory": tool_list_directory,
     "change_directory": tool_change_directory,
@@ -990,7 +993,6 @@ TOOL_HANDLERS = {
     "delete_file": tool_delete_file,
     "ask_human": tool_ask_human,
     "run_python": tool_run_python,
-    "memory": tool_memory,
     "load_skill": tool_load_skill,
 }
 
@@ -1089,6 +1091,7 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
 
 def save_conversation(messages: list) -> None:
     """Write the history to disk (atomically) so --resume can pick it up."""
+    conversation_file.parent.mkdir(parents=True, exist_ok=True)
     tmp = conversation_file.with_suffix(".tmp")
     tmp.write_text(json.dumps(messages, ensure_ascii=False), encoding="utf-8")
     tmp.replace(conversation_file)
@@ -1145,6 +1148,7 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     try:
         run_turn(client, messages)
         save_conversation(messages)
+        queue_memory_update(client, messages[checkpoint:])  # runs in the background
         _memory_sent = True
         _mode_note = _skills_note = None
         return True
@@ -1158,6 +1162,167 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     del messages[checkpoint:]
     save_conversation(messages)
     return False
+
+
+# --- Background memory ---------------------------------------------------------------------------
+# Claude does not write memory during a task (that used to add slow tool calls at the end of each
+# instruction). Instead, after each instruction, a digest of what happened goes to a worker thread
+# that asks a separate "curator" call to update notes.md. Updates run one at a time, in order.
+
+MEMORY_CURATOR_PROMPT = f"""You maintain the long-term memory notes of a coding agent for one
+software project. You are given the current notes and a digest of the latest session turn
+(the user's instruction, the tools the agent used, the user's answers and rejections, and the
+agent's final reply).
+
+Keep only durable facts that will help a future session on this project:
+- how to build, run, lint and test it (exact commands that worked), and its structure;
+- project conventions and the libraries and versions it relies on;
+- the user's preferences and corrections (anything they rejected, and why);
+- decisions and their reasons, and known pitfalls or open problems;
+- anything the user explicitly asked to remember.
+Do not keep: one-off task details, progress logs, things obvious from the code, speculation,
+or secrets (API keys, passwords, tokens, connection strings) -- remove any you find.
+
+Keep the notes concise Markdown grouped under short headings, merge duplicates, update facts
+that changed, and stay under {MEMORY_MAX_CHARS} characters.
+
+If nothing durable was learned, answer exactly NO_CHANGE. Otherwise answer with the complete
+updated notes inside <notes>...</notes> and nothing else."""
+
+_memory_queue: "queue.Queue[str | None]" = queue.Queue()
+_memory_status: list[str] = []  # messages from the worker, printed before the next prompt
+_memory_status_lock = threading.Lock()
+_memory_thread: threading.Thread | None = None
+
+
+def _memory_report(message: str) -> None:
+    with _memory_status_lock:
+        _memory_status.append(message)
+
+
+def print_memory_status() -> None:
+    """Print what the memory worker reported (called before prompts, never while streaming)."""
+    with _memory_status_lock:
+        pending, _memory_status[:] = list(_memory_status), []
+    for message in pending:
+        print(f"\033[2m[memory] {message}\033[0m")
+
+
+def turn_digest(new_messages: list) -> str:
+    """A compact account of one instruction's turn: what the curator needs, not the file contents."""
+    lines: list[str] = []
+    names: dict[str, str] = {}  # tool_use_id -> tool name
+    results: dict[str, str] = {}  # tool_use_id -> the result line, shown under its call
+
+    def short(value, limit: int = 300) -> str:
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        return text if len(text) <= limit else text[:limit] + " ...[cut]"
+
+    for m in new_messages:
+        content = m["content"]
+        if isinstance(content, str):
+            lines.append(f"USER: {content}")
+            continue
+        for b in content:
+            kind = b.get("type")
+            if m["role"] == "user" and kind == "text":
+                if not b["text"].startswith(("<memory>", "<skills>")):  # skip what the curator already has
+                    lines.append(f"USER: {short(b['text'], 4000)}")
+            elif kind == "tool_result":
+                name = names.get(b.get("tool_use_id"), "")
+                result = b.get("content")
+                result = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+                if b.get("is_error"):
+                    results[b["tool_use_id"]] = f"  -> FAILED: {short(result, 600)}"
+                elif name == "ask_human":
+                    results[b["tool_use_id"]] = f"  -> user answered: {short(result, 1000)}"
+                elif name == "run_python":
+                    results[b["tool_use_id"]] = f"  -> {short(result, 600)}"
+            elif kind == "text":
+                lines.append(f"AGENT: {short(b['text'], 3000)}")
+            elif kind in ("tool_use", "server_tool_use"):
+                names[b["id"]] = b["name"]
+                args = {k: v for k, v in b.get("input", {}).items()
+                        if k not in ("content", "old_string", "new_string")}
+                lines.append(f"AGENT used {b['name']}({short(args)})")
+                lines.append(b["id"])  # placeholder, replaced by the result line (if any)
+    return truncate("\n".join(results.get(line, line) for line in lines if line not in names or line in results))
+
+
+def update_memory(client: anthropic.Anthropic, digest: str) -> str:
+    """One curator call. Returns a status line; writes notes.md only when something changed."""
+    notes_file = MEMORY_DIR / "notes.md"
+    current = notes_file.read_text(encoding="utf-8") if notes_file.is_file() else ""
+    response = client.messages.create(
+        model=MEMORY_MODEL,
+        max_tokens=8000,
+        system=MEMORY_CURATOR_PROMPT,
+        messages=[{"role": "user", "content":
+                   f"<current_notes>\n{current or '(empty)'}\n</current_notes>\n\n"
+                   f"<session_turn>\n{digest}\n</session_turn>"}],
+    )
+    if response.stop_reason not in ("end_turn", "stop_sequence"):
+        return f"update skipped (stop reason: {response.stop_reason})"
+    text = "".join(b.text for b in response.content if b.type == "text").strip()
+    if text == "NO_CHANGE" or not text:
+        return ""  # nothing to say
+    match = re.search(r"<notes>\s*(.*?)\s*</notes>", text, re.DOTALL)
+    if not match:
+        return "update skipped (unexpected answer from the memory model)"
+    notes = match.group(1).strip() + "\n"
+    if notes == current:
+        return ""
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = notes_file.with_suffix(".tmp")
+    tmp.write_text(notes, encoding="utf-8")
+    tmp.replace(notes_file)  # atomic: a crash never leaves half-written notes
+    old_lines, new_lines = current.splitlines(), notes.splitlines()
+    diff = list(difflib.unified_diff(old_lines, new_lines, lineterm="", n=0))
+    added = sum(1 for d in diff if d.startswith("+") and not d.startswith("+++"))
+    removed = sum(1 for d in diff if d.startswith("-") and not d.startswith("---"))
+    return f"notes updated (+{added}/-{removed} lines): {file_link(notes_file, 1, str(notes_file))}"
+
+
+def _memory_worker(client: anthropic.Anthropic) -> None:
+    while True:
+        digest = _memory_queue.get()
+        try:
+            if digest is None:
+                return
+            status = update_memory(client, digest)
+            if status:
+                _memory_report(status)
+        except Exception as e:  # never let a memory problem reach the agent
+            _memory_report(f"update failed: {type(e).__name__}: {str(e)[:200]}")
+        finally:
+            _memory_queue.task_done()
+
+
+def queue_memory_update(client: anthropic.Anthropic, new_messages: list) -> None:
+    """Hand one finished turn to the background worker (started on first use)."""
+    global _memory_thread
+    if not MEMORY_UPDATES:
+        return
+    if _memory_thread is None:
+        _memory_thread = threading.Thread(target=_memory_worker, args=(client,), name="memory", daemon=True)
+        _memory_thread.start()
+    _memory_queue.put(turn_digest(new_messages))
+
+
+def finish_memory_updates() -> None:
+    """On exit: let pending updates finish (up to MEMORY_EXIT_WAIT_SECONDS; Ctrl+C skips)."""
+    if _memory_thread is None:
+        return
+    _memory_queue.put(None)
+    if _memory_thread.is_alive() and _memory_queue.unfinished_tasks > 1:
+        print("\033[2m[memory] saving notes... (Ctrl+C to skip)\033[0m")
+    try:
+        _memory_thread.join(MEMORY_EXIT_WAIT_SECONDS)
+    except KeyboardInterrupt:
+        pass
+    if _memory_thread.is_alive():
+        _memory_report("not saved: the update was still running when the agent exited")
+    print_memory_status()
 
 
 def set_auto_mode(on: bool) -> None:
@@ -1187,7 +1352,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    global WORKSPACE, CWD, memory_tool, conversation_file, skills, _skills_note
+    global WORKSPACE, CWD, MEMORY_DIR, conversation_file, skills
     args = parse_args()
     WORKSPACE = CWD = Path(args.dir).expanduser().resolve()
     if not WORKSPACE.is_dir():
@@ -1195,7 +1360,7 @@ def main() -> None:
 
     # One memory folder per project, e.g. ~/.coding-agent/memory/myapp-1a2b3c4d/memories/
     project_id = f"{WORKSPACE.name}-{hashlib.sha256(str(WORKSPACE).encode()).hexdigest()[:8]}"
-    memory_tool = BetaLocalFilesystemMemoryTool(base_path=str(MEMORY_HOME / project_id))
+    MEMORY_DIR = MEMORY_HOME / project_id / "memories"
     conversation_file = MEMORY_HOME / project_id / "conversation.json"
     skills = discover_skills()
     PROTECTED_PATHS.append(WORKSPACE / ".agent" / "skills")
@@ -1214,14 +1379,25 @@ def main() -> None:
     if args.auto:
         set_auto_mode(True)
 
+    try:
+        interact(client, messages, args)
+    finally:
+        finish_memory_updates()
+
+
+def interact(client: anthropic.Anthropic, messages: list, args: argparse.Namespace) -> None:
+    global skills, _skills_note
     if args.instruction:
         ok = send(client, messages, args.instruction)
         if not args.interactive:
-            raise SystemExit(0 if ok else 1)
+            if not ok:
+                raise SystemExit(1)  # main() still waits for the memory update first
+            return
 
     print("Interactive mode. Type 'exit' to quit, /auto to toggle autonomous mode, /mode to show it, "
           "/skills to re-scan skills.")
     while True:
+        print_memory_status()
         try:
             user_input = input("\n\033[1mYou:\033[0m ").strip()
         except (EOFError, KeyboardInterrupt):
