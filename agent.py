@@ -1714,7 +1714,11 @@ def tool_read_excel(path: str, sheet: str | None = None, range: str | None = Non
     if ws.merged_cells.ranges:
         lines.append("merged: " + ", ".join(str(r) for r in list(ws.merged_cells.ranges)[:50]))
     lines.append(f"--- sheet {ws_name}" + (f" range {range}" if range else "") + " ---")
-    shown = 0
+    shown = size = 0
+
+    def rows_seen_label(row) -> str:
+        return str(next((c.row for c in row if hasattr(c, "row")), "?"))
+
     for row in rows:
         parts = []
         for c in row:
@@ -1729,8 +1733,11 @@ def tool_read_excel(path: str, sheet: str | None = None, range: str | None = Non
         if parts:
             lines.append(" | ".join(parts))
             shown += len(parts)
-            if shown >= EXCEL_MAX_CELLS:
-                lines.append(f"... stopped after {EXCEL_MAX_CELLS} cells; read a smaller range")
+            size += len(lines[-1]) + 1
+            if shown >= EXCEL_MAX_CELLS or size > MAX_TOOL_OUTPUT_CHARS - 1000:
+                last = rows_seen_label(row)
+                lines.append(f"... stopped at row {last} after {shown} cells; read the rest with a range "
+                             f"starting below row {last}")
                 break
     if shown == 0:
         lines.append("(no values)")
