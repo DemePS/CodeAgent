@@ -11,8 +11,9 @@ Tools:
                   (edit_file, write_file and delete_file never touch the agent's own source)
   - ask_human   : lets the model ask you a question mid-task
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
-                  (uses `uv run` when uv is installed, so the project's own environment is used;
-                  the code cannot start subprocesses or modify files -- see GUARD_SOURCE)
+                  (uses `uv run --frozen/--no-sync` when uv is installed: the project's own
+                  environment, never rewriting uv.lock; the code cannot start, replace or kill
+                  processes or modify files, including through ctypes -- see GUARD_SOURCE)
   - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
                   stored in ~/coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
   - load_skill  : load a skill's full instructions when a task matches it
@@ -380,14 +381,18 @@ TOOLS = [
 GUARD_SOURCE = r"""
 import os, re, runpy, sys, tempfile
 
-BLOCKED_EVENTS = {
+BLOCKED_EVENTS = {  # starting, replacing or killing processes
     "subprocess.Popen", "os.system", "os.exec", "os.spawn", "os.posix_spawn",
-    "os.fork", "os.forkpty", "os.startfile", "_winapi.CreateProcess",
+    "os.fork", "os.forkpty", "os.startfile", "_winapi.CreateProcess", "os.kill", "os.killpg",
 }
-# Process-starting C functions reachable through ctypes (libc / kernel32 / shell32).
+# C functions reachable through ctypes that start or kill processes or change files, which would
+# bypass the Python-level checks below (libc / kernel32 / shell32).
 BLOCKED_SYMBOLS = re.compile(
-    r"^_?(system|popen|exec\w*|fork\w*|vfork|clone\d?|posix_spawn\w*|spawn\w*|"
-    r"CreateProcess\w*|WinExec|ShellExecute\w*)$"
+    r"^_?(system|popen|exec\w*|fork\w*|vfork|clone\d?|posix_spawn\w*|spawn\w*|kill\w*|"
+    r"CreateProcess\w*|WinExec|ShellExecute\w*|TerminateProcess|"
+    r"unlink\w*|remove|rmdir|rename\w*|f?truncate\w*|f?chmod\w*|f?chown\w*|"
+    r"f?open\w*|freopen|creat\w*|DeleteFile\w*|RemoveDirectory\w*|MoveFile\w*|ReplaceFile\w*|"
+    r"SetFileAttributes\w*)$"
 )
 
 # Files may only be written in cache folders and in the temp folder (unless the workspace itself is
@@ -399,6 +404,7 @@ WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 FILE_EVENTS = {  # event -> indexes of the path arguments it changes
     "os.remove": (0,), "os.rmdir": (0,), "os.truncate": (0,), "shutil.rmtree": (0,),
     "os.rename": (0, 1), "os.link": (1,), "os.symlink": (1,),
+    "os.chmod": (0,), "os.chown": (0,), "os.chflags": (0,),
 }
 
 def writable(path):
@@ -422,9 +428,9 @@ def deny_file(event, path):
 
 def guard(event, args):
     if event in BLOCKED_EVENTS:
-        raise PermissionError(f"Blocked by the coding agent: {event} (starting processes is not allowed)")
+        raise PermissionError(f"Blocked by the coding agent: {event} (starting or stopping processes is not allowed)")
     if event == "ctypes.dlsym" and len(args) > 1 and isinstance(args[1], str) and BLOCKED_SYMBOLS.match(args[1]):
-        raise PermissionError(f"Blocked by the coding agent: ctypes access to {args[1]!r}")
+        raise PermissionError(f"Blocked by the coding agent: ctypes access to {args[1]!r} (processes and file changes are not allowed)")
     if event == "open":
         path, mode, flags = (list(args) + [None, None])[:3]
         writing = (flags & WRITE_FLAGS) if isinstance(flags, int) else any(c in (mode or "") for c in "wax+")
@@ -775,6 +781,18 @@ def tool_ask_human(question: str) -> str:
 _always_allow_python = False
 
 
+def uv_sync_flag() -> str:
+    """How `uv run` may touch the environment: never rewrite uv.lock, never add dependencies.
+
+    With a uv.lock, --frozen installs exactly what it pins; without one, --no-sync uses the
+    existing .venv as-is instead of creating a lockfile.
+    """
+    for folder in (CWD, *CWD.parents):
+        if (folder / "pyproject.toml").is_file():
+            return "--frozen" if (folder / "uv.lock").is_file() else "--no-sync"
+    return "--no-sync"
+
+
 def tool_run_python(code: str | None = None, args: list[str] | None = None, timeout: int = RUN_TIMEOUT_SECONDS) -> str:
     global _always_allow_python
     if bool(code) == bool(args):
@@ -787,8 +805,7 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
         guarded = ["script", *args]
     else:
         raise ToolError("args must be a script path or -m <module>, optionally followed by arguments.")
-    # With uv, `uv run` picks up the project's pyproject.toml / .venv and syncs its dependencies.
-    python = [UV, "run", "--quiet", "python"] if UV else [sys.executable]
+    python = [UV, "run", uv_sync_flag(), "--quiet", "python"] if UV else [sys.executable]
     cmd = [*python, "-c", GUARD_SOURCE, *guarded]
 
     print("\n\033[1;33m=== Run Python ===\033[0m")
