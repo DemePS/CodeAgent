@@ -8,7 +8,10 @@ Tools:
   - edit_file   : replace an exact snippet in a file -- shows a diff and asks permission first
   - write_file  : create/overwrite a file -- shows a diff and asks permission first
   - delete_file : delete a file -- always asks for human validation, even in autonomous mode
-                  (edit_file, write_file and delete_file never touch the agent's own source)
+  - delete_folder : delete a folder and everything in it -- shows what it contains and always
+                  asks for human validation, even in autonomous mode; never the workspace root,
+                  a .git folder, or a folder holding the agent's own files
+                  (edit_file, write_file, delete_file and delete_folder never touch the agent's own source)
   - ask_human   : lets the model ask you a question mid-task
   - git         : read-only git -- status, diff and log of the workspace (never commits, checks
                   out or changes anything; external diff tools, textconv filters, pagers and
@@ -57,8 +60,8 @@ $HOME is used when set; otherwise your user folder (on Windows, %USERPROFILE%).
 
 Autonomous mode (--auto, or /auto in interactive mode to toggle, /mode to show): edits,
 new files and run_python are applied without asking (diffs are still printed), and ask_human
-does not wait -- Claude decides and states its assumptions. Deleting a file always waits for
-your approval, even in autonomous mode. Workspace confinement,
+does not wait -- Claude decides and states its assumptions. Deleting a file or a folder always
+waits for your approval, even in autonomous mode. Workspace confinement,
 self-protection and the subprocess block still apply; Ctrl+C stops it. AGENT_MAX_STEPS (default
 100) caps the model calls per instruction in every mode.
 
@@ -192,7 +195,7 @@ and adjust rather than retrying the same edit. When a requirement is ambiguous o
 decision is genuinely the user's to make, use ask_human instead of guessing.
 Never modify your own source code (the coding agent's files); those writes are refused.
 The user can switch you into autonomous mode (announced in a <mode> note): then changes and
-runs are applied without approval (except delete_file, which always asks the user), so be
+runs are applied without approval (except delete_file and delete_folder, which always ask the user), so be
 deliberate -- read before editing, keep changes scoped to the task, verify with run_python, and
 do not use ask_human (decide, and list your assumptions and anything the user should review in
 your final answer).
@@ -207,7 +210,7 @@ After changing code, verify it with run_python: run the tests (e.g. args ["-m", 
 the script you changed, or a small snippet that exercises it. If it fails, read the error,
 fix the code, and run it again. Code run this way cannot start subprocesses and cannot create,
 modify, rename or delete files (only the system temp folder and cache folders are writable):
-change files only with edit_file / write_file and remove them only with delete_file. If a test
+change files only with edit_file / write_file and remove them only with delete_file (a whole folder: delete_folder). If a test
 needs a subprocess or writes into the project, say so instead of trying to work around the block. When an error comes from an installed
 library, read that library's source in the project's .venv (grep with path=".venv" or
 include_ignored, plus a glob such as "*.py", then read_file) instead of guessing how it works.
@@ -413,6 +416,21 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {"path": {"type": "string", "description": "File path relative to the current directory."}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "delete_folder",
+        "description": (
+            "Delete a folder and everything inside it. The user is shown its contents and must always "
+            "approve, in every mode including autonomous mode; if they refuse, the result contains "
+            "their reason. Refused for the workspace root, .git folders and folders containing the "
+            "agent's own files. Only delete what the task requires; to remove a single file use "
+            "delete_file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string", "description": "Folder path relative to the current directory."}},
             "required": ["path"],
         },
     },
@@ -856,6 +874,58 @@ def tool_delete_file(path: str) -> str:
     return f"Deleted {path}."
 
 
+def tool_delete_folder(path: str) -> str:
+    global CWD
+    p = resolve(path)
+    if not p.is_dir():
+        raise ToolError(f"Not a folder: {path}" + (" (use delete_file for a file)" if p.is_file() else ""))
+    if p == WORKSPACE:
+        raise ToolError("The workspace root cannot be deleted.")
+    name = p.relative_to(WORKSPACE).as_posix()  # shown relative to the repository root
+    git_refusal = ToolError(f"{name} is or contains a git repository (.git); it cannot be deleted by the agent.")
+    if ".git" in p.relative_to(WORKSPACE).parts:
+        raise git_refusal
+    if any(prot == p or p in prot.parents or p in prot.resolve().parents or prot in p.parents
+           for prot in PROTECTED_PATHS):
+        raise ToolError(f"{path} contains the coding agent's own files and cannot be deleted.")
+
+    # Show what would be lost; walk without following symlinks (rmtree does not follow them either).
+    files = folders = size = 0
+    for root, dirs, names in os.walk(p):
+        if ".git" in dirs or ".git" in names:  # a nested repository (or submodule) anywhere inside
+            raise git_refusal
+        folders += len(dirs)
+        for file_name in names:
+            files += 1
+            try:
+                size += os.lstat(os.path.join(root, file_name)).st_size
+            except OSError:
+                pass
+    entries = sorted(p.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
+    print(f"\n\033[1;31m=== Delete folder {name}/ ({files} file(s), {folders} subfolder(s), "
+          f"{size:,} bytes) ===\033[0m")
+    for e in entries[:30]:
+        print(f"  {e.name}{'/' if e.is_dir() and not e.is_symlink() else ''}")
+    if len(entries) > 30:
+        print(f"  ... and {len(entries) - 30} more")
+    if AUTO_MODE:
+        print("\033[2m(autonomous mode: deletions still need your approval)\033[0m")
+    answer = input("Delete this folder and everything in it? [y]es / [n]o: ").strip().lower()
+    if answer not in ("y", "yes"):
+        feedback = input("Why not? (optional): ").strip()
+        raise ToolError("The user refused the deletion; the folder was NOT deleted."
+                        + (f" User feedback: {feedback}" if feedback else ""))
+    try:
+        shutil.rmtree(p)
+    except OSError as e:
+        raise ToolError(f"Deletion stopped partway: {e}. Check what is left with list_directory.")
+    note = ""
+    if CWD == p or p in CWD.parents:
+        CWD = WORKSPACE
+        note = " The current directory was inside it and is now the repository root."
+    return f"Deleted folder {name} ({files} file(s), {folders} subfolder(s)).{note}"
+
+
 def tool_ask_human(question: str) -> str:
     print(f"\n\033[1;35m[agent asks]\033[0m {linkify(question)}")
     if AUTO_MODE:
@@ -1131,6 +1201,7 @@ TOOL_HANDLERS = {
     "edit_file": tool_edit_file,
     "write_file": tool_write_file,
     "delete_file": tool_delete_file,
+    "delete_folder": tool_delete_folder,
     "ask_human": tool_ask_human,
     "git": tool_git,
     "run_python": tool_run_python,
@@ -1306,7 +1377,7 @@ def session_blocks() -> list[str]:
     blocks = [memory_snapshot(), skills_catalog()]
     if AUTO_MODE:
         blocks.append("<mode>Autonomous mode is ON: your edits, new files and run_python calls are applied "
-                      "without asking, and ask_human will not be answered. delete_file still asks the user.</mode>")
+                      "without asking, and ask_human will not be answered. delete_file and delete_folder still ask the user.</mode>")
     return blocks
 
 
@@ -1708,8 +1779,8 @@ def set_auto_mode(on: bool) -> None:
     AUTO_MODE = on
     if on:
         _mode_note = ("<mode>Autonomous mode is ON: your edits, new files and run_python calls are "
-                      "applied without asking, and ask_human will not be answered. delete_file still "
-                      "asks the user.</mode>")
+                      "applied without asking, and ask_human will not be answered. delete_file and "
+                      "delete_folder still ask the user.</mode>")
         print("\033[1;33mAutonomous mode ON\033[0m -- edits and Python runs are applied without asking. "
               "Ctrl+C stops the agent; /auto turns this off.")
     else:
