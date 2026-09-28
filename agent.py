@@ -1039,8 +1039,22 @@ def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
             + (f" User feedback: {feedback}" if feedback else "")
         )
 
+    # The file may have been edited (e.g. saved in your editor) while the prompt was waiting: the
+    # new content was computed from the old one, so writing it now would silently undo that edit.
+    try:
+        current = p.read_text(encoding="utf-8") if p.exists() else None
+    except (OSError, UnicodeDecodeError):
+        current = None if not p.exists() else "\0changed"
+    if current != (old if existed else None):
+        print(f"\033[33m\u2718 {name} changed on disk while waiting for approval -- not written\033[0m")
+        raise ToolError(f"{name} was changed on disk (probably saved in the user's editor) after the diff was "
+                        "shown; nothing was written. Read the file again and redo the change on its current content.")
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(new, encoding="utf-8")
+    try:
+        p.write_text(new, encoding="utf-8")
+    except PermissionError:
+        raise ToolError(f"{name} could not be written: another program has it locked (on Windows, e.g. a file "
+                        "open in Excel or a running process). Ask the user to close it, then try again.")
     done(f"{'Modified' if existed else 'Created'} {name}")
     return f"{'Modified' if existed else 'Created'} {path} ({len(new.splitlines())} lines)."
 
