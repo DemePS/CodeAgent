@@ -1,13 +1,29 @@
 [project]
-name = "weather"
+name = "coding-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "Personal coding agent: Claude on Azure (Microsoft Foundry) with a manual tool-use loop"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "anthropic>=0.71.0,<1",
-    "azure-identity>=1.25.3",
-    "httpx>=0.28.1",
-    "mcp[cli]>=1.18.0",
-    "python-dotenv>=1.1.1",
+    "anthropic>=0.71.0,<1",        # Claude API (AnthropicFoundry client)
+    "azure-identity>=1.25.3",      # Azure AD sign-in when no API key is set
+    "httpx>=0.28.1",               # download_file
+    "python-dotenv>=1.1.1",        # reads .env
+    "mcp[cli]>=1.18.0",            # the weather MCP example (weather.py, client.py)
 ]
+
+[project.optional-dependencies]
+# screenshot_page: `uv sync --extra browser`, then `uv run playwright install chromium`
+browser = ["playwright>=1.49"]
+
+[project.scripts]
+coding-agent = "agent:main"
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# A single-module project; `uv sync` installs it in editable mode, so agent.py keeps finding
+# its skills/ folder next to it.
+only-include = ["agent.py"]

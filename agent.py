@@ -64,7 +64,9 @@ Configuration (environment variables or a .env file):
     ANTHROPIC_FOUNDRY_DEPLOYMENT   your Claude deployment name
 
 Usage:
-    python agent.py -d path/to/project "Add input validation to the CLI"
+    uv sync                                   # once, in the agent's folder (add --extra browser for screenshots)
+    uv run coding-agent -d path/to/project "Add input validation to the CLI"
+    python agent.py -d path/to/project "Add input validation to the CLI"   # same thing
     python agent.py -d path/to/project "..." -i   # keep chatting after the task
     python agent.py -d path/to/project            # interactive mode only
     python agent.py -d path/to/project -r         # resume the last conversation in this project
@@ -1619,6 +1621,18 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
     return content
 
 
+def project_env() -> dict:
+    """Environment for code run in the project: never the agent's own virtualenv.
+
+    When the agent itself runs from its own environment (e.g. `uv run coding-agent`), variables
+    such as VIRTUAL_ENV point at it; `uv run` in the project must use the project's environment.
+    """
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PROJECT", "PYTHONHOME", "PYTHONPATH", "CONDA_PREFIX")}
+    env["AGENT_GUARD_WORKSPACE"] = str(WORKSPACE)  # read by GUARD_SOURCE
+    return env
+
+
 _always_allow_python = False
 
 
@@ -1666,7 +1680,7 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
     try:
         proc = subprocess.run(
             cmd, cwd=CWD, capture_output=True, text=True, timeout=timeout,
-            env={**os.environ, "AGENT_GUARD_WORKSPACE": str(WORKSPACE)},  # read by GUARD_SOURCE
+            env=project_env(),
         )
     except subprocess.TimeoutExpired:
         raise ToolError(f"Timed out after {timeout}s.")
