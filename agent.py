@@ -1629,6 +1629,10 @@ def project_env() -> dict:
     """
     env = {k: v for k, v in os.environ.items()
            if k not in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PROJECT", "PYTHONHOME", "PYTHONPATH", "CONDA_PREFIX")}
+    if sys.prefix != sys.base_prefix:  # the agent runs in a virtualenv: take its bin/ off PATH
+        own_bin = os.path.normcase(str(Path(sys.prefix) / ("Scripts" if os.name == "nt" else "bin")))
+        env["PATH"] = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep)
+                                      if os.path.normcase(d.rstrip("/\\")) != own_bin)
     env["AGENT_GUARD_WORKSPACE"] = str(WORKSPACE)  # read by GUARD_SOURCE
     return env
 
