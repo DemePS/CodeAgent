@@ -7,6 +7,8 @@ Tools:
   - read_file   : read a file (optionally a line range)
   - edit_file   : replace an exact snippet in a file -- shows a diff and asks permission first
   - write_file  : create/overwrite a file -- shows a diff and asks permission first
+  - copy_path   : copy a file or a folder inside the workspace -- a text file shows a diff, a
+                  binary file or folder shows what will be created; asks permission first
   - delete_file : delete a file -- always asks for human validation, even in autonomous mode
   - delete_folder : delete a folder and everything in it -- shows what it contains and always
                   asks for human validation, even in autonomous mode; never the workspace root,
@@ -72,6 +74,11 @@ past 70% it compacts: a summary call replaces the earlier conversation with a br
 decisions, files changed, state, next steps). If the API still says the prompt is too long, it
 compacts and retries once. AGENT_CONTEXT_WINDOW (default 200000) is your deployment's window;
 AGENT_COMPACT_MODEL picks the deployment that writes summaries (default: the main one).
+Pasting: multi-line text pasted at the "You:" prompt (a traceback, a code snippet) is sent as
+one instruction. You can also type three double quotes on a line of their own, then paste or
+type anything, and end with three double quotes on their own line again. Approval prompts ignore anything typed or pasted before they appear, so
+leftover pasted lines can never answer "Apply this change?".
+
 Interactive commands: /context shows usage, /compact compacts now, /clear starts a fresh
 conversation (memory notes are kept).
 
@@ -85,11 +92,13 @@ import hashlib
 import json
 import os
 import re
+import select
 import shutil
 import queue
 import subprocess
 import sys
 import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 
@@ -189,7 +198,8 @@ change_directory to move around -- you can never leave the repository.
 Use grep and read_file to understand the code before changing it. Read a file before
 you change it. To change an existing file, use edit_file with an old_string copied exactly
 from the file (without the line-number prefix) and enough surrounding lines to be unique.
-Use write_file only to create a new file or to rewrite most of a file. The user sees a
+Use write_file only to create a new file or to rewrite most of a file. To duplicate an existing
+file or folder (e.g. to start from a template), use copy_path instead of reading and rewriting it. The user sees a
 diff and must approve every change. If the user rejects a change, read their feedback
 and adjust rather than retrying the same edit. When a requirement is ambiguous or a
 decision is genuinely the user's to make, use ask_human instead of guessing.
@@ -404,6 +414,24 @@ TOOLS = [
                 "content": {"type": "string", "description": "The complete new file content."},
             },
             "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "copy_path",
+        "description": (
+            "Copy a file or a folder (with everything in it) to another place in the workspace. If "
+            "destination is an existing folder, the source is copied into it. Copying a text file "
+            "shows the user a diff (like write_file); a binary file or a folder shows what will be "
+            "created. The user approves the copy unless autonomous mode is on. An existing folder is "
+            "never overwritten; .git folders are not copied and symlinks are copied as links."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "File or folder to copy, relative to the current directory."},
+                "destination": {"type": "string", "description": "New path, or an existing folder to copy into."},
+            },
+            "required": ["source", "destination"],
         },
     },
     {
@@ -766,6 +794,67 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
     return truncate(body or "(empty file)")
 
 
+def pending_input() -> bool:
+    """True when more typed or pasted input is already waiting (a multi-line paste arrives at once)."""
+    if not sys.stdin.isatty():
+        return False
+    try:
+        if os.name == "nt":
+            import msvcrt
+            time.sleep(0.05)  # let the console receive the rest of the paste
+            return msvcrt.kbhit()
+        return bool(select.select([sys.stdin], [], [], 0.05)[0])
+    except (OSError, ValueError):
+        return False
+
+
+def discard_pending_input() -> None:
+    """Drop anything typed or pasted ahead, so it cannot answer the prompt that follows."""
+    if not sys.stdin.isatty():
+        return
+    try:
+        if os.name == "nt":
+            import msvcrt
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        else:
+            import termios
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+    except (OSError, ValueError, ImportError):
+        pass
+
+
+def ask(prompt: str) -> str:
+    """input() for approvals: ignores anything typed or pasted before the question appeared."""
+    discard_pending_input()
+    return input(prompt)
+
+
+def read_text(prompt: str) -> str:
+    """Read one message, which may be several lines: a paste, or a block between \"\"\" lines."""
+    first = input(prompt)
+    if first.strip() == '"""':
+        lines = []
+        while (line := input()).strip() != '"""':
+            lines.append(line)
+        return "\n".join(lines)
+    lines = [first]
+    while pending_input():  # the rest of a multi-line paste
+        lines.append(input())
+    return "\n".join(lines)
+
+
+def approve(question: str) -> None:
+    """Ask the user to approve an action (skipped in autonomous mode); raises ToolError on refusal."""
+    if AUTO_MODE:
+        print("\033[2m(autonomous mode: applied without asking)\033[0m")
+        return
+    if ask(f"{question} [y]es / [n]o: ").strip().lower() not in ("y", "yes"):
+        feedback = ask("Why not / what should change? (optional): ").strip()
+        raise ToolError("The user rejected this; nothing was changed."
+                        + (f" User feedback: {feedback}" if feedback else ""))
+
+
 def writable_path(path: str) -> Path:
     """Resolve a path the agent may write to, refusing its own source code."""
     p = resolve(path)
@@ -805,9 +894,9 @@ def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
         print("\033[2m(autonomous mode: applied without asking)\033[0m")
         answer = "y"
     else:
-        answer = input("\nApply this change? [y]es / [n]o: ").strip().lower()
+        answer = ask("\nApply this change? [y]es / [n]o: ").strip().lower()
     if answer not in ("y", "yes"):
-        feedback = input("Why not / what should change? (optional): ").strip()
+        feedback = ask("Why not / what should change? (optional): ").strip()
         raise ToolError(
             "The user rejected this change; the file was NOT modified."
             + (f" User feedback: {feedback}" if feedback else "")
@@ -856,6 +945,66 @@ def tool_write_file(path: str, content: str) -> str:
     return confirm_and_write(path, p, old, content)
 
 
+def tool_copy_path(source: str, destination: str) -> str:
+    src = resolve(source)
+    if not src.exists():
+        raise ToolError(f"Not found: {source}")
+    dest = resolve(destination)
+    if dest.is_dir():
+        dest = resolve(str(Path(destination) / src.name))  # copy into the existing folder
+    if dest == src or src in dest.parents:
+        raise ToolError("Cannot copy a file or folder onto or into itself.")
+    if src.name == ".git":
+        raise ToolError("A .git folder cannot be copied.")
+    rel = dest.relative_to(WORKSPACE).as_posix()
+    if is_protected(dest) or any(prot in dest.parents or prot == dest for prot in PROTECTED_PATHS):
+        raise ToolError(f"{rel} is part of the coding agent's own files and cannot be written.")
+
+    if src.is_file():
+        data = src.read_bytes()
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+        if text is not None:  # a text file: same diff and approval as write_file
+            p = writable_path(os.path.relpath(dest, CWD))
+            old = p.read_text(encoding="utf-8") if p.exists() else ""
+            if old == text:
+                return f"No changes: {rel} already has this content."
+            return confirm_and_write(display(p), p, old, text) + f" (copied from {display(src)})"
+        existed = dest.exists()
+        print(f"\n\033[1;33m=== Copy {display(src)} -> {display(dest)} ({len(data):,} bytes, binary"
+              f"{', REPLACES the existing file' if existed else ''}) ===\033[0m")
+        approve("Copy this file?")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        return f"Copied {display(src)} to {display(dest)} ({len(data):,} bytes)."
+
+    if dest.exists():
+        raise ToolError(f"{rel} already exists; choose a new folder name (folders are never overwritten).")
+    files = folders = size = 0
+    for root, dirs, names in os.walk(src):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        folders += len(dirs)
+        for file_name in names:
+            files += 1
+            try:
+                size += os.lstat(os.path.join(root, file_name)).st_size
+            except OSError:
+                pass
+    print(f"\n\033[1;33m=== Copy folder {display(src)}/ -> {display(dest)}/ ({files} file(s), "
+          f"{folders} subfolder(s), {size:,} bytes) ===\033[0m")
+    entries = sorted((e for e in src.iterdir() if e.name != ".git"), key=lambda e: (not e.is_dir(), e.name.lower()))
+    for e in entries[:30]:
+        print(f"  {e.name}{'/' if e.is_dir() and not e.is_symlink() else ''}")
+    if len(entries) > 30:
+        print(f"  ... and {len(entries) - 30} more")
+    approve("Copy this folder?")
+    # symlinks=True: links are copied as links, so nothing outside the workspace is pulled in.
+    shutil.copytree(src, dest, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+    return f"Copied folder {display(src)} to {display(dest)} ({files} file(s), {folders} subfolder(s))."
+
+
 def tool_delete_file(path: str) -> str:
     p = writable_path(path)
     if not p.is_file():
@@ -865,9 +1014,9 @@ def tool_delete_file(path: str) -> str:
     print(f"\n\033[1;31m=== Delete {path} ({size:,} bytes) ===\033[0m")
     if AUTO_MODE:
         print("\033[2m(autonomous mode: deletions still need your approval)\033[0m")
-    answer = input("Delete this file? [y]es / [n]o: ").strip().lower()
+    answer = ask("Delete this file? [y]es / [n]o: ").strip().lower()
     if answer not in ("y", "yes"):
-        feedback = input("Why not? (optional): ").strip()
+        feedback = ask("Why not? (optional): ").strip()
         raise ToolError("The user refused the deletion; the file was NOT deleted."
                         + (f" User feedback: {feedback}" if feedback else ""))
     p.unlink()
@@ -910,9 +1059,9 @@ def tool_delete_folder(path: str) -> str:
         print(f"  ... and {len(entries) - 30} more")
     if AUTO_MODE:
         print("\033[2m(autonomous mode: deletions still need your approval)\033[0m")
-    answer = input("Delete this folder and everything in it? [y]es / [n]o: ").strip().lower()
+    answer = ask("Delete this folder and everything in it? [y]es / [n]o: ").strip().lower()
     if answer not in ("y", "yes"):
-        feedback = input("Why not? (optional): ").strip()
+        feedback = ask("Why not? (optional): ").strip()
         raise ToolError("The user refused the deletion; the folder was NOT deleted."
                         + (f" User feedback: {feedback}" if feedback else ""))
     try:
@@ -934,7 +1083,8 @@ def tool_ask_human(question: str) -> str:
             "Autonomous mode is on and the user is not available. Choose the most reasonable "
             "option yourself, continue, and list this assumption in your final answer."
         )
-    answer = input("Your answer: ").strip()
+    discard_pending_input()
+    answer = read_text("Your answer (multi-line paste is fine): ").strip()
     return answer or "(the user gave no answer)"
 
 
@@ -1044,11 +1194,11 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
     print(f"({'uv run python' if UV else sys.executable}, subprocesses and file changes blocked)")
     print(code if code else "python " + " ".join(args))
     if not (_always_allow_python or AUTO_MODE):
-        answer = input("\nRun this? [y]es / [n]o / [a]lways for this session: ").strip().lower()
+        answer = ask("\nRun this? [y]es / [n]o / [a]lways for this session: ").strip().lower()
         if answer in ("a", "always"):
             _always_allow_python = True
         elif answer not in ("y", "yes"):
-            feedback = input("Why not / what should change? (optional): ").strip()
+            feedback = ask("Why not / what should change? (optional): ").strip()
             raise ToolError(
                 "The user declined to run this."
                 + (f" User feedback: {feedback}" if feedback else "")
@@ -1200,6 +1350,7 @@ TOOL_HANDLERS = {
     "read_file": tool_read_file,
     "edit_file": tool_edit_file,
     "write_file": tool_write_file,
+    "copy_path": tool_copy_path,
     "delete_file": tool_delete_file,
     "delete_folder": tool_delete_folder,
     "ask_human": tool_ask_human,
@@ -1842,12 +1993,13 @@ def interact(client: anthropic.Anthropic, messages: list, args: argparse.Namespa
                 raise SystemExit(1)  # main() still waits for the memory update first
             return
 
-    print("Interactive mode. Type 'exit' to quit. Commands: /auto (toggle autonomous mode), /mode, "
-          "/skills (re-scan skills), /context, /compact, /clear.")
+    print("Interactive mode. Type 'exit' to quit. Multi-line pastes are sent as one message (or wrap "
+          "text in \"\"\" lines).\nCommands: /auto (toggle autonomous mode), /mode, /skills (re-scan "
+          "skills), /context, /compact, /clear.")
     while True:
         print_memory_status()
         try:
-            user_input = input("\n\033[1mYou:\033[0m ").strip()
+            user_input = read_text("\n\033[1mYou:\033[0m ").strip()
         except (EOFError, KeyboardInterrupt):
             break
         if user_input.lower() in ("exit", "quit"):
