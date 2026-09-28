@@ -480,7 +480,7 @@ BLOCKED_EVENTS = {  # starting, replacing or killing processes
 BLOCKED_SYMBOLS = re.compile(
     r"^_?(system|popen|exec\w*|fork\w*|vfork|clone\d?|posix_spawn\w*|spawn\w*|kill\w*|"
     r"CreateProcess\w*|WinExec|ShellExecute\w*|TerminateProcess|"
-    r"unlink\w*|remove|rmdir|rename\w*|f?truncate\w*|f?chmod\w*|f?chown\w*|"
+    r"unlink\w*|remove|rmdir|mkdir\w*|CreateDirectory\w*|rename\w*|f?truncate\w*|f?chmod\w*|f?chown\w*|"
     r"f?open\w*|freopen|creat\w*|DeleteFile\w*|RemoveDirectory\w*|MoveFile\w*|ReplaceFile\w*|"
     r"SetFileAttributes\w*)$"
 )
@@ -494,7 +494,7 @@ WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
 FILE_EVENTS = {  # event -> indexes of the path arguments it changes
     "os.remove": (0,), "os.rmdir": (0,), "os.truncate": (0,), "shutil.rmtree": (0,),
     "os.rename": (0, 1), "os.link": (1,), "os.symlink": (1,),
-    "os.chmod": (0,), "os.chown": (0,), "os.chflags": (0,),
+    "os.chmod": (0,), "os.chown": (0,), "os.chflags": (0,), "os.mkdir": (0,), "os.utime": (0,),
 }
 
 def writable(path):
