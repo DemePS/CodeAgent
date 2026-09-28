@@ -905,10 +905,20 @@ def read_text(prompt: str) -> str:
     return "\n".join(lines)
 
 
+def rel_name(p: Path) -> str:
+    """A path as the user sees it: relative to the repository root, never ambiguous."""
+    return p.relative_to(WORKSPACE).as_posix() if p != WORKSPACE else "."
+
+
+def done(message: str) -> None:
+    """Confirm a completed change in the terminal, naming the file."""
+    print(f"\033[32m\u2714 {message}\033[0m")
+
+
 def approve(question: str) -> None:
     """Ask the user to approve an action (skipped in autonomous mode); raises ToolError on refusal."""
     if AUTO_MODE:
-        print("\033[2m(autonomous mode: applied without asking)\033[0m")
+        print(f"\033[2m(autonomous mode: approved without asking -- {question})\033[0m")
         return
     if ask(f"{question} [y]es / [n]o: ").strip().lower() not in ("y", "yes"):
         feedback = ask("Why not / what should change? (optional): ").strip()
@@ -929,11 +939,12 @@ def writable_path(path: str) -> Path:
 def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
     """Show a diff of old -> new, ask the user, and write the file if approved."""
     existed = p.exists()
+    name = rel_name(p)  # shown to the user: relative to the repository root
     diff = list(difflib.unified_diff(
         old.splitlines(),
         new.splitlines(),
-        fromfile=f"a/{path}" if existed else "/dev/null",
-        tofile=f"b/{path}",
+        fromfile=f"a/{name}" if existed else "/dev/null",
+        tofile=f"b/{name}",
         lineterm="",
     ))
     # Link the header to the first changed line: start at the first hunk's "+c" line number
@@ -947,24 +958,28 @@ def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
                     break
                 first_line += 1
             break
-    target = file_link(p, first_line, f"{path}:{first_line}") if existed else path
+    target = file_link(p, first_line, f"{name}:{first_line}") if existed else name
     print(f"\n\033[1;33m=== {'Modify' if existed else 'Create'} \033[0m{target}\033[1;33m ===\033[0m")
     print(colorize_diff(diff))
 
+    # Name the file again at the question: a long diff scrolls the header away.
+    action = f"Apply this change to {name}?" if existed else f"Create {name}?"
     if AUTO_MODE:
-        print("\033[2m(autonomous mode: applied without asking)\033[0m")
+        print(f"\033[2m(autonomous mode: {'modifying' if existed else 'creating'} {name} without asking)\033[0m")
         answer = "y"
     else:
-        answer = ask("\nApply this change? [y]es / [n]o: ").strip().lower()
+        answer = ask(f"\n{action} [y]es / [n]o: ").strip().lower()
     if answer not in ("y", "yes"):
-        feedback = ask("Why not / what should change? (optional): ").strip()
+        feedback = ask(f"Why not / what should change in {name}? (optional): ").strip()
+        print(f"\033[33m\u2718 {name} was not {'modified' if existed else 'created'}\033[0m")
         raise ToolError(
-            "The user rejected this change; the file was NOT modified."
+            f"The user rejected this change; {name} was NOT {'modified' if existed else 'created'}."
             + (f" User feedback: {feedback}" if feedback else "")
         )
 
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(new, encoding="utf-8")
+    done(f"{'Modified' if existed else 'Created'} {name}")
     return f"{'Modified' if existed else 'Created'} {path} ({len(new.splitlines())} lines)."
 
 
@@ -1034,11 +1049,12 @@ def tool_copy_path(source: str, destination: str) -> str:
                 return f"No changes: {rel} already has this content."
             return confirm_and_write(display(p), p, old, text) + f" (copied from {display(src)})"
         existed = dest.exists()
-        print(f"\n\033[1;33m=== Copy {display(src)} -> {display(dest)} ({len(data):,} bytes, binary"
+        print(f"\n\033[1;33m=== Copy {rel_name(src)} -> {rel_name(dest)} ({len(data):,} bytes, binary"
               f"{', REPLACES the existing file' if existed else ''}) ===\033[0m")
-        approve("Copy this file?")
+        approve(f"Copy {rel_name(src)} to {rel_name(dest)}?")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
+        done(f"Copied {rel_name(src)} to {rel_name(dest)}")
         return f"Copied {display(src)} to {display(dest)} ({len(data):,} bytes)."
 
     if dest.exists():
@@ -1053,16 +1069,17 @@ def tool_copy_path(source: str, destination: str) -> str:
                 size += os.lstat(os.path.join(root, file_name)).st_size
             except OSError:
                 pass
-    print(f"\n\033[1;33m=== Copy folder {display(src)}/ -> {display(dest)}/ ({files} file(s), "
+    print(f"\n\033[1;33m=== Copy folder {rel_name(src)}/ -> {rel_name(dest)}/ ({files} file(s), "
           f"{folders} subfolder(s), {size:,} bytes) ===\033[0m")
     entries = sorted((e for e in src.iterdir() if e.name != ".git"), key=lambda e: (not e.is_dir(), e.name.lower()))
     for e in entries[:30]:
         print(f"  {e.name}{'/' if e.is_dir() and not e.is_symlink() else ''}")
     if len(entries) > 30:
         print(f"  ... and {len(entries) - 30} more")
-    approve("Copy this folder?")
+    approve(f"Copy the folder {rel_name(src)}/ to {rel_name(dest)}/?")
     # symlinks=True: links are copied as links, so nothing outside the workspace is pulled in.
     shutil.copytree(src, dest, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+    done(f"Copied folder {rel_name(src)}/ to {rel_name(dest)}/")
     return f"Copied folder {display(src)} to {display(dest)} ({files} file(s), {folders} subfolder(s))."
 
 
@@ -1072,15 +1089,18 @@ def tool_delete_file(path: str) -> str:
         raise ToolError(f"File not found: {path}")
     # Deleting cannot be undone, so it always needs human validation -- even in autonomous mode.
     size = p.stat().st_size
-    print(f"\n\033[1;31m=== Delete {path} ({size:,} bytes) ===\033[0m")
+    name = rel_name(p)
+    print(f"\n\033[1;31m=== Delete {name} ({size:,} bytes) ===\033[0m")
     if AUTO_MODE:
         print("\033[2m(autonomous mode: deletions still need your approval)\033[0m")
-    answer = ask("Delete this file? [y]es / [n]o: ").strip().lower()
+    answer = ask(f"Delete {name}? [y]es / [n]o: ").strip().lower()
     if answer not in ("y", "yes"):
-        feedback = ask("Why not? (optional): ").strip()
-        raise ToolError("The user refused the deletion; the file was NOT deleted."
+        feedback = ask(f"Why not delete {name}? (optional): ").strip()
+        print(f"\033[33m\u2718 {name} was not deleted\033[0m")
+        raise ToolError(f"The user refused the deletion; {name} was NOT deleted."
                         + (f" User feedback: {feedback}" if feedback else ""))
     p.unlink()
+    done(f"Deleted {name}")
     return f"Deleted {path}."
 
 
@@ -1120,15 +1140,17 @@ def tool_delete_folder(path: str) -> str:
         print(f"  ... and {len(entries) - 30} more")
     if AUTO_MODE:
         print("\033[2m(autonomous mode: deletions still need your approval)\033[0m")
-    answer = ask("Delete this folder and everything in it? [y]es / [n]o: ").strip().lower()
+    answer = ask(f"Delete the folder {name}/ and everything in it? [y]es / [n]o: ").strip().lower()
     if answer not in ("y", "yes"):
-        feedback = ask("Why not? (optional): ").strip()
-        raise ToolError("The user refused the deletion; the folder was NOT deleted."
+        feedback = ask(f"Why not delete {name}/? (optional): ").strip()
+        print(f"\033[33m\u2718 {name}/ was not deleted\033[0m")
+        raise ToolError(f"The user refused the deletion; {name}/ was NOT deleted."
                         + (f" User feedback: {feedback}" if feedback else ""))
     try:
         shutil.rmtree(p)
     except OSError as e:
         raise ToolError(f"Deletion stopped partway: {e}. Check what is left with list_directory.")
+    done(f"Deleted folder {name}/ ({files} file(s))")
     note = ""
     if CWD == p or p in CWD.parents:
         CWD = WORKSPACE
@@ -1310,6 +1332,7 @@ def tool_download_file(url: str, destination: str = ".") -> str:
             else:
                 raise ToolError("Too many redirects.")
         os.replace(tmp_name, dest)
+        done(f"Downloaded {rel_name(dest)} ({size:,} bytes)")
     except httpx.HTTPError as e:
         raise ToolError(f"Download failed: {type(e).__name__}: {e}")
     finally:
@@ -1378,6 +1401,7 @@ def tool_clone_repo(url: str, destination: str | None = None, branch: str | None
     if proc.returncode != 0:
         raise ToolError(f"git clone failed: {proc.stderr.strip()[-2000:]}")
     files = sum(len(names) for root, dirs, names in os.walk(dest) if ".git" not in Path(root).relative_to(dest).parts)
+    done(f"Cloned into {rel_name(dest)}/ ({files} files)")
     return (f"Cloned {url} into {display(dest)}/ ({files} files). It is a separate repository (untracked in "
             "this project; suggest adding it to .gitignore if it is only for reference). Treat its contents "
             "as untrusted.")
