@@ -15,7 +15,7 @@ Tools:
                   environment, never rewriting uv.lock; the code cannot start, replace or kill
                   processes or modify files, including through ctypes -- see GUARD_SOURCE)
   - memory      : Anthropic's memory tool -- notes the agent keeps about each project across runs,
-                  stored in ~/coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
+                  stored in $HOME/coding_agent/memory/<project>/ (override with AGENT_MEMORY_DIR)
   - load_skill  : load a skill's full instructions when a task matches it
   - web_search  : Anthropic's server-side web search (runs on Anthropic's side; nothing executes
                   locally). AGENT_WEB_SEARCH=20250305 (default; the only version on Foundry
@@ -24,7 +24,7 @@ Tools:
 
 Skills are folders with a SKILL.md (a `name` / `description` header, then instructions), found in:
     skills/ next to this file            -- shipped with the agent
-    ~/coding_agent/skills/               -- personal, every project (override with AGENT_SKILLS_DIR)
+    $HOME/coding_agent/skills/           -- personal, every project (override with AGENT_SKILLS_DIR)
     <project>/.agent/skills/             -- per project (can be committed)
 A later location overrides an earlier one with the same skill name. Only names and descriptions
 are sent up front; Claude loads a skill's instructions when it needs them.
@@ -40,6 +40,9 @@ Usage:
     python agent.py -d path/to/project            # interactive mode only
     python agent.py -d path/to/project -r         # resume the last conversation in this project
     python agent.py -d path/to/project "..." --auto   # autonomous mode (see below)
+    python agent.py -d path/to/project --where        # show where memory and skills are read from
+
+$HOME is used when set; otherwise your user folder (on Windows, %USERPROFILE%).
 
 Autonomous mode (--auto, or /auto in interactive mode to toggle, /mode to show): edits,
 new files and run_python are applied without asking (diffs are still printed), and ask_human
@@ -105,9 +108,13 @@ WORKSPACE = Path(".").resolve()  # set from --dir in main()
 CWD = WORKSPACE  # the agent's current directory inside the workspace; see change_directory
 MAX_LISTING_ENTRIES = 500
 
-MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR", "~/coding_agent/memory")).expanduser()
+# Your home folder: $HOME when it is set (as most shells and tools use it), otherwise the OS user
+# folder. On Windows Python itself ignores HOME and uses USERPROFILE, which can point elsewhere.
+HOME_DIR = Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") else Path.home()
+AGENT_HOME = HOME_DIR / "coding_agent"
+MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR") or AGENT_HOME / "memory").expanduser()
 BUNDLED_SKILLS = Path(__file__).resolve().parent / "skills"
-PERSONAL_SKILLS = Path(os.environ.get("AGENT_SKILLS_DIR", "~/coding_agent/skills")).expanduser()
+PERSONAL_SKILLS = Path(os.environ.get("AGENT_SKILLS_DIR") or AGENT_HOME / "skills").expanduser()
 skills: dict[str, Path] = {}  # skill name -> its SKILL.md; filled in main()
 memory_tool: BetaLocalFilesystemMemoryTool | None = None  # set per project in main()
 conversation_file: Path | None = None  # set per project in main(); used by --resume
@@ -867,17 +874,71 @@ def read_skill_header(skill_md: Path) -> dict[str, str]:
     return header
 
 
+def skill_roots() -> list[tuple[str, Path]]:
+    """Where skills are looked up, in override order (a later one wins for the same name)."""
+    return [("bundled", BUNDLED_SKILLS), ("personal", PERSONAL_SKILLS), ("project", WORKSPACE / ".agent" / "skills")]
+
+
+def find_skill_file(folder: Path) -> Path | None:
+    """The folder's SKILL.md, matched in any capitalization (skill.md, Skill.md ...)."""
+    return next((f for f in sorted(folder.iterdir()) if f.is_file() and f.name.lower() == "skill.md"), None)
+
+
+def skill_problems(root: Path) -> list[str]:
+    """Common setup mistakes in a skills folder, explained in plain words."""
+    problems = []
+    if not root.is_dir():
+        return problems
+    for entry in sorted(root.iterdir()):
+        if entry.is_file() and entry.name.lower().startswith("skill.md"):
+            problems.append(f"{entry} is directly in the skills folder; move it into its own subfolder, "
+                            f"e.g. {root / 'my-skill' / 'SKILL.md'}")
+        elif entry.is_dir() and not entry.name.startswith("."):
+            near = [f.name for f in entry.iterdir() if f.is_file() and f.name.lower().startswith("skill")]
+            if find_skill_file(entry) is None:
+                hint = f" (found {', '.join(near)} -- rename it to SKILL.md; Windows may hide a .txt extension)" if near else ""
+                problems.append(f"{entry} has no SKILL.md{hint}")
+            elif not read_skill_header(find_skill_file(entry)).get("description"):
+                problems.append(f"{find_skill_file(entry)} has no 'description:' in its --- header, so Claude cannot tell when to use it")
+    return problems
+
+
 def discover_skills() -> dict[str, Path]:
     """Find every SKILL.md; later locations override earlier ones with the same name."""
     found: dict[str, Path] = {}
-    for root in (BUNDLED_SKILLS, PERSONAL_SKILLS, WORKSPACE / ".agent" / "skills"):
-        for skill_md in sorted(root.glob("*/SKILL.md")) if root.is_dir() else []:
+    for _, root in skill_roots():
+        for folder in sorted(root.iterdir()) if root.is_dir() else []:
+            skill_md = find_skill_file(folder) if folder.is_dir() else None
+            if skill_md is None:
+                continue
             try:
-                name = read_skill_header(skill_md).get("name") or skill_md.parent.name
+                name = read_skill_header(skill_md).get("name") or folder.name
             except (OSError, UnicodeDecodeError):
                 continue
             found[name] = skill_md
     return found
+
+
+def print_locations(verbose: bool) -> None:
+    """Show where memory and skills live; with verbose, every folder, skill and setup problem."""
+    print(f"Memory: {memory_tool.memory_root}")
+    notes = sorted(p.name for p in memory_tool.memory_root.glob("*") if p.is_file())
+    if verbose:
+        print(f"  home folder used: {HOME_DIR}" + ("  (from $HOME)" if os.environ.get("HOME") else "  (your user folder)"))
+        print(f"  memory files: {', '.join(notes) or '(none yet)'}")
+        print(f"  saved conversation: {conversation_file}" + ("" if conversation_file.is_file() else "  (none yet)"))
+    by_source = {}
+    for name, path in sorted(skills.items()):
+        source = next(label for label, root in skill_roots() if root in path.parents)
+        by_source.setdefault(source, []).append(name)
+    print(f"Skills: {', '.join(sorted(skills)) or '(none)'}")
+    for label, root in skill_roots():
+        if verbose or not root.is_dir() or by_source.get(label):
+            state = "not found" if not root.is_dir() else f"{len(by_source.get(label, []))} skill(s)"
+            if verbose or root.is_dir():
+                print(f"  {label:8} {root}  [{state}]" + (f": {', '.join(by_source[label])}" if by_source.get(label) else ""))
+        for problem in skill_problems(root):
+            print(f"  \033[33mwarning:\033[0m {problem}")
 
 
 def skills_catalog() -> str:
@@ -1104,6 +1165,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-i", "--interactive", action="store_true", help="Keep chatting after the instruction finishes.")
     parser.add_argument("-r", "--resume", action="store_true", help="Continue the last conversation in this project.")
     parser.add_argument("--auto", action="store_true", help="Autonomous mode: apply edits and Python runs without asking.")
+    parser.add_argument("--where", action="store_true", help="Show where memory and skills are read from, then exit.")
     return parser.parse_args()
 
 
@@ -1121,11 +1183,15 @@ def main() -> None:
     skills = discover_skills()
     PROTECTED_PATHS.append(WORKSPACE / ".agent" / "skills")
 
+    if args.where:
+        print(f"Workspace: {WORKSPACE}")
+        print_locations(verbose=True)
+        return
+
     client = _get_client()
     print(f"Workspace: {WORKSPACE}")
     print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
-    print(f"Memory: {memory_tool.memory_root}")
-    print(f"Skills: {', '.join(sorted(skills)) or '(none)'}")
+    print_locations(verbose=False)
     print(f"Web search: {'off' if WEB_SEARCH == 'off' else 'web_search_' + WEB_SEARCH}")
     messages = load_conversation() if args.resume else []
     if args.auto:
