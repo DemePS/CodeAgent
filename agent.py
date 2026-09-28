@@ -17,9 +17,10 @@ Tools:
                   public site) and show Claude the screenshot, plus console errors and failed
                   requests -- Claude sees the image itself (text, layout, colors), no OCR needed.
                   Needs Playwright: `pip install playwright` (or `uv add --dev playwright`), then
-                  `playwright install chromium`. localhost / private addresses and workspace files
-                  open without asking; public sites always ask. Set AGENT_BROWSER_PATH to use an
-                  existing Chromium/Chrome instead of Playwright's download.
+                  `playwright install chromium` -- or it uses the installed Edge / Chrome when that
+                  download is blocked. `coding-agent --check-browser` tests it. localhost / private addresses and workspace files
+                  open without asking; public sites always ask. AGENT_BROWSER_PATH picks a specific
+                  Chromium/Chrome/Edge executable.
   - view_image  : show Claude an image from the workspace (a mockup, a design export, a screenshot)
   - copy_path   : copy a file or a folder inside the workspace -- a text file shows a diff, a
                   binary file or folder shows what will be created; asks permission first
@@ -1492,11 +1493,70 @@ def tool_view_image(path: str) -> list:
     return [{"type": "text", "text": f"{display(p)} ({len(data):,} bytes):"}, image_block(data, media_type)]
 
 
-def browser_launch_options() -> dict:
-    options = {"headless": True}
+# No background traffic (updates, sync, safe-browsing lists): only the page's own requests go out,
+# which matters behind a firewall and keeps the browser quiet.
+BROWSER_ARGS = ["--disable-background-networking", "--disable-component-update", "--disable-sync",
+                "--no-first-run", "--no-default-browser-check", "--disable-domain-reliability"]
+
+
+def launch_browser(pw):
+    """Start a headless browser, trying each option in turn. Returns (browser, label).
+
+    Order: AGENT_BROWSER_PATH, Playwright's own Chromium (`playwright install chromium`), then
+    the Microsoft Edge or Google Chrome already installed on the machine -- so screenshots work
+    even where Playwright's browser download is blocked (e.g. behind a corporate proxy).
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    attempts = []
     if os.environ.get("AGENT_BROWSER_PATH"):
-        options["executable_path"] = os.environ["AGENT_BROWSER_PATH"]
-    return options
+        attempts.append((f"AGENT_BROWSER_PATH ({os.environ['AGENT_BROWSER_PATH']})",
+                         {"executable_path": os.environ["AGENT_BROWSER_PATH"]}))
+    attempts += [("Playwright's Chromium", {}), ("Microsoft Edge", {"channel": "msedge"}),
+                 ("Google Chrome", {"channel": "chrome"})]
+    errors = []
+    for label, options in attempts:
+        try:
+            return pw.chromium.launch(headless=True, args=BROWSER_ARGS, **options), label
+        except PlaywrightError as e:
+            first = next((line.strip() for line in str(e).splitlines() if line.strip()), "failed")
+            errors.append(f"{label}: {first[:300]}")
+    raise ToolError(
+        "No browser could be started. Tried:\n  " + "\n  ".join(errors) + "\n"
+        "Fix one of them: run `playwright install chromium` in the agent's environment "
+        "(`uv run playwright install chromium`), install Microsoft Edge or Google Chrome, or set "
+        "AGENT_BROWSER_PATH to a Chrome/Chromium/Edge executable. `coding-agent --check-browser` "
+        "tests the setup."
+    )
+
+
+def check_browser() -> None:
+    """--check-browser: show which browser screenshot_page will use, or why none works."""
+    print(f"Python: {sys.executable}")
+    try:
+        from playwright._repo_version import version
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("Playwright: NOT installed in this environment.\n"
+              "  Fix: uv sync --extra browser   (or: pip install playwright)")
+        return
+    print(f"Playwright: {version}")
+    if os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        print(f"PLAYWRIGHT_BROWSERS_PATH: {os.environ['PLAYWRIGHT_BROWSERS_PATH']}")
+    try:
+        with sync_playwright() as pw:
+            browser, label = launch_browser(pw)
+            try:
+                page = browser.new_page()
+                page.set_content("<h1>ok</h1>")
+                size = len(page.screenshot())
+            finally:
+                browser.close()
+        print(f"Browser: {label} (version {browser.version}) -- screenshot OK ({size:,} bytes)")
+    except ToolError as e:
+        print(f"Browser: FAILED\n{e}")
+    except Exception as e:  # the Playwright driver itself failed to start
+        print(f"Browser: FAILED -- {type(e).__name__}: {e}")
 
 
 def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_page: bool = False,
@@ -1550,7 +1610,7 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
     console, failed, blocked = [], [], []
     try:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(**browser_launch_options())
+            browser, browser_label = launch_browser(pw)
             try:
                 context = browser.new_context(viewport={"width": width, "height": height},
                                               color_scheme="dark" if dark_mode else "light",
@@ -1590,12 +1650,18 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
             finally:
                 browser.close()
     except PlaywrightError as e:
-        message = str(e).splitlines()[0]
-        if "Executable doesn't exist" in str(e):
-            message = "Chromium is not installed for Playwright. Tell the user to run: playwright install chromium"
-        elif "ERR_CONNECTION_REFUSED" in str(e):
+        text = str(e)
+        message = next((line.strip() for line in text.splitlines() if line.strip()), "unknown error")[:500]
+        if "ERR_CONNECTION_REFUSED" in text:
             message = f"Nothing is listening at {url}. Ask the user to start the dev server."
+        elif "ERR_NAME_NOT_RESOLVED" in text:
+            message = f"Cannot resolve the host in {url}."
+        elif "Timeout" in text:
+            message = f"The page did not finish loading within 30 s: {url}"
         raise ToolError(f"Browser error: {message}")
+    except (OSError, NotImplementedError) as e:  # the Playwright driver could not start
+        raise ToolError(f"Playwright could not start ({type(e).__name__}: {e}). Ask the user to run "
+                        "`coding-agent --check-browser` and share the output.")
 
     status = response.status if response else "n/a"
     lines = [f"Page: {title!r} -- {url} (HTTP {status}), viewport {width}x{height}"
@@ -1616,7 +1682,7 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
         if len(shots) > 1:
             content.append({"type": "text", "text": f"Screen {i + 1} (from y={i * height}px):"})
         content.append(image_block(shot, "image/png"))
-    print(f"\033[2m[browser] {len(shots)} screenshot(s), {len(console)} console message(s), "
+    print(f"\033[2m[browser] {browser_label}: {len(shots)} screenshot(s), {len(console)} console message(s), "
           f"{len(failed)} failed request(s)\033[0m")
     return content
 
@@ -2447,6 +2513,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-r", "--resume", action="store_true", help="Continue the last conversation in this project.")
     parser.add_argument("--auto", action="store_true", help="Autonomous mode: apply edits and Python runs without asking.")
     parser.add_argument("--where", action="store_true", help="Show where memory and skills are read from, then exit.")
+    parser.add_argument("--check-browser", action="store_true", help="Test the browser used by screenshot_page, then exit.")
     return parser.parse_args()
 
 
@@ -2464,6 +2531,9 @@ def main() -> None:
     skills = discover_skills()
     PROTECTED_PATHS.append(WORKSPACE / ".agent" / "skills")
 
+    if args.check_browser:
+        check_browser()
+        return
     if args.where:
         print(f"Workspace: {WORKSPACE}")
         print_locations(verbose=True)
