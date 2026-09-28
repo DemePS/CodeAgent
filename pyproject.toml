@@ -5,11 +5,13 @@ description = "Personal coding agent: Claude on Azure (Microsoft Foundry) with a
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "anthropic>=0.71.0,<1",        # Claude API (AnthropicFoundry client)
-    "azure-identity>=1.25.3",      # Azure AD sign-in when no API key is set
-    "httpx>=0.28.1",               # download_file
-    "python-dotenv>=1.1.1",        # reads .env
-    "mcp[cli]>=1.18.0",            # the weather MCP example (weather.py, client.py)
+    "anthropic>=0.71.0,<1", # Claude API (AnthropicFoundry client)
+    "azure-identity>=1.25.3", # Azure AD sign-in when no API key is set
+    "httpx>=0.28.1", # download_file
+    "python-dotenv>=1.1.1", # reads .env
+    "mcp[cli]>=1.18.0", # the weather MCP example (weather.py, client.py)
+    "openpyxl>=3.1.5", # read_excel / edit_excel
+    "pypdf>=6.19.0", # read_pdf (page ranges, text mode)
 ]
 
 [project.optional-dependencies]
