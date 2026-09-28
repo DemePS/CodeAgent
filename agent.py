@@ -41,6 +41,7 @@ Usage:
     python agent.py -d path/to/project -r         # resume the last conversation in this project
     python agent.py -d path/to/project "..." --auto   # autonomous mode (see below)
     python agent.py -d path/to/project --where        # show where memory and skills are read from
+    (in interactive mode, /skills re-scans the skill folders and shows them)
 
 $HOME is used when set; otherwise your user folder (on Windows, %USERPROFILE%).
 
@@ -134,6 +135,7 @@ WEB_SEARCH_MAX_USES = 5  # searches allowed per model response
 MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "100"))  # model calls per instruction
 AUTO_MODE = False  # autonomous mode: no approval prompts; set by --auto or /auto
 _mode_note: str | None = None  # tells Claude about a mode change with the next instruction
+_skills_note: str | None = None  # an updated skill list after /skills, sent with the next instruction
 
 # The agent must never modify its own source code or its skills (project skills are added in main()).
 PROTECTED_PATHS = [Path(__file__).resolve(), BUNDLED_SKILLS]
@@ -178,7 +180,10 @@ include_ignored, plus a glob such as "*.py", then read_file) instead of guessing
 Skills: the first instruction of each session also carries a <skills> block listing expert
 playbooks by name and description. When a task falls in a skill's area, call load_skill for it
 before starting and follow it; load several when a task spans areas. Do not load skills that
-are not relevant.
+are not relevant. Skills live outside the repository, so you cannot open them with list_directory or
+read_file; load_skill is the only way. If a skill the user mentions is missing, try load_skill once
+(it re-scans the skill folders), then report the folders it searched and ask the user to run
+/skills in the agent (or `python agent.py --where`) to see where skills are expected.
 
 Web search (when available): use it for things the repository cannot tell you -- current
 library or framework documentation and versions, error messages from third-party code, Azure
@@ -941,18 +946,28 @@ def print_locations(verbose: bool) -> None:
             print(f"  \033[33mwarning:\033[0m {problem}")
 
 
+def searched_folders() -> str:
+    return "; ".join(f"{label}: {root} ({'exists' if root.is_dir() else 'missing'})" for label, root in skill_roots())
+
+
 def skills_catalog() -> str:
     """Names and descriptions only -- the full instructions are loaded on demand."""
     if not skills:
-        return "<skills>\n(none installed)\n</skills>"
+        return f"<skills>\n(none found; searched {searched_folders()})\n</skills>"
     lines = [f"- {name}: {read_skill_header(p).get('description', '')}" for name, p in sorted(skills.items())]
     return "<skills>\n" + "\n".join(lines) + "\n</skills>"
 
 
 def tool_load_skill(name: str) -> str:
+    global skills
+    if name not in skills:
+        skills = discover_skills()  # pick up skills added since the session started
     skill_md = skills.get(name)
     if skill_md is None:
-        raise ToolError(f"Unknown skill '{name}'. Available: {', '.join(sorted(skills)) or 'none'}.")
+        raise ToolError(
+            f"Unknown skill '{name}'. Available: {', '.join(sorted(skills)) or 'none'}. "
+            f"Searched {searched_folders()}. A skill is a folder containing SKILL.md."
+        )
     print(f"\033[2m[skill] {name}\033[0m")
     return skill_md.read_text(encoding="utf-8")
 
@@ -1116,9 +1131,11 @@ _memory_sent = False  # memory and the skill list go with the first instruction 
 
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     """Run one user instruction through the agent loop. Returns False if it failed."""
-    global _memory_sent, _mode_note
+    global _memory_sent, _mode_note, _skills_note
     checkpoint = len(messages)
     blocks = [] if _memory_sent else [memory_snapshot(), skills_catalog()]
+    if _skills_note and _memory_sent:
+        blocks.append(_skills_note)
     if _mode_note:
         blocks.append(_mode_note)
     if blocks:
@@ -1129,7 +1146,7 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         run_turn(client, messages)
         save_conversation(messages)
         _memory_sent = True
-        _mode_note = None
+        _mode_note = _skills_note = None
         return True
     except KeyboardInterrupt:
         print("\n[interrupted]")
@@ -1170,7 +1187,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    global WORKSPACE, CWD, memory_tool, conversation_file, skills
+    global WORKSPACE, CWD, memory_tool, conversation_file, skills, _skills_note
     args = parse_args()
     WORKSPACE = CWD = Path(args.dir).expanduser().resolve()
     if not WORKSPACE.is_dir():
@@ -1202,7 +1219,8 @@ def main() -> None:
         if not args.interactive:
             raise SystemExit(0 if ok else 1)
 
-    print("Interactive mode. Type 'exit' to quit, /auto to toggle autonomous mode, /mode to show it.")
+    print("Interactive mode. Type 'exit' to quit, /auto to toggle autonomous mode, /mode to show it, "
+          "/skills to re-scan skills.")
     while True:
         try:
             user_input = input("\n\033[1mYou:\033[0m ").strip()
@@ -1215,6 +1233,11 @@ def main() -> None:
             continue
         if user_input.lower() == "/mode":
             print(f"Autonomous mode is {'ON' if AUTO_MODE else 'OFF'}.")
+            continue
+        if user_input.lower() == "/skills":
+            skills = discover_skills()
+            print_locations(verbose=True)
+            _skills_note = "Updated skill list (the user re-scanned the skill folders):\n" + skills_catalog()
             continue
         if user_input:
             send(client, messages, user_input)
