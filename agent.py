@@ -10,6 +10,9 @@ Tools:
   - delete_file : delete a file -- always asks for human validation, even in autonomous mode
                   (edit_file, write_file and delete_file never touch the agent's own source)
   - ask_human   : lets the model ask you a question mid-task
+  - git         : read-only git -- status, diff and log of the workspace (never commits, checks
+                  out or changes anything; external diff tools, textconv filters, pagers and
+                  fsmonitor hooks are disabled so a repository's config cannot run commands)
   - run_python  : run a Python snippet, script or module (e.g. pytest) -- asks permission first
                   (uses `uv run --frozen/--no-sync` when uv is installed: the project's own
                   environment, never rewriting uv.lock; the code cannot start, replace or kill
@@ -120,6 +123,8 @@ MODEL = os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT", "claude-opus-5")
 MAX_TOKENS = 64000  # safe with streaming (no HTTP timeout risk)
 MAX_TOOL_OUTPUT_CHARS = 50_000
 RUN_TIMEOUT_SECONDS = 120
+GIT = shutil.which("git")  # None when git is not installed
+GIT_TIMEOUT_SECONDS = 30
 UV = shutil.which("uv")  # None when uv is not installed
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
 
@@ -226,6 +231,11 @@ and the earlier conversation may be replaced by a <compacted_history> summary. W
 the exact content of something cleared or summarized, read the file or run the tool again
 instead of relying on what you remember.
 
+Git: use the git tool (read-only: status, diff, log) to see what is uncommitted, review your own
+changes before you finish, and look at recent history when a bug may come from a recent change.
+It cannot commit, stage, switch branches or change anything; if the user wants that, give them
+the exact git commands to run.
+
 When you refer to a specific place in the code, write it as path:line (for example
 src/app.py:42) with the path relative to the repository root -- the user can click it."""
 
@@ -301,6 +311,40 @@ TOOLS = [
                 },
             },
             "required": ["pattern"],
+        },
+    },
+    {
+        "name": "git",
+        "description": (
+            "Read-only git for the workspace: 'status' (branch, staged, unstaged and untracked "
+            "files), 'diff' (uncommitted changes; staged=true for the index; ref to compare with a "
+            "commit or range such as 'HEAD~3' or 'main...HEAD'; stat=true for a summary), 'log' "
+            "(recent commits, newest first; patch=true to include each commit's diff, e.g. "
+            "ref='abc123' with max_count=1 to show one commit). It cannot modify the repository. "
+            "Untracked files do not appear in diff; read them with read_file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "enum": ["status", "diff", "log"]},
+                "paths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Limit to these files or directories (relative to the current directory).",
+                },
+                "ref": {
+                    "type": "string",
+                    "description": "diff/log: a commit, branch, tag or range (e.g. 'HEAD~1', 'main..feature').",
+                },
+                "staged": {"type": "boolean", "description": "diff: show staged changes (the index)."},
+                "stat": {"type": "boolean", "description": "diff/log: show changed files and line counts."},
+                "patch": {"type": "boolean", "description": "log: include each commit's diff."},
+                "max_count": {
+                    "type": "integer", "minimum": 1, "maximum": 200,
+                    "description": "log: number of commits (default 20).",
+                },
+            },
+            "required": ["command"],
         },
     },
     {
@@ -824,6 +868,78 @@ def tool_ask_human(question: str) -> str:
     return answer or "(the user gave no answer)"
 
 
+# Read-only git. Only status, diff and log, built from structured arguments (no free-form options),
+# and hardened so the repository's own config cannot make git run programs or write files:
+GIT_SAFETY = [
+    "-c", "core.fsmonitor=false",       # fsmonitor hooks are commands run by `git status`
+    "-c", "core.pager=cat",
+    "-c", "diff.external=",
+    "-c", "log.showSignature=false",    # would run gpg
+    "-c", "status.submoduleSummary=false",
+    "-c", "color.ui=false",
+]
+GIT_ENV = {
+    "GIT_OPTIONAL_LOCKS": "0",   # `git status` must not refresh (write) the index
+    "GIT_PAGER": "cat",
+    "PAGER": "cat",
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_EXTERNAL_DIFF": "",
+}
+GIT_REF = re.compile(r"[A-Za-z0-9._/~^@{}+-]+")  # commits, branches, ranges -- no options, no "rev:path"
+
+
+def git_run(args: list[str]) -> str:
+    env = {k: v for k, v in os.environ.items() if k not in ("GIT_EXTERNAL_DIFF", "GIT_DIR", "GIT_WORK_TREE")}
+    env.update(GIT_ENV)
+    try:
+        proc = subprocess.run(
+            [GIT, *GIT_SAFETY, *args], cwd=CWD, env=env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=GIT_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        raise ToolError(f"git timed out after {GIT_TIMEOUT_SECONDS} s; narrow it with paths or max_count.")
+    if proc.returncode != 0:
+        raise ToolError(f"git failed: {proc.stderr.strip() or proc.stdout.strip() or proc.returncode}")
+    return proc.stdout
+
+
+def tool_git(command: str, paths: list[str] | None = None, ref: str | None = None, staged: bool = False,
+             stat: bool = False, patch: bool = False, max_count: int = 20) -> str:
+    if GIT is None:
+        raise ToolError("git is not installed.")
+    if command not in ("status", "diff", "log"):
+        raise ToolError("Only status, diff and log are available (read-only).")
+    try:
+        top = Path(git_run(["rev-parse", "--show-toplevel"]).strip()).resolve()
+    except ToolError:
+        raise ToolError("The workspace is not inside a git repository.")
+    # Paths go after "--" so they are never read as options; without paths, stay in the workspace
+    # (it may be a sub-folder of a larger repository).
+    pathspec = [str(resolve(x)) for x in paths] if paths else ([] if top == WORKSPACE else [str(WORKSPACE)])
+    if ref is not None and (ref.startswith("-") or not GIT_REF.fullmatch(ref)):
+        raise ToolError(f"Invalid ref {ref!r}: use a commit, branch, tag or range such as 'HEAD~2' or 'main...HEAD'.")
+    if command == "status":
+        args = ["status", "--short", "--branch", "--untracked-files=all"]
+    elif command == "diff":
+        args = ["diff", "--no-ext-diff", "--no-textconv", "--no-color"]
+        args += ["--cached"] if staged else []
+        args += ["--stat"] if stat else []
+        args += [ref] if ref else []
+    else:
+        max_count = max(1, min(int(max_count), 200))
+        args = ["log", f"--max-count={max_count}", "--no-color", "--no-ext-diff", "--no-textconv", "--date=short"]
+        if patch or stat:
+            args += ["--format=commit %h%nAuthor: %an <%ae>%nDate:   %ad%n%n%w(0,4,4)%B"]
+            args += ["--patch"] if patch else []
+            args += ["--stat"] if stat else []
+        else:
+            args += ["--format=%h %ad %an: %s%d"]
+        args += [ref] if ref else []
+    print(f"\033[2m[git] {' '.join(args[:1] + ([ref] if ref else []) + [display(Path(x)) for x in pathspec])}\033[0m")
+    output = git_run([*args, "--", *pathspec])
+    return truncate(output) or {"status": "(clean)", "diff": "(no differences)", "log": "(no commits)"}[command]
+
+
 _always_allow_python = False
 
 
@@ -1016,6 +1132,7 @@ TOOL_HANDLERS = {
     "write_file": tool_write_file,
     "delete_file": tool_delete_file,
     "ask_human": tool_ask_human,
+    "git": tool_git,
     "run_python": tool_run_python,
     "load_skill": tool_load_skill,
 }
