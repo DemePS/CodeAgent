@@ -59,6 +59,16 @@ your approval, even in autonomous mode. Workspace confinement,
 self-protection and the subprocess block still apply; Ctrl+C stops it. AGENT_MAX_STEPS (default
 100) caps the model calls per instruction in every mode.
 
+Context management (long sessions): the agent tracks how much of the model's context window
+the conversation uses and prints it after each instruction ("[context] 84k / 200k tokens").
+Past 50% it replaces old tool outputs with a short note (Claude re-reads files when needed);
+past 70% it compacts: a summary call replaces the earlier conversation with a brief (goal,
+decisions, files changed, state, next steps). If the API still says the prompt is too long, it
+compacts and retries once. AGENT_CONTEXT_WINDOW (default 200000) is your deployment's window;
+AGENT_COMPACT_MODEL picks the deployment that writes summaries (default: the main one).
+Interactive commands: /context shows usage, /compact compacts now, /clear starts a fresh
+conversation (memory notes are kept).
+
 `path:line` references in the output are clickable links that open the file at that line.
 Set AGENT_EDITOR to vscode (default), cursor, file, or none.
 """
@@ -154,6 +164,15 @@ MEMORY_MODEL = os.environ.get("AGENT_MEMORY_MODEL") or MODEL
 MEMORY_MAX_CHARS = 12_000  # the curator keeps notes.md under this size
 MEMORY_EXIT_WAIT_SECONDS = 60
 
+# Context window management; see the "Context management" section below.
+CONTEXT_WINDOW = int(os.environ.get("AGENT_CONTEXT_WINDOW") or 200_000)  # tokens, per deployment
+CLEAR_AT = 0.50    # above this share of the window, old tool outputs are cleared
+COMPACT_AT = 0.70  # above this share, the earlier conversation is replaced by a summary
+KEEP_RECENT_RESULTS = 4  # tool-result messages that are never cleared (the latest ones)
+COMPACT_MODEL = os.environ.get("AGENT_COMPACT_MODEL") or MODEL
+CHARS_PER_TOKEN = 3.5  # rough, for estimating what was added since the last API call
+CLEARED_NOTE = "[output cleared to save context -- call the tool again if you need it]"
+
 SYSTEM_PROMPT = """You are a coding agent working in the repository at {workspace}.
 You have a current directory inside it, which starts at the repository root each session;
 relative paths in every tool resolve against it. Use list_directory to explore and
@@ -201,6 +220,11 @@ library or framework documentation and versions, error messages from third-party
 service behavior and limits. Prefer official documentation, check that what you find matches
 the versions the project uses, and cite the URLs you relied on. Never put secrets, credentials
 or proprietary code in a search query. Do not search for things you can find in the repository.
+
+Long sessions: to save context, old tool outputs may be replaced by a "[output cleared ...]" note,
+and the earlier conversation may be replaced by a <compacted_history> summary. When you need
+the exact content of something cleared or summarized, read the file or run the tool again
+instead of relying on what you remember.
 
 When you refer to a specific place in the code, write it as path:line (for example
 src/app.py:42) with the path relative to the repository root -- the user can click it."""
@@ -1015,12 +1039,12 @@ def run_tool(block) -> dict:
 
 # ---------------------------------------------------------------- agent loop
 
-def stream_response(client: anthropic.Anthropic, messages: list):
+def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int = MAX_TOKENS):
     """Stream one model response to the terminal and return the final message."""
     with client.messages.stream(
         cache_control={"type": "ephemeral"},  # cache the growing prefix: each loop step re-reads it cheaply
         model=MODEL,
-        max_tokens=MAX_TOKENS,
+        max_tokens=max_tokens,
         system=SYSTEM_PROMPT.format(workspace=WORKSPACE),
         tools=TOOLS,
         thinking={"type": "adaptive"},
@@ -1057,10 +1081,213 @@ def stream_response(client: anthropic.Anthropic, messages: list):
         return stream.get_final_message()
 
 
+# --- Context management ----------------------------------------------------------------------------
+# The history is append-only, so a long session would eventually overflow the context window.
+# Before every model call: past CLEAR_AT, old tool outputs are replaced by a note (cheap, keeps the
+# structure); past COMPACT_AT, the earlier conversation is summarized into one message. The size is
+# measured by the API's usage numbers from the last call plus an estimate for what was added since.
+
+_context = {"tokens": 0, "chars": 0, "compactions": 0, "cleared": 0}  # tokens/chars at the last call
+_pending_blocks: list[str] = []  # e.g. a summary from /compact, sent with the next instruction
+_compacted_this_turn = False  # set when a compaction replaced the history during an instruction
+
+
+def history_chars(messages: list) -> int:
+    return len(json.dumps(messages, ensure_ascii=False))
+
+
+def estimate_tokens(messages: list) -> int:
+    """Tokens the next request will use: last measured size + an estimate for the new messages."""
+    chars = history_chars(messages)
+    if not _context["tokens"]:  # nothing measured yet (new session, after compaction or /clear)
+        return int(chars / CHARS_PER_TOKEN) + 10_000  # + system prompt and tool definitions
+    return max(0, _context["tokens"] + int((chars - _context["chars"]) / CHARS_PER_TOKEN))
+
+
+def record_usage(response, messages: list) -> None:
+    """Remember the real size of the conversation, as counted by the API (history + this reply)."""
+    u = response.usage
+    _context["tokens"] = (u.input_tokens + (u.cache_read_input_tokens or 0)
+                          + (u.cache_creation_input_tokens or 0) + u.output_tokens)
+    _context["chars"] = history_chars(messages)
+
+
+def reset_usage() -> None:
+    _context["tokens"] = _context["chars"] = 0
+
+
+def context_status(messages: list) -> str:
+    used = estimate_tokens(messages) if messages else 0
+    return f"{used / 1000:.0f}k / {CONTEXT_WINDOW / 1000:.0f}k tokens ({100 * used / CONTEXT_WINDOW:.0f}%)"
+
+
+def is_tool_results(message: dict) -> bool:
+    return (message["role"] == "user" and isinstance(message["content"], list)
+            and any(b.get("type") == "tool_result" for b in message["content"]))
+
+
+def clear_old_tool_results(messages: list) -> int:
+    """Replace the output of older tool calls with a short note. Returns how many were cleared."""
+    result_messages = [m for m in messages if is_tool_results(m)]
+    cleared = 0
+    for m in result_messages[:-KEEP_RECENT_RESULTS]:
+        for b in m["content"]:
+            content = b.get("content")
+            if b.get("type") == "tool_result" and isinstance(content, str) and len(content) > 300:
+                b["content"] = CLEARED_NOTE
+                cleared += 1
+    _context["cleared"] += cleared
+    return cleared
+
+
+COMPACT_PROMPT = """You compact the conversation history of a coding agent so it can continue its
+work with a much smaller context. You get a transcript of the earlier conversation (the user's
+instructions, the tools the agent called with their results, and the agent's replies).
+
+Write a brief that lets the agent continue seamlessly, with these sections:
+- Goal: what the user asked for, in their words where it matters, and every instruction still in effect.
+- Decisions and preferences: what was decided and why; changes the user rejected and their feedback.
+- Files: files created, modified or deleted (path and what changed), and key places (path:line).
+- Findings: facts learned that are still needed -- commands that work, errors seen, test results.
+- State: what is done and what is in progress right now.
+- Next steps: what remains, in order.
+Be specific and factual; keep paths, names, commands and error messages exact. Leave out
+anything that no longer matters. Never include secrets. Answer only with the brief inside
+<summary>...</summary>."""
+
+
+def summarize_history(client: anthropic.Anthropic, head: list) -> str:
+    """One model call that turns the older messages into a brief."""
+    budget = CONTEXT_WINDOW * 2  # characters, well inside the window even for dense text
+    for result_chars in (3000, 1000, 300, 0):  # shrink tool outputs until the transcript fits
+        transcript = turn_digest(head, result_chars=result_chars, limit=False)
+        if len(transcript) <= budget:
+            break
+    else:
+        transcript = "[the earliest part of the conversation was omitted]\n" + transcript[-budget:]
+    response = client.messages.create(
+        model=COMPACT_MODEL,
+        max_tokens=8000,
+        system=COMPACT_PROMPT,
+        messages=[{"role": "user", "content": f"<transcript>\n{transcript}\n</transcript>"}],
+    )
+    text = "".join(b.text for b in response.content if b.type == "text")
+    match = re.search(r"<summary>\s*(.*?)\s*(?:</summary>|$)", text, re.DOTALL)
+    summary = (match.group(1) if match else text).strip()
+    if not summary:
+        raise RuntimeError(f"empty summary (stop reason: {response.stop_reason})")
+    return summary
+
+
+def compacted_block(summary: str) -> str:
+    return ("<compacted_history>\nThe earlier part of this conversation was compacted to save context. "
+            f"Summary:\n{summary}\n</compacted_history>")
+
+
+def session_blocks() -> list[str]:
+    """What a fresh context needs besides the summary: memory, skills and the current mode."""
+    blocks = [memory_snapshot(), skills_catalog()]
+    if AUTO_MODE:
+        blocks.append("<mode>Autonomous mode is ON: your edits, new files and run_python calls are applied "
+                      "without asking, and ask_human will not be answered. delete_file still asks the user.</mode>")
+    return blocks
+
+
+def compact(client: anthropic.Anthropic, messages: list, reason: str) -> bool:
+    """During an instruction: summarize everything before the latest step, keep that step verbatim.
+
+    The history must end with a user message: either the instruction itself (then the summary goes
+    in front of it) or tool results (then their assistant message is kept too, so the tool_use /
+    tool_result pairs stay valid).
+    """
+    global _compacted_this_turn
+    tail = messages[-2:] if is_tool_results(messages[-1]) else messages[-1:]
+    head = messages[:-len(tail)]
+    if not head:
+        return False
+    print(f"\n\033[2m[context] {reason}: compacting {len(head)} earlier messages...\033[0m", flush=True)
+    summary = summarize_history(client, head)
+    blocks = [*session_blocks(), compacted_block(summary)]
+    first = [{"type": "text", "text": t} for t in blocks]
+    if len(tail) == 1:  # the instruction: keep what the user typed, drop its old memory/skills blocks
+        content = tail[0]["content"]
+        content = [{"type": "text", "text": content}] if isinstance(content, str) else [
+            b for b in content if not (b.get("type") == "text" and b["text"].startswith(
+                ("<memory>", "<skills>", "<compacted_history>", "<mode>")))]
+        messages[:] = [{"role": "user", "content": first + content}]
+    else:
+        messages[:] = [{"role": "user", "content": first}, *tail]
+    _context["compactions"] += 1
+    _compacted_this_turn = True
+    reset_usage()
+    print(f"\033[2m[context] compacted -> about {context_status(messages)}\033[0m")
+    return True
+
+
+def compact_between_instructions(client: anthropic.Anthropic, messages: list) -> None:
+    """/compact: summarize the whole conversation; the summary goes with the next instruction."""
+    global _memory_sent
+    if not messages:
+        print("Nothing to compact.")
+        return
+    print(f"\033[2m[context] compacting {len(messages)} messages...\033[0m", flush=True)
+    summary = summarize_history(client, messages)
+    messages.clear()
+    _pending_blocks[:] = [compacted_block(summary)]
+    _memory_sent = False  # memory and skills go again with the next instruction
+    _context["compactions"] += 1
+    reset_usage()
+    save_conversation(messages)
+    print("\033[2m[context] done; the summary is sent with your next instruction.\033[0m")
+
+
+def manage_context(client: anthropic.Anthropic, messages: list) -> None:
+    """Before a model call: clear old tool outputs, then compact, when the history gets large."""
+    if estimate_tokens(messages) > CLEAR_AT * CONTEXT_WINDOW:
+        cleared = clear_old_tool_results(messages)
+        if cleared:
+            print(f"\n\033[2m[context] cleared {cleared} old tool output(s) -> about "
+                  f"{context_status(messages)}\033[0m", flush=True)
+    if estimate_tokens(messages) > COMPACT_AT * CONTEXT_WINDOW:
+        compact(client, messages, f"over {COMPACT_AT:.0%} of the context window")
+
+
+def is_context_overflow(error: anthropic.APIStatusError) -> bool:
+    return error.status_code in (400, 413) and bool(
+        re.search(r"too long|exceed.*context|context.*(limit|window|length)", str(error.message), re.I))
+
+
+def learn_window(error: anthropic.APIStatusError) -> None:
+    """'prompt is too long: 210000 tokens > 200000 maximum' tells us the real window."""
+    global CONTEXT_WINDOW
+    match = re.search(r"(\d+) tokens? > (\d+)", str(error.message))
+    if match and int(match.group(2)) < CONTEXT_WINDOW:
+        CONTEXT_WINDOW = int(match.group(2))
+        print(f"\033[2m[context] this deployment's window is {CONTEXT_WINDOW:,} tokens; "
+              "set AGENT_CONTEXT_WINDOW to that value\033[0m")
+
+
+def call_model(client: anthropic.Anthropic, messages: list):
+    """One model call with context management and a single compact-and-retry on overflow."""
+    manage_context(client, messages)
+    for attempt in (1, 2):
+        # Leave room for the answer: never ask for more output than the window has left.
+        room = CONTEXT_WINDOW - estimate_tokens(messages) - 2000
+        try:
+            return stream_response(client, messages, max_tokens=max(4096, min(MAX_TOKENS, room)))
+        except anthropic.APIStatusError as e:
+            if attempt == 2 or not is_context_overflow(e):
+                raise
+            learn_window(e)
+            clear_old_tool_results(messages)
+            if not compact(client, messages, "the prompt was too long"):
+                raise
+
+
 def run_turn(client: anthropic.Anthropic, messages: list) -> None:
     """Call the model repeatedly until it stops asking for tools (at most MAX_STEPS calls)."""
     for _ in range(MAX_STEPS):
-        response = stream_response(client, messages)
+        response = call_model(client, messages)
         tool_uses = [b for b in response.content if b.type == "tool_use"]
 
         if response.stop_reason == "max_tokens" and tool_uses:
@@ -1071,6 +1298,7 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
         # Append the full content (text, thinking, tool_use) -- not just the text.
         # Stored as plain dicts so the history can be saved to JSON and resumed later.
         messages.append({"role": "assistant", "content": [b.to_dict() for b in response.content]})
+        record_usage(response, messages)
 
         if response.stop_reason == "tool_use":
             # Run every requested tool and return ALL results in one user message.
@@ -1113,10 +1341,16 @@ def load_conversation() -> list:
         if isinstance(m["content"], str):
             return m["content"]
         texts = [b["text"] for b in m["content"] if b.get("type") == "text"]
-        return texts[-1] if texts else None  # last text block; earlier ones may be memory and skills
+        if not texts or texts[-1].startswith("<compacted_history>"):
+            return None
+        return texts[-1]  # last text block; earlier ones may be memory and skills
 
     user_turns = [t for m in messages if m["role"] == "user" and (t := instruction(m)) is not None]
-    print(f"Resumed conversation: {len(user_turns)} earlier instruction(s).")
+    compacted = any(isinstance(m["content"], list) and any(
+        b.get("type") == "text" and b["text"].startswith("<compacted_history>") for b in m["content"])
+        for m in messages[:1])
+    print(f"Resumed conversation: {len(user_turns)} earlier instruction(s)"
+          + (" after a summary of the older ones (compacted)." if compacted else "."))
     if user_turns:
         print(f"\033[2mLast instruction: {user_turns[-1][:200]}\033[0m")
     last_text = next(
@@ -1134,9 +1368,11 @@ _memory_sent = False  # memory and the skill list go with the first instruction 
 
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     """Run one user instruction through the agent loop. Returns False if it failed."""
-    global _memory_sent, _mode_note, _skills_note
+    global _memory_sent, _mode_note, _skills_note, _compacted_this_turn
     checkpoint = len(messages)
+    _compacted_this_turn = False
     blocks = [] if _memory_sent else [memory_snapshot(), skills_catalog()]
+    blocks += _pending_blocks  # e.g. the summary from /compact
     if _skills_note and _memory_sent:
         blocks.append(_skills_note)
     if _mode_note:
@@ -1148,9 +1384,12 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     try:
         run_turn(client, messages)
         save_conversation(messages)
-        queue_memory_update(client, messages[checkpoint:])  # runs in the background
+        # After a compaction the turn's start is gone; the whole (small) history stands in for it.
+        queue_memory_update(client, messages if _compacted_this_turn else messages[checkpoint:])
         _memory_sent = True
         _mode_note = _skills_note = None
+        _pending_blocks.clear()
+        print(f"\033[2m[context] {context_status(messages)}\033[0m")
         return True
     except KeyboardInterrupt:
         print("\n[interrupted]")
@@ -1158,8 +1397,20 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         print(f"\n[API error {e.status_code}] {e.message}")
     except anthropic.APIConnectionError:
         print("\n[network error -- check your Foundry endpoint]")
+    except RuntimeError as e:  # e.g. a compaction that produced no summary
+        print(f"\n[error] {e}")
     # Drop the unfinished turn so the history stays valid for the next request.
-    del messages[checkpoint:]
+    if _compacted_this_turn:
+        # The history before this instruction was replaced by a summary: keep that summary for
+        # the next instruction instead of the lost messages.
+        summary = next((b["text"] for b in messages[0]["content"]
+                        if b.get("type") == "text" and b["text"].startswith("<compacted_history>")), None)
+        messages.clear()
+        _pending_blocks[:] = [summary] if summary else []
+        _memory_sent = False
+        reset_usage()
+    else:
+        del messages[checkpoint:]
     save_conversation(messages)
     return False
 
@@ -1208,8 +1459,12 @@ def print_memory_status() -> None:
         print(f"\033[2m[memory] {message}\033[0m")
 
 
-def turn_digest(new_messages: list) -> str:
-    """A compact account of one instruction's turn: what the curator needs, not the file contents."""
+def turn_digest(new_messages: list, result_chars: int = 0, limit: bool = True) -> str:
+    """A compact account of messages: what the memory curator needs, not the file contents.
+
+    With result_chars, every tool result is included (cut to that many characters) -- used to
+    summarize the conversation when compacting. limit=False returns it without the size cap.
+    """
     lines: list[str] = []
     names: dict[str, str] = {}  # tool_use_id -> tool name
     results: dict[str, str] = {}  # tool_use_id -> the result line, shown under its call
@@ -1226,14 +1481,18 @@ def turn_digest(new_messages: list) -> str:
         for b in content:
             kind = b.get("type")
             if m["role"] == "user" and kind == "text":
-                if not b["text"].startswith(("<memory>", "<skills>")):  # skip what the curator already has
+                if b["text"].startswith("<compacted_history>"):  # an earlier summary: keep it whole
+                    lines.append(b["text"])
+                elif not b["text"].startswith(("<memory>", "<skills>")):  # skip what the curator already has
                     lines.append(f"USER: {short(b['text'], 4000)}")
             elif kind == "tool_result":
                 name = names.get(b.get("tool_use_id"), "")
                 result = b.get("content")
                 result = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
                 if b.get("is_error"):
-                    results[b["tool_use_id"]] = f"  -> FAILED: {short(result, 600)}"
+                    results[b["tool_use_id"]] = f"  -> FAILED: {short(result, max(600, result_chars))}"
+                elif result_chars:
+                    results[b["tool_use_id"]] = f"  -> {short(result, result_chars)}"
                 elif name == "ask_human":
                     results[b["tool_use_id"]] = f"  -> user answered: {short(result, 1000)}"
                 elif name == "run_python":
@@ -1246,7 +1505,8 @@ def turn_digest(new_messages: list) -> str:
                         if k not in ("content", "old_string", "new_string")}
                 lines.append(f"AGENT used {b['name']}({short(args)})")
                 lines.append(b["id"])  # placeholder, replaced by the result line (if any)
-    return truncate("\n".join(results.get(line, line) for line in lines if line not in names or line in results))
+    text = "\n".join(results.get(line, line) for line in lines if line not in names or line in results)
+    return truncate(text) if limit else text
 
 
 def update_memory(client: anthropic.Anthropic, digest: str) -> str:
@@ -1386,7 +1646,7 @@ def main() -> None:
 
 
 def interact(client: anthropic.Anthropic, messages: list, args: argparse.Namespace) -> None:
-    global skills, _skills_note
+    global skills, _skills_note, _memory_sent
     if args.instruction:
         ok = send(client, messages, args.instruction)
         if not args.interactive:
@@ -1394,8 +1654,8 @@ def interact(client: anthropic.Anthropic, messages: list, args: argparse.Namespa
                 raise SystemExit(1)  # main() still waits for the memory update first
             return
 
-    print("Interactive mode. Type 'exit' to quit, /auto to toggle autonomous mode, /mode to show it, "
-          "/skills to re-scan skills.")
+    print("Interactive mode. Type 'exit' to quit. Commands: /auto (toggle autonomous mode), /mode, "
+          "/skills (re-scan skills), /context, /compact, /clear.")
     while True:
         print_memory_status()
         try:
@@ -1409,6 +1669,27 @@ def interact(client: anthropic.Anthropic, messages: list, args: argparse.Namespa
             continue
         if user_input.lower() == "/mode":
             print(f"Autonomous mode is {'ON' if AUTO_MODE else 'OFF'}.")
+            continue
+        if user_input.lower() == "/context":
+            print(f"Context: {context_status(messages)} in {len(messages)} messages "
+                  f"(window from AGENT_CONTEXT_WINDOW; tool outputs cleared past {CLEAR_AT:.0%}, "
+                  f"compaction past {COMPACT_AT:.0%}).")
+            print(f"This session: {_context['cleared']} tool output(s) cleared, "
+                  f"{_context['compactions']} compaction(s).")
+            continue
+        if user_input.lower() == "/compact":
+            try:
+                compact_between_instructions(client, messages)
+            except (anthropic.APIError, RuntimeError) as e:
+                print(f"[compaction failed] {e}")
+            continue
+        if user_input.lower() == "/clear":
+            messages.clear()
+            _pending_blocks.clear()
+            _memory_sent = False
+            reset_usage()
+            save_conversation(messages)
+            print("Started a fresh conversation (memory notes are kept).")
             continue
         if user_input.lower() == "/skills":
             skills = discover_skills()
