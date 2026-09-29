@@ -27,12 +27,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--auto", action="store_true", help="Autonomous mode: apply edits and Python runs without asking.")
     parser.add_argument("--where", action="store_true", help="Show where memory and skills are read from, then exit.")
     parser.add_argument("--check", action="store_true", help="Test each step of a call to Claude (sign-in, request, streaming, thinking, tools), then exit.")
+    parser.add_argument("--memories", nargs="?", const="", metavar="NAME",
+                        help="List every project's memory (or show one project's notes), then exit.")
+    parser.add_argument("--forget", metavar="NAME",
+                        help="Delete a project's memory (NAME, 'all', or '.' for the -d project), after confirmation, then exit.")
     parser.add_argument("--check-browser", action="store_true", help="Test the browser used by screenshot_page, then exit.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    if args.memories is not None or args.forget:  # developers: no project opened, no call to Claude
+        from . import memories
+        from .config import MEMORY_HOME
+        current = session.project_id(Path(args.dir).expanduser().resolve())
+        if args.forget:
+            print(memories.forget(MEMORY_HOME, current if args.forget == "." else args.forget))
+        elif args.memories:
+            print(memories.show(MEMORY_HOME, current if args.memories == "." else args.memories))
+        else:
+            print(memories.listing(MEMORY_HOME, current))
+        return
     if args.check_browser:
         print(check_browser())
         return
