@@ -25,6 +25,16 @@ Environment variables, or a `.env` file in the folder you run from (or `~/.codin
 Without an API key, the agent signs in with the account of your Windows session, a developer's
 `az login`, or else the Microsoft sign-in page (once; the account is remembered).
 
+**Without Azure**, use Anthropic's own API: leave `ANTHROPIC_FOUNDRY_ENDPOINT` unset and set
+
+| Variable | Meaning |
+|---|---|
+| `ANTHROPIC_API_KEY` | an API key from [console.anthropic.com](https://console.anthropic.com) |
+| `ANTHROPIC_MODEL` | a model ID (default `claude-opus-5`) |
+
+A Foundry endpoint always wins: with `ANTHROPIC_FOUNDRY_ENDPOINT` set, the agent uses Foundry even if
+`ANTHROPIC_API_KEY` is also set.
+
 ## Use it in the terminal
 
 ```bash
