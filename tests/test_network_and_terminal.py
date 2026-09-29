@@ -54,3 +54,16 @@ def test_terminal_renders_diff_and_cells(capsys, tmp_path):
     out = capsys.readouterr().out
     assert "=== Modify \x1b[0mapp.py:2" in out and "\x1b[32m+b\x1b[0m" in out
     assert "Costs!B2" in out and "(empty)" in out and "[0.00]" in out
+
+
+def test_the_package_imports_without_a_console():
+    """A windowed app on Windows has no console: sys.stdout and sys.stderr are None."""
+    import subprocess
+    import sys
+    code = ("import sys; sys.stdout = sys.stderr = None\n"
+            "import coding_agent.session, coding_agent.cli, coding_agent.ui\n"
+            "open(sys.argv[1], 'w').write('ok')")
+    import tempfile, pathlib
+    marker = pathlib.Path(tempfile.mkdtemp()) / "ok"
+    subprocess.run([sys.executable, "-c", code, str(marker)], check=True)
+    assert marker.read_text() == "ok"

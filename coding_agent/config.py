@@ -69,7 +69,8 @@ PERSONAL_SKILLS = Path(os.environ.get("AGENT_SKILLS_DIR") or AGENT_HOME / "skill
 
 # Clickable `path:line` links in the terminal (OSC 8 hyperlinks).
 EDITOR = os.environ.get("AGENT_EDITOR", "vscode").lower()
-LINKS_ENABLED = EDITOR != "none" and sys.stdout.isatty()
+# sys.stdout is None when there is no console (e.g. a windowed app on Windows).
+LINKS_ENABLED = EDITOR != "none" and sys.stdout is not None and sys.stdout.isatty()
 FILE_REF = re.compile(r"((?:[A-Za-z]:[\\/])?[\w.\-/\\]+\.[A-Za-z0-9]+):(\d+)")
 
 # Anthropic's web search tool version: 20250305 works everywhere on Foundry, 20260209 only on
