@@ -68,8 +68,12 @@ AGENT_MEMORY=off disables updates. On exit the agent waits (up to 60 s) for a pe
 
 Configuration (environment variables or a .env file):
     ANTHROPIC_FOUNDRY_ENDPOINT     https://<resource>.services.ai.azure.com/anthropic
-    ANTHROPIC_FOUNDRY_API_KEY      API key; leave unset to sign in with Azure AD (azure-identity)
+    ANTHROPIC_FOUNDRY_API_KEY      API key; leave unset to sign in with a Microsoft work account: the
+                                   Windows session's account, `az login`, ... or else the Microsoft
+                                   sign-in page, once (see coding_agent/signin.py)
     ANTHROPIC_FOUNDRY_DEPLOYMENT   your Claude deployment name
+    AZURE_TENANT_ID / AZURE_CLIENT_ID  tenant and app registration for the sign-in page (optional)
+    ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN=0  never open the sign-in page (servers, CI)
 
 Usage:
     uv sync                                   # once, in the agent's folder (add --extra browser for screenshots)

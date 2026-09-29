@@ -1,6 +1,12 @@
 version = 1
 revision = 3
 requires-python = ">=3.10, <3.14"
+resolution-markers = [
+    "sys_platform == 'darwin'",
+    "sys_platform == 'linux'",
+    "sys_platform == 'win32'",
+    "sys_platform != 'darwin' and sys_platform != 'linux' and sys_platform != 'win32'",
+]
 
 [[package]]
 name = "annotated-types"
@@ -81,6 +87,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c5/0e/3a63efb48aa4a5ae2cfca61ee152fbcb668092134d3eb8bfda472dd5c617/azure_identity-1.25.3.tar.gz", hash = "sha256:ab23c0d63015f50b630ef6c6cf395e7262f439ce06e5d07a64e874c724f8d9e6", size = 286304, upload-time = "2026-03-13T01:12:20.892Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/49/9a/417b3a533e01953a7c618884df2cb05a71e7b68bdbce4fbdb62349d2a2e8/azure_identity-1.25.3-py3-none-any.whl", hash = "sha256:f4d0b956a8146f30333e071374171f3cfa7bdb8073adb8c3814b65567aa7447c", size = 192138, upload-time = "2026-03-13T01:12:22.951Z" },
+]
+
+[[package]]
+name = "azure-identity-broker"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-identity" },
+    { name = "msal", extra = ["broker"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/01/ca/a8eb8571f71f244a07debc77f335deadee6ecb17be5743479f878a68eaa4/azure_identity_broker-1.3.0.tar.gz", hash = "sha256:1f40ea42d31da86669fe4cd4f93e4cdf91b9b1cffca1fba39cf5ba0f7df1bd27", size = 15612, upload-time = "2025-08-07T22:27:48.032Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fa/f9/b3bd9b1c3d692404bedeec27aeb596d1984b1a99c6513e90e5f68cb95726/azure_identity_broker-1.3.0-py3-none-any.whl", hash = "sha256:1e17b9a48378ea32180ba428eb2eca8b29eda93310d7123beb246ae94306d8c0", size = 11362, upload-time = "2025-08-07T22:27:48.923Z" },
 ]
 
 [[package]]
@@ -267,6 +286,7 @@ source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
     { name = "azure-identity" },
+    { name = "azure-identity-broker", marker = "sys_platform == 'win32'" },
     { name = "httpx" },
     { name = "openpyxl" },
     { name = "pypdf" },
@@ -290,6 +310,7 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = "==0.125.0" },
     { name = "azure-identity", specifier = "==1.25.3" },
+    { name = "azure-identity-broker", marker = "sys_platform == 'win32'", specifier = "==1.3.0" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "mcp", extras = ["cli"], marker = "extra == 'weather'", specifier = "==1.18.0" },
     { name = "openpyxl", specifier = "==3.1.5" },
@@ -667,6 +688,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a4/32/178457385925ce301c7b3232bd85665d4df57da39568b62dcfc74031873f/msal-1.39.0-py3-none-any.whl", hash = "sha256:2d2577886906cd7293850dffa2da29119966c213bfc6ec0cecf8bf7621e1ca77", size = 131629, upload-time = "2026-09-17T16:07:46.722Z" },
 ]
 
+[package.optional-dependencies]
+broker = [
+    { name = "pymsalruntime", marker = "sys_platform == 'darwin' or sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
 [[package]]
 name = "msal-extensions"
 version = "1.3.1"
@@ -897,6 +923,24 @@ wheels = [
 [package.optional-dependencies]
 crypto = [
     { name = "cryptography" },
+]
+
+[[package]]
+name = "pymsalruntime"
+version = "0.20.6"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/e3/6f8cc2b40343d01ff5756fa7e889c86c053818800d5a03f26e986e00191c/pymsalruntime-0.20.6-cp310-cp310-win32.whl", hash = "sha256:9e58d9163fe04d7299a8e64b9490e0d750156cd2b9e297b45d167897f74c2260", size = 1127080, upload-time = "2026-05-19T20:55:15.322Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/f6/f6e7fee760a5c6bd7089ee3cc596c49bbbcc377104173a3f583509b79f62/pymsalruntime-0.20.6-cp310-cp310-win_amd64.whl", hash = "sha256:0c8b4f2e04f262e3703731337ab597f0642c0535231cb0384470b6f0218ae89f", size = 1300308, upload-time = "2026-05-19T20:55:03.921Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/9c/49091deaa0a0f2f11f858dbab5ca40a8f647a4764e6ea99f846da58987be/pymsalruntime-0.20.6-cp311-cp311-win32.whl", hash = "sha256:0a8cf16bf7582bd5dfb99fa9602b9cfe5e3d3d614fb4f830813a461957d3b5d8", size = 1127042, upload-time = "2026-05-19T20:55:17.492Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/9b/8292e08c51d3484538d01c7458d965436a3725fbd5e925f13a1d5394a2fc/pymsalruntime-0.20.6-cp311-cp311-win_amd64.whl", hash = "sha256:354be5d1fae5e2432510190a9f85b2fa5c11ea589bbb2b7696c02967fb03b352", size = 1300539, upload-time = "2026-05-19T20:55:06.43Z" },
+    { url = "https://files.pythonhosted.org/packages/38/2b/1fd33ef29e5cce2e9416d9d51f3e3e65aed517dc74000e4f5b0833183264/pymsalruntime-0.20.6-cp311-cp311-win_arm64.whl", hash = "sha256:e2b8161950529dc8b392dcbf8ffee2e9ac1c2c0f2d21c1c3732f7e3a17a1cf5b", size = 1268689, upload-time = "2026-05-19T20:55:26.386Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/75/bf74d500b2131966f3d277d06fe15a7d938e3f3ff7b87fc94597a0cd1774/pymsalruntime-0.20.6-cp312-cp312-win32.whl", hash = "sha256:8680badb652d00c894f478cd6df01c750fdaaaf3d21b35897e158ee05ccf3983", size = 1124318, upload-time = "2026-05-19T20:55:20.051Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/52/83fa6834676b96552b48328fbfdeac0686cb6946acc8d7d29c192c909b38/pymsalruntime-0.20.6-cp312-cp312-win_amd64.whl", hash = "sha256:6b07eba5a99b755939157d5cab536d20d29718f28c6adf1ecf3b8753232082c1", size = 1299601, upload-time = "2026-05-19T20:55:08.805Z" },
+    { url = "https://files.pythonhosted.org/packages/34/20/f9fc2c586a55a07c0af5302c2a25c116dd3549d3274f0bcc9a60b3b8b3ec/pymsalruntime-0.20.6-cp312-cp312-win_arm64.whl", hash = "sha256:90eca0ea2563354b9d34fd9fed71f344c18fb4cdb3c6c0dcaf055d9e424cb30a", size = 1267167, upload-time = "2026-05-19T20:55:29.309Z" },
+    { url = "https://files.pythonhosted.org/packages/02/75/74498d54ffbb4679184e1c01f3f84ef82982085e303ad0481942903f2293/pymsalruntime-0.20.6-cp313-cp313-win32.whl", hash = "sha256:979c0d76ba8f5162b0e2128deb304c39b1e392120537302c56fd87aa856dc0dd", size = 1123600, upload-time = "2026-05-19T20:55:21.997Z" },
+    { url = "https://files.pythonhosted.org/packages/29/08/f4837f42d39acaf4139b3def7f56d86f9103c078daf76c06de127c8d697f/pymsalruntime-0.20.6-cp313-cp313-win_amd64.whl", hash = "sha256:2b8c6cfbb097175b0d8a2630aa3d2a86d583a6bb075917a775af0a177580dd92", size = 1299466, upload-time = "2026-05-19T20:55:10.881Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/29/ae3598c917c9a45177d303548c754053b226aa36a4f6b69c42aee465c1d9/pymsalruntime-0.20.6-cp313-cp313-win_arm64.whl", hash = "sha256:8ca988f5308f4c17a6cf85d14550015a1e17dc4e898e22698d040d3af2bee693", size = 1266156, upload-time = "2026-05-19T20:55:31.211Z" },
 ]
 
 [[package]]

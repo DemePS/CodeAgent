@@ -32,9 +32,11 @@ def describe(error: BaseException) -> str | None:
     if isinstance(error, anthropic.APIStatusError):
         code, detail = error.status_code, str(error.message)[:300]
         if code in (401, 403):
-            return (f"Access denied by {endpoint()} (HTTP {code}). Check the API key "
-                    "(ANTHROPIC_FOUNDRY_API_KEY), or, with Microsoft sign-in, that your account has a role "
-                    f"such as 'Azure AI User' on the Foundry resource. Details: {detail}")
+            if os.environ.get("ANTHROPIC_FOUNDRY_API_KEY"):
+                return f"Access denied by {endpoint()} (HTTP {code}): check the API key (ANTHROPIC_FOUNDRY_API_KEY). Details: {detail}"
+            return (f"Access denied by {endpoint()} (HTTP {code}): you are signed in, but your account has no "
+                    "access to the Claude service. Ask IT for access (a role such as 'Azure AI User' on the "
+                    f"Foundry resource). Details: {detail}")
         if code == 404:
             return (f"Not found (HTTP 404): no deployment named '{MODEL}' at {endpoint()}. Check "
                     "ANTHROPIC_FOUNDRY_DEPLOYMENT (the deployment name in Foundry) and that the endpoint "
@@ -55,8 +57,15 @@ def describe(error: BaseException) -> str | None:
     except ImportError:
         ClientAuthenticationError = ()  # noqa: N806
     if ClientAuthenticationError and isinstance(error, ClientAuthenticationError):
-        return ("Microsoft sign-in failed: no Azure account is signed in on this PC (for developers: run "
-                "`az login`), or set ANTHROPIC_FOUNDRY_API_KEY. Details: " + str(error).splitlines()[0][:300])
+        from .signin import browser_sign_in_allowed
+        first = (str(error).splitlines() or [""])[0][:300]
+        if browser_sign_in_allowed():
+            return ("Microsoft sign-in did not complete. Retry and sign in with your work account on the "
+                    "Microsoft page that opens in your browser; if it keeps failing, contact IT (your account "
+                    "may need access to the Claude service). Details: " + first)
+        return ("Microsoft sign-in failed: no signed-in account was found (sign-in page disabled by "
+                "ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN=0). Run `az login`, or set ANTHROPIC_FOUNDRY_API_KEY. "
+                "Details: " + first)
     if isinstance(error, KeyError) and error.args == ("ANTHROPIC_FOUNDRY_ENDPOINT",):
         return "ANTHROPIC_FOUNDRY_ENDPOINT is not set (the Foundry endpoint, ending with /anthropic)."
     return None

@@ -62,10 +62,13 @@ def test_check_connection_ok(project, monkeypatch):
     assert ok and ENDPOINT in summary and "deployment" in summary
 
 
-def test_failed_microsoft_sign_in_is_explained():
+def test_failed_microsoft_sign_in_is_explained(monkeypatch):
     from azure.core.exceptions import ClientAuthenticationError
-    text = errors.describe(ClientAuthenticationError("DefaultAzureCredential failed to retrieve a token"))
-    assert "Microsoft sign-in failed" in text and "az login" in text
+    error = ClientAuthenticationError("DefaultAzureCredential failed to retrieve a token")
+    monkeypatch.delenv("ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN", raising=False)
+    assert "sign in with your work account" in errors.describe(error)
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN", "0")  # no sign-in page (servers): developer hints
+    assert "az login" in errors.describe(error)
 
 
 def test_unrelated_errors_are_not_hidden(project, monkeypatch):
