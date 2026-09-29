@@ -48,6 +48,9 @@ def main() -> None:
             print(locations_report(verbose=True))
             return
         client = _get_client()
+        from .cleanup import run as clean_up
+        if (cleaned := clean_up()) != "Clean-up: nothing to delete":  # old backups, unused memories
+            print(cleaned)
         print(f"Workspace: {workspace}")
         print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
         session.open_project(workspace, ui=TerminalUI(), resume=args.resume, auto=args.auto)

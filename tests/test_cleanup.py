@@ -1,0 +1,62 @@
+"""What the agent keeps on the machine is cleaned, so nothing grows forever."""
+
+import os
+import time
+
+from coding_agent import cleanup
+
+DAY = 86_400
+NOW = time.time()
+
+
+def file(path, age_days, text="x"):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    os.utime(path, (NOW - age_days * DAY, NOW - age_days * DAY))
+    return path
+
+
+def test_old_backups_go_but_the_newest_copy_of_each_file_stays(tmp_path):
+    backups = tmp_path / "backups"
+    project = backups / "myapp-1a2b3c4d"
+    old = file(project / "20260101-100000-costs.xlsx", 60)
+    older = file(project / "20251201-100000-costs.xlsx", 90)
+    recent = file(project / "20260920-100000-costs.xlsx", 2)
+    only = file(project / "20250101-100000-grid.xlsx", 300)  # the only copy of grid.xlsx: kept
+    stale = backups / "old-99999999"
+    file(stale / "20250101-100000-a.xlsx", 300)
+    newest_of_stale = file(stale / "20250102-100000-a.xlsx", 290)
+    assert cleanup.clean_backups(backups, 30, NOW) == 3
+    assert not old.exists() and not older.exists()
+    assert recent.exists() and only.exists() and newest_of_stale.exists()
+
+
+def test_unused_project_memories_and_old_conversations_go(tmp_path, monkeypatch):
+    memory = tmp_path / "memory"
+    unused = memory / "old-11111111"
+    file(unused / "memories" / "notes.md", 120)
+    file(unused / "conversation.json", 100)
+    notes = file(memory / "recent-22222222" / "memories" / "notes.md", 200)  # old notes...
+    old_conversation = file(memory / "recent-22222222" / "conversation.json", 40)
+    file(memory / "recent-22222222" / "memories" / "other.md", 5)  # ...but the project was used 5 days ago
+    summary = cleanup.run(backups=tmp_path / "backups", memory=memory, now=NOW)
+    assert not unused.exists()
+    assert notes.exists() and not old_conversation.exists()
+    assert summary == "Clean-up: 1 unused project memories, 1 old saved conversation(s)"
+
+    monkeypatch.setenv("AGENT_MEMORY_DAYS", "1")  # configurable
+    cleanup.run(backups=tmp_path / "backups", memory=memory, now=NOW)
+    assert not notes.exists()
+
+
+def test_durations_come_from_the_environment(monkeypatch):
+    monkeypatch.setenv("AGENT_BACKUP_DAYS", "7")
+    assert cleanup.days("AGENT_BACKUP_DAYS", 30) == 7
+    monkeypatch.setenv("AGENT_BACKUP_DAYS", "not a number")
+    assert cleanup.days("AGENT_BACKUP_DAYS", 30) == 30
+    monkeypatch.setenv("AGENT_BACKUP_DAYS", "0")
+    assert cleanup.days("AGENT_BACKUP_DAYS", 30) == 1
+
+
+def test_nothing_to_clean(tmp_path):
+    assert cleanup.run(backups=tmp_path / "b", memory=tmp_path / "m", now=NOW) == "Clean-up: nothing to delete"
