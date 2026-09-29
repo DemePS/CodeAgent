@@ -125,6 +125,38 @@ def excel_path(path: str, must_exist: bool = True, readable: bool = False) -> Pa
     return p
 
 
+# Workbooks read recently, kept while their file does not change: a large workbook takes seconds to
+# load, and Claude reads the same one many times (sheet after sheet, range after range).
+_READ_CACHE: dict[tuple[Path, bool], tuple[tuple[int, int], object]] = {}
+_READ_CACHE_SIZE = 4
+
+
+def read_workbook(p: Path, data_only: bool = False):
+    """A workbook for reading only (never modified or saved): loaded once while the file is unchanged."""
+    try:
+        st = p.stat()
+    except OSError as e:
+        raise ToolError(f"{rel_name(p)} cannot be read: {e}")
+    key, stamp = (p.resolve(), data_only), (st.st_mtime_ns, st.st_size)
+    cached = _READ_CACHE.get(key)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    wb = load_workbook(p, data_only=data_only)
+    # Each sheet's size as saved: reading cells (e.g. a range past the data) can add empty cells to a
+    # loaded workbook and grow max_row, which must not change the sizes shown by later reads.
+    wb.agent_sizes = {ws.title: (ws.max_row, ws.max_column) for ws in wb.worksheets}
+    _READ_CACHE.pop(key, None)
+    _READ_CACHE[key] = (stamp, wb)
+    while len(_READ_CACHE) > _READ_CACHE_SIZE:
+        _READ_CACHE.pop(next(iter(_READ_CACHE)))
+    return wb
+
+
+def sheet_size(wb, name: str) -> str:
+    rows, cols = getattr(wb, "agent_sizes", {}).get(name) or (wb[name].max_row, wb[name].max_column)
+    return f"{rows} rows x {cols} cols"
+
+
 def load_workbook(p: Path, **options):
     try:
         import openpyxl
@@ -147,31 +179,43 @@ def show_cell(value) -> str:
     return text if len(text) <= 200 else text[:200] + "..."
 
 
-OVERVIEW_ROWS = 6  # rows shown per sheet by the overview
-OVERVIEW_CELLS = 60  # at most, per sheet
+OVERVIEW_BUDGET = 12_000  # characters, whatever the number of sheets
+OVERVIEW_VALUE_CHARS = 60  # a long cell value is cut in the overview
 
 
 def workbook_overview(p: Path, wb, names: list[str]) -> str:
-    """A workbook with several sheets, read without naming one: each sheet's size and first rows, so
+    """A workbook with several sheets, read without naming one: every sheet's name and size, then
+    the first rows of each while the size budget allows (fewer rows when there are many sheets), so
     that Claude picks the sheet(s) to read in full instead of reading the first one blindly."""
     allowed = state.excel_edit_sheets.get(p.resolve())
-    lines = [f"{display(p)} -- {len(names)} sheets (overview: first rows of each; read one in full with sheet=...)"]
+    rows_each = 6 if len(names) <= 10 else 3 if len(names) <= 30 else 1
+    lines = [f"{display(p)} -- {len(names)} sheets (overview; read one in full with sheet=..., or part of it with range=...)"]
     if allowed:
         lines.append("sheets to fill (the person chose them; others cannot be changed): " + ", ".join(sorted(allowed)))
-    for n in names:
-        ws = wb[n]
-        lines.append(f"--- sheet {n}: {ws.max_row} rows x {ws.max_column} cols ---")
-        shown = 0
-        for row in ws.iter_rows(max_row=OVERVIEW_ROWS):
-            parts = [f"{c.coordinate}={show_cell(c.value)}" for c in row
-                     if c.value is not None and hasattr(c, "coordinate")][:OVERVIEW_CELLS - shown]
+    sizes = getattr(wb, "agent_sizes", {})
+    lines.append("sheets: " + "; ".join(f"{n} ({'x'.join(map(str, sizes.get(n) or (wb[n].max_row, wb[n].max_column)))})" for n in names))
+    lines.append(f"--- first {'row' if rows_each == 1 else f'{rows_each} rows'} of each sheet ---")
+    size = sum(len(line) + 1 for line in lines)
+    for number, n in enumerate(names):
+        preview = []
+        saved_rows = (sizes.get(n) or (wb[n].max_row, 0))[0]
+        for row in wb[n].iter_rows(max_row=min(rows_each, saved_rows)):
+            parts = []
+            for c in row:
+                if c.value is None or not hasattr(c, "coordinate"):
+                    continue
+                value = show_cell(c.value)
+                parts.append(f"{c.coordinate}={value[:OVERVIEW_VALUE_CHARS]}{'…' if len(value) > OVERVIEW_VALUE_CHARS else ''}")
             if parts:
-                lines.append(" | ".join(parts))
-                shown += len(parts)
-            if shown >= OVERVIEW_CELLS:
-                break
-        if shown == 0:
-            lines.append("(empty in its first rows)")
+                preview.append(" | ".join(parts[:20]))
+        block = [f"[{n}]"] + (preview or ["(empty in its first rows)"])
+        block_size = sum(len(line) + 1 for line in block)
+        if size + block_size > OVERVIEW_BUDGET:
+            lines.append(f"... no preview for the {len(names) - number} remaining sheet(s) (size limit): read them "
+                         "with sheet=... if their name suggests they matter")
+            break
+        lines += block
+        size += block_size
     state.ui.status(f"[excel] {rel_name(p)}: overview of {len(names)} sheets")
     return truncate("\n".join(lines))
 
@@ -179,17 +223,26 @@ def workbook_overview(p: Path, wb, names: list[str]) -> str:
 def tool_read_excel(path: str, sheet: str | None = None, range: str | None = None) -> str:
     state.turn["excel_read"] = True  # any attempt counts: the workbook may not exist yet (to be created)
     p = excel_path(path, readable=True)
-    formulas = load_workbook(p)                  # formulas as written
-    values = load_workbook(p, data_only=True)    # the values Excel calculated last time it saved
+    formulas = read_workbook(p)  # formulas as written
     names = formulas.sheetnames
     if sheet is None and range is None and len(names) > 1:
         return workbook_overview(p, formulas, names)
     ws_name = sheet or names[0]
     if ws_name not in names:
         raise ToolError(f"No sheet {ws_name!r}. Sheets: {', '.join(names)}")
-    ws, wv = formulas[ws_name], values[ws_name]
-    lines = [f"{display(p)} -- sheets: " + "; ".join(
-        f"{n} ({formulas[n].max_row} rows x {formulas[n].max_column} cols)" for n in names)]
+    ws = formulas[ws_name]
+    values_sheet = []  # the values Excel calculated last time it saved: loaded only if a formula is shown
+
+    def calculated(coordinate: str):
+        if not values_sheet:
+            values_sheet.append(read_workbook(p, data_only=True)[ws_name])
+        return values_sheet[0][coordinate].value
+
+    # The other sheets are listed only for a small workbook: with many sheets, the overview lists them
+    # once, instead of every read repeating the list.
+    others = ("sheets: " + "; ".join(f"{n} ({sheet_size(formulas, n)})" for n in names)
+              if len(names) <= 10 else f"one of {len(names)} sheets (read_excel without sheet lists them)")
+    lines = [f"{display(p)} -- sheet {ws_name} ({sheet_size(formulas, ws_name)}); {others}"]
     try:
         cells = ws[range] if range else ws.iter_rows()
     except ValueError:
@@ -214,7 +267,7 @@ def tool_read_excel(path: str, sheet: str | None = None, range: str | None = Non
             if c.value is None or not hasattr(c, "coordinate"):
                 continue
             if isinstance(c.value, str) and c.value.startswith("="):
-                cached = wv[c.coordinate].value
+                cached = calculated(c.coordinate)
                 parts.append(f"{c.coordinate}={c.value} -> {show_cell(cached) if cached is not None else '(not calculated)'}")
             else:
                 fmt = f" [{c.number_format}]" if c.number_format not in ("General", None) else ""
