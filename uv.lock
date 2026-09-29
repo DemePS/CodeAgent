@@ -385,7 +385,6 @@ dependencies = [
     { name = "anthropic" },
     { name = "azure-identity" },
     { name = "httpx" },
-    { name = "mcp", extra = ["cli"] },
     { name = "openpyxl" },
     { name = "pypdf" },
     { name = "python-dotenv" },
@@ -394,6 +393,9 @@ dependencies = [
 [package.optional-dependencies]
 browser = [
     { name = "playwright" },
+]
+weather = [
+    { name = "mcp", extra = ["cli"] },
 ]
 
 [package.dev-dependencies]
@@ -406,13 +408,13 @@ requires-dist = [
     { name = "anthropic", specifier = ">=0.71.0,<1" },
     { name = "azure-identity", specifier = ">=1.25.3" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.18.0" },
+    { name = "mcp", extras = ["cli"], marker = "extra == 'weather'", specifier = ">=1.18.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
     { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.49" },
     { name = "pypdf", specifier = ">=6.19.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
 ]
-provides-extras = ["browser"]
+provides-extras = ["browser", "weather"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.1.1" }]

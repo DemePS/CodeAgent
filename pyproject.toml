@@ -9,7 +9,6 @@ dependencies = [
     "azure-identity>=1.25.3", # Azure AD sign-in when no API key is set
     "httpx>=0.28.1", # download_file
     "python-dotenv>=1.1.1", # reads .env
-    "mcp[cli]>=1.18.0", # the weather MCP example (weather.py, client.py)
     "openpyxl>=3.1.5", # read_excel / edit_excel
     "pypdf>=6.19.0", # read_pdf (page ranges, text mode)
 ]
@@ -17,6 +16,8 @@ dependencies = [
 [project.optional-dependencies]
 # screenshot_page: `uv sync --extra browser`, then `uv run playwright install chromium`
 browser = ["playwright>=1.49"]
+# The weather MCP example in this repository (weather.py, client.py): `uv sync --extra weather`
+weather = ["mcp[cli]>=1.18.0"]
 
 [project.scripts]
 coding-agent = "coding_agent.cli:main"
