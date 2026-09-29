@@ -4,8 +4,8 @@ Run by the coding-agent command at each start; applications built on the agent c
 cleanup.run() at their own start.
 
 - Backups (BACKUP_HOME, ~/.coding-agent/backups): the copy of a workbook taken before each change
-  is deleted after AGENT_BACKUP_DAYS days (default 30), except the most recent copy of each file,
-  which is always kept.
+  is deleted after AGENT_BACKUP_DAYS days (default 3): long enough to undo a change noticed when
+  the workbook is checked, without keeping copies of confidential workbooks on the machine.
 - Saved conversations (MEMORY_HOME/<project>/conversation.json, used by --resume): deleted after
   AGENT_CONVERSATION_DAYS days (default 30).
 - Memory (MEMORY_HOME/<project>/): the whole memory of a project folder not used for
@@ -18,16 +18,14 @@ no permission) is left for next time.
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import time
 from pathlib import Path
 
-BACKUP_DAYS = 30
+BACKUP_DAYS = 3
 CONVERSATION_DAYS = 30
 MEMORY_DAYS = 90
 DAY = 86_400
-BACKUP_NAME = re.compile(r"^\d{8}-\d{6}-(.+)$")  # <YYYYmmdd-HHMMSS>-<file name> (tools/documents.py)
 
 
 def days(variable: str, default: int) -> int:
@@ -43,26 +41,19 @@ def older_than(path: Path, days_old: float, now: float) -> bool:
 
 
 def clean_backups(backups: Path, days_old: float, now: float) -> int:
-    """Backups older than `days_old`, keeping the newest copy of each file. Returns how many were deleted."""
+    """Backups older than `days_old`. Returns how many were deleted."""
     if not backups.is_dir():
         return 0
     deleted = 0
-    for folder in [backups, *[p for p in backups.iterdir() if p.is_dir()]]:
-        copies: dict[str, list[Path]] = {}
-        for file in folder.iterdir():
-            if file.is_file():
-                match = BACKUP_NAME.match(file.name)
-                copies.setdefault(match.group(1) if match else file.name, []).append(file)
-        for files in copies.values():
-            files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            for file in files[1:]:  # the newest copy always stays
-                if older_than(file, days_old, now):
-                    try:
-                        file.unlink()
-                        deleted += 1
-                    except OSError:
-                        pass
-        if folder != backups and not any(folder.iterdir()):
+    for file in [f for f in backups.rglob("*") if f.is_file()]:
+        if older_than(file, days_old, now):
+            try:
+                file.unlink()
+                deleted += 1
+            except OSError:
+                pass
+    for folder in sorted((p for p in backups.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
+        if not any(folder.iterdir()):
             folder.rmdir()
     return deleted
 

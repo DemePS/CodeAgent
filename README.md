@@ -77,7 +77,7 @@ Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_p
 
 - It writes only inside the project folder; extra folders you add are read-only.
 - Every file or workbook change is shown (a diff, or a cell-by-cell table) and waits for your
-  approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/`.
+  approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/` for 3 days.
 - Deleting always asks, even in autonomous mode; downloads and clones always ask; the agent cannot
   modify its own files; `run_python` cannot start processes or delete files.
 
@@ -88,7 +88,7 @@ of `coding-agent` (`coding_agent/cleanup.py`; applications call `coding_agent.cl
 
 | What | Where | Kept |
 |---|---|---|
-| Copies of workbooks before each change | `backups/` | 30 days (`AGENT_BACKUP_DAYS`); the latest copy of each file always |
+| Copies of workbooks before each change | `backups/` | 3 days (`AGENT_BACKUP_DAYS`) |
 | What the agent learned about each project | `memory/<project>-<code>/` | notes capped in size; deleted after 90 days unused (`AGENT_MEMORY_DAYS`) |
 | The saved conversation (`--resume`) | `memory/<project>-<code>/conversation.json` | 30 days (`AGENT_CONVERSATION_DAYS`) |
 
