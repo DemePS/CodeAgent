@@ -1,0 +1,87 @@
+# The codeagent package: test, build, and publish it to PyPI.
+#
+# - Every push and pull request: the tests on Linux and Windows (Python 3.10 and 3.14) with the
+#   locked versions (uv.lock), then with the newest versions pip would install today; the build
+#   (sdist and wheel) is kept as an artifact.
+# - A tag v<version> (the version in pyproject.toml, e.g. v0.1.0): the same, then the package is
+#   published to PyPI (pip install codeagent) and attached to a GitHub Release.
+#
+# Publishing uses PyPI trusted publishing: no token is stored here. One-time setup on pypi.org:
+# Your account > Publishing > Add a pending publisher: project "codeagent", owner DemePS, repository
+# CodeAgent, workflow package.yml, environment "pypi".
+
+name: Package
+
+on:
+  push:
+    branches: [master, claude/coding-agent-tools-8dvdd2, api-management]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+      - name: Tests (locked versions)
+        run: |
+          uv python install ${{ matrix.python }}
+          uv sync --locked --python ${{ matrix.python }}
+          uv run --python ${{ matrix.python }} pytest -q
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.17"
+      - name: Version matches the tag
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "$GITHUB_REF_NAME" = "v$version" || { echo "Tag $GITHUB_REF_NAME does not match version $version"; exit 1; }
+      - name: Build
+        run: uv build
+      - name: Check the package metadata
+        run: uvx twine check dist/*
+      - name: The wheel installed with pip, with the newest compatible dependencies
+        run: |
+          python3 -m venv /tmp/fresh
+          /tmp/fresh/bin/pip install -q dist/*.whl pytest
+          /tmp/fresh/bin/coding-agent --help > /dev/null
+          cp -r tests /tmp/package-tests && cd /tmp/package-tests
+          /tmp/fresh/bin/python -m pytest -q -p no:cacheprovider .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: [test, build]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # PyPI trusted publishing
+      contents: write # the GitHub Release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            codeagent ${{ github.ref_name }}: `pip install codeagent==${{ github.ref_name }}` (without the v).

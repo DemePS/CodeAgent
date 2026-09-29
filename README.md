@@ -1,0 +1,80 @@
+# CodeAgent
+
+An agent on Claude, running in your Azure subscription (Microsoft Foundry): it reads and edits files,
+Excel workbooks and PDFs in a project folder, asks before every change, and remembers what it learned
+about each project. Use it from the terminal, or as a library to build your own tool on top of it
+(for example a desktop app that fills Excel workbooks from PDF documents).
+
+```bash
+pip install codeagent
+```
+
+The package installs the `coding_agent` Python package and the `coding-agent` command.
+Python 3.10 or later; Windows, macOS and Linux.
+
+## Configure
+
+Environment variables, or a `.env` file in the folder you run from (or `~/.coding-agent/.env`):
+
+| Variable | Meaning |
+|---|---|
+| `ANTHROPIC_FOUNDRY_ENDPOINT` | `https://<resource>.services.ai.azure.com/anthropic` |
+| `ANTHROPIC_FOUNDRY_DEPLOYMENT` | your Claude deployment name |
+| `ANTHROPIC_FOUNDRY_API_KEY` | an API key; leave unset to sign in with your Microsoft work account |
+
+Without an API key, the agent signs in with the account of your Windows session, a developer's
+`az login`, or else the Microsoft sign-in page (once; the account is remembered).
+
+## Use it in the terminal
+
+```bash
+coding-agent -d path/to/project "Add input validation to the CLI"
+coding-agent -d path/to/project            # interactive
+coding-agent -d path/to/project -r         # resume the last conversation
+coding-agent --help
+```
+
+## Use it as a library
+
+```python
+from coding_agent import session
+from coding_agent.ui import TerminalUI  # or your own UI (subclass coding_agent.ui.UI)
+
+session.open_project("path/to/folder", ui=TerminalUI(),
+                     tools=["read_excel", "edit_excel", "read_pdf", "ask_human"],  # optional subset
+                     system_prompt=None)                                           # or your own instructions
+ok, message = session.check_connection()   # can Claude be reached?
+session.send("Fill costs.xlsx from invoice.pdf")
+session.close()
+```
+
+`session.stop()` stops the running instruction from another thread (e.g. a Stop button);
+`session.add_read_folder(path)` lets the agent read (never write) another folder. Every approval,
+question and progress message goes through the UI object, so a web or desktop front end can show them.
+
+## Tools
+
+Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
+`delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
+`edit_excel`), `git` (read-only), `run_python` (sandboxed), `download_file`, `clone_repo`,
+`web_search`, `screenshot_page` (`pip install "codeagent[browser]"`), `ask_human`, `load_skill`.
+
+## Safety
+
+- It writes only inside the project folder; extra folders you add are read-only.
+- Every file or workbook change is shown (a diff, or a cell-by-cell table) and waits for your
+  approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/`.
+- Deleting always asks, even in autonomous mode; downloads and clones always ask; the agent cannot
+  modify its own files; `run_python` cannot start processes or delete files.
+
+## Development
+
+```bash
+uv sync            # the exact versions the tests ran with (uv.lock)
+uv run pytest
+uv build           # dist/codeagent-<version>.tar.gz and .whl
+```
+
+## License
+
+MIT (see LICENSE).
