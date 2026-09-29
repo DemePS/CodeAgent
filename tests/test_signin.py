@@ -51,6 +51,7 @@ def fakes(tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_FOUNDRY_CLIENT_ID", raising=False)
     monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
     FakeDefault.works, FakeBrowser.pages, FakeBrowser.created = False, 0, []
+    monkeypatch.setattr(signin, "_shared", None)
     return tmp_path / "agent-home" / signin.ACCOUNT_FILE_NAME
 
 
@@ -130,3 +131,11 @@ def test_extra_headers_go_with_every_request(monkeypatch):
     finally:
         config._get_client.cache_clear()
     assert seen["x-app-version"] == "1.2.3"
+
+
+def test_one_shared_sign_in_for_claude_and_the_application(fakes, monkeypatch):
+    monkeypatch.setenv("TOKEN_SCOPE", "api://gateway/.default")
+    assert signin.shared() is signin.shared()
+    assert signin.access_token() == "browser-token"
+    assert signin.access_token() == "browser-token"
+    assert FakeBrowser.pages == 1

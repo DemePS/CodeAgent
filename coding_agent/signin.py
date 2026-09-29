@@ -114,3 +114,24 @@ class SignIn:
                 except OSError:
                     pass  # signed in anyway; the page opens again next time
         return self._browser.get_token(*scopes, **kwargs)
+
+
+DEFAULT_SCOPE = "https://ai.azure.com/.default"
+_shared: SignIn | None = None
+_shared_lock = threading.Lock()
+
+
+def shared() -> SignIn:
+    """The one sign-in of this process: Claude's client and the application (e.g. an access check)
+    use the same, so there is never more than one sign-in page."""
+    global _shared
+    with _shared_lock:
+        if _shared is None:
+            _shared = SignIn()
+        return _shared
+
+
+def access_token(scope: str | None = None) -> str:
+    """An access token for `scope` (default: TOKEN_SCOPE, else Foundry), signing in if needed."""
+    return shared().get_token(scope or os.environ.get("TOKEN_SCOPE") or DEFAULT_SCOPE).token
+

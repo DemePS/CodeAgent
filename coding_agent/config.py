@@ -31,10 +31,10 @@ def _get_client() -> AnthropicFoundry:
         )
     from azure.identity import get_bearer_token_provider
 
-    from .signin import SignIn  # the Windows account, `az login`, ... or the Microsoft sign-in page
+    from . import signin  # the Windows account, `az login`, ... or the Microsoft sign-in page
 
-    scope = os.environ.get("TOKEN_SCOPE", "https://ai.azure.com/.default")
-    token_provider = get_bearer_token_provider(SignIn(), scope)
+    scope = os.environ.get("TOKEN_SCOPE") or signin.DEFAULT_SCOPE
+    token_provider = get_bearer_token_provider(signin.shared(), scope)
     return AnthropicFoundry(
         azure_ad_token_provider=token_provider,
         base_url=os.environ["ANTHROPIC_FOUNDRY_ENDPOINT"],
