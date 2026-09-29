@@ -42,6 +42,7 @@ memory_sent = False  # memory and the skill list go with the first instruction o
 pending_blocks: list[str] = []  # e.g. a summary from /compact, sent with the next instruction
 compacted_this_turn = False  # a compaction replaced the history during the current instruction
 always_allow_python = False  # the user answered [a]lways to a run_python prompt
+stop_requested = False  # set by session.stop() from another thread (e.g. a Stop button)
 
 turn = {"instruction": "", "excel_read": False}  # the current instruction; reset for each one
 context_window: int = DEFAULT_CONTEXT_WINDOW  # tokens; lowered if the API reports a smaller window

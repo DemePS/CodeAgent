@@ -24,6 +24,13 @@ from .skills import skills_catalog
 from .tools import run_tool
 
 
+def check_stop() -> None:
+    """Stop the current instruction if the front end asked to (handled like Ctrl+C by send())."""
+    if state.stop_requested:
+        state.stop_requested = False
+        raise KeyboardInterrupt
+
+
 def active_tools() -> list[dict]:
     """The tool definitions sent to Claude: all of them, or the subset the front end enabled."""
     if state.tool_names is None:
@@ -44,6 +51,7 @@ def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int
         messages=messages,
     ) as stream:
         for event in stream:
+            check_stop()
             if event.type == "content_block_start":
                 block = event.content_block
                 if block.type == "text":
@@ -91,6 +99,7 @@ def call_model(client: anthropic.Anthropic, messages: list):
 def run_turn(client: anthropic.Anthropic, messages: list) -> None:
     """Call the model repeatedly until it stops asking for tools (at most MAX_STEPS calls)."""
     for _ in range(MAX_STEPS):
+        check_stop()
         response = call_model(client, messages)
         tool_uses = [b for b in response.content if b.type == "tool_use"]
 
@@ -126,6 +135,7 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     checkpoint = len(messages)
     state.compacted_this_turn = False
     state.turn.update(instruction=text, excel_read=False)
+    state.stop_requested = False
     # Memory and the skill list go with the first instruction (skills only when load_skill is enabled).
     skill_list = [skills_catalog()] if state.tool_enabled("load_skill") else []
     blocks = [] if state.memory_sent else [memory_snapshot(), *skill_list]

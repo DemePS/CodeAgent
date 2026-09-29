@@ -56,6 +56,12 @@ def send(text: str) -> bool:
     return _send(_get_client(), messages, text)
 
 
+def stop() -> None:
+    """Ask the running instruction to stop (from another thread): it ends at the next model call
+    or streamed chunk, and is rolled back like Ctrl+C. Pending questions must be answered by the UI."""
+    state.stop_requested = True
+
+
 def close() -> None:
     """Let a pending memory update finish (up to a minute)."""
     finish_memory_updates()

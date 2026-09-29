@@ -113,3 +113,17 @@ def test_context_clearing_replaces_old_tool_outputs(workspace, monkeypatch):
     assert context.clear_old_tool_results(messages) == 2
     assert messages[2]["content"][0]["content"] == config.CLEARED_NOTE
     assert messages[-1]["content"][0]["content"] == big
+
+
+def test_stop_rolls_back_the_instruction(tmp_path, claude, monkeypatch):
+    project = tmp_path / "p"
+    project.mkdir()
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    fake = claude([([("list_directory", {"path": "."})], "tool_use"), ([("text", "never sent")], "end_turn")])
+    ui = HeadlessUI()
+    seen = []
+    ui.message = seen.append
+    ui.tool_start = lambda name: session.stop()  # the person presses Stop while the first reply streams
+    session.open_project(project, ui=ui)
+    assert session.send("list the files") is False
+    assert "[interrupted]" in seen and session.messages == [] and len(fake.requests) == 1
