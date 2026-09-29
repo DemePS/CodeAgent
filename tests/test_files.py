@@ -105,3 +105,27 @@ def test_grep_and_list(workspace):
     (workspace / "src" / "m.py").write_text("def hello():\n    return 1\n")
     assert "src/m.py:1: def hello():" in files.tool_grep("def hello")
     assert "src/" in files.tool_list_directory(".")
+
+
+@pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
+def test_edits_keep_the_files_line_endings(workspace, ui, ending):
+    # On Windows, writing in text mode would turn "\n" into "\r\n" (every line changed in git), and
+    # "\r\n" read raw would become "\r\r\n". The file keeps its own line ending, on every platform.
+    (workspace / "a.txt").write_bytes(ending.join([b"one", b"two", b"three", b""]))
+    ui.answers = ["yes"]
+    files.tool_edit_file("a.txt", "two", "TWO")
+    assert (workspace / "a.txt").read_bytes() == ending.join([b"one", b"TWO", b"three", b""])
+
+
+@pytest.mark.parametrize("ending", [b"\n", b"\r\n"])
+def test_a_copied_text_file_is_identical(workspace, ui, ending):
+    (workspace / "src.txt").write_bytes(ending.join([b"total 642.00 EUR", b""]))
+    ui.answers = ["yes"]
+    files.tool_copy_path("src.txt", "copy.txt")
+    assert (workspace / "copy.txt").read_bytes() == (workspace / "src.txt").read_bytes()
+
+
+def test_a_new_file_uses_plain_newlines(workspace, ui):
+    ui.answers = ["yes"]
+    files.tool_write_file("new.txt", "a\nb\n")
+    assert (workspace / "new.txt").read_bytes() == b"a\nb\n"
