@@ -141,3 +141,21 @@ def test_opening_another_project_starts_a_fresh_conversation(tmp_path, claude, m
     second = fake.requests[-1]["messages"]
     assert len(second) == 1  # not the first project's history
     assert second[0]["content"][0]["text"].startswith("<memory>")  # the new project's memory is sent
+
+
+def test_every_tool_call_and_its_outcome_reach_the_ui(tmp_path, claude, monkeypatch):
+    project = tmp_path / "p"
+    project.mkdir()
+    (project / "a.txt").write_text("hello")
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    claude([([("read_file", {"path": "a.txt"}), ("read_file", {"path": "missing.txt"}),
+              ("write_file", {"path": "b.txt", "content": "x" * 50})], "tool_use"),
+            ([("text", "ok")], "end_turn")])
+    calls = []
+    ui = HeadlessUI()
+    ui.tool_result = lambda *args: calls.append(args)
+    session.open_project(project, ui=ui, tools=["read_file", "write_file"])
+    session.send("go")
+    assert calls[0] == ("read_file", "path='a.txt'", True, "11 characters")  # "    1\thello"
+    assert calls[1][:3] == ("read_file", "path='missing.txt'", False) and "File not found" in calls[1][3]
+    assert calls[2][1] == "path='b.txt', content=<50 chars>" and calls[2][2] is False  # refused by the headless UI

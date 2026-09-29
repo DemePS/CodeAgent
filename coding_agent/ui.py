@@ -79,6 +79,9 @@ class UI:
     def assistant_end(self) -> None:
         """The response is complete."""
 
+    def tool_result(self, name: str, arguments: str, ok: bool, summary: str) -> None:
+        """A tool call finished: its name, short arguments, success, and a summary (the error if it failed)."""
+
 
 # ------------------------------------------------------------------------------------ terminal
 
@@ -281,6 +284,10 @@ class TerminalUI(UI):
         self._flush()
         self._out = None
         print()
+
+    def tool_result(self, name: str, arguments: str, ok: bool, summary: str) -> None:
+        if not ok:  # successes are visible from the tool's own output; failures would go unseen
+            print(f"\033[33m   {name} failed: {summary}\033[0m")
 
 
 class HeadlessUI(UI):

@@ -51,7 +51,33 @@ TOOL_HANDLERS = {
 
 
 def run_tool(block) -> dict:
-    """Execute one tool_use block and build its tool_result."""
+    """Execute one tool_use block, report the outcome to the UI, and build its tool_result."""
+    result = _run(block)
+    content = result["content"]
+    if result.get("is_error"):
+        summary = str(content).splitlines()[0][:300] if content else "error"
+    elif isinstance(content, list):  # text, images, documents
+        summary = f"{len(content)} block(s): {', '.join(b.get('type', '?') for b in content)}"
+    else:
+        summary = f"{len(str(content)):,} characters"
+    state.ui.tool_result(block.name, call_summary(block.input), not result.get("is_error"), summary)
+    return result
+
+
+def call_summary(arguments: dict) -> str:
+    """The arguments of a call, short and without file contents: path='a.xlsx', pages='1'."""
+    parts = []
+    for key, value in arguments.items():
+        if key in ("content", "old_string", "new_string", "code"):
+            parts.append(f"{key}=<{len(str(value)):,} chars>")
+        elif key == "changes" and isinstance(value, list):
+            parts.append(f"changes=<{len(value)} cell(s)>")
+        else:
+            parts.append(f"{key}={value!r}"[:120])
+    return ", ".join(parts)
+
+
+def _run(block) -> dict:
     handler = TOOL_HANDLERS.get(block.name)
     if state.tool_names is not None and block.name not in state.tool_names:
         handler = None  # not enabled in this session
