@@ -70,14 +70,16 @@ question and progress message goes through the UI object, so a web or desktop fr
 
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
-`edit_excel`), `git` (read-only), `run_python` (sandboxed), `download_file`, `clone_repo`,
+`edit_excel`, `restore_backup`), `git` (read-only), `run_python` (sandboxed), `download_file`, `clone_repo`,
 `web_search`, `screenshot_page` (`pip install "codeagent-apim[browser]"`), `ask_human`, `load_skill`.
 
 ## Safety
 
 - It writes only inside the project folder; extra folders you add are read-only.
 - Every file or workbook change is shown (a diff, or a cell-by-cell table) and waits for your
-  approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/` for 3 days.
+  approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/` for 3 days,
+  and `restore_backup` puts one back ("undo your changes to costs.xlsx"). Applications can list and
+  restore them with `coding_agent.backups` (`versions()`, `restore()`).
 - Deleting always asks, even in autonomous mode; downloads and clones always ask; the agent cannot
   modify its own files; `run_python` cannot start processes or delete files.
 

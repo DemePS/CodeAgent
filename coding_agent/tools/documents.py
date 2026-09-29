@@ -1,14 +1,12 @@
 """Documents: read PDFs, read and edit Excel workbooks, view images."""
 
 import base64
-import hashlib
 import io
 import os
 import re
-import time
 from pathlib import Path
 
-from .. import state
+from .. import backups, state
 from ..common import (
     ToolError,
     display,
@@ -19,7 +17,6 @@ from ..common import (
     truncate,
 )
 from ..config import (
-    BACKUP_HOME,
     EXCEL_MAX_CELLS,
     EXCEL_MAX_CHANGES,
     IMAGE_TYPES,
@@ -384,11 +381,8 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         raise ToolError(f"{name} was changed on disk (probably saved in Excel) after the diff was shown; nothing "
                         "was written. Read it again and redo the changes.")
     backup = None
-    if existed:  # a copy of the previous version, outside the project
-        project = f"{state.workspace.name}-{hashlib.sha256(str(state.workspace).encode()).hexdigest()[:8]}"
-        backup = BACKUP_HOME / project / f"{time.strftime('%Y%m%d-%H%M%S')}-{p.name}"
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        backup.write_bytes(before)
+    if existed:  # a copy of the previous version, outside the project (see backups.py)
+        backup = backups.save(p, before)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(f".{p.name}.agent-tmp")
     try:
@@ -422,3 +416,40 @@ def tool_view_image(path: str) -> list:
     return [{"type": "text", "text": f"{display(p)} ({len(data):,} bytes):"}, image_block(data, media_type)]
 
 
+
+
+def tool_restore_backup(path: str, version: str | None = None) -> str:
+    """List a workbook's previous versions, or put one back (the person approves, like any change)."""
+    from ..cleanup import BACKUP_DAYS, days
+
+    p = excel_path(path, must_exist=False)
+    if is_protected(p):
+        raise ToolError(f"{path} is part of the coding agent's own files and cannot be modified.")
+    name = rel_name(p)
+    found = backups.versions(p.name)
+    if not found:
+        raise ToolError(f"No previous version of {name}: the agent keeps a copy before each change it saves, "
+                        f"for {days('AGENT_BACKUP_DAYS', BACKUP_DAYS)} days, and it has none for this workbook.")
+    if version is None:
+        lines = [f"- version={v['id']!r}: as it was before the change of {backups.moment(v['id']):%a %d %b %Y %H:%M:%S}"
+                 for v in found]
+        return (f"Previous versions of {name}, newest first (each is the workbook as it was just before one of "
+                "your saved changes):\n" + "\n".join(lines)
+                + "\nTo put one back, call restore_backup again with its version. To undo a whole job, choose "
+                  "the oldest version from that job.")
+    if version not in {v["id"] for v in found}:
+        raise ToolError(f"{version!r} is not a previous version of {name}; call restore_backup without a version to list them.")
+    when = f"{backups.moment(version):%a %d %b %Y at %H:%M}"
+    state.ui.panel(f"Restore {name}", [f"Put back {name} as it was before the change of {when}.",
+                                       "The current version is kept among the previous versions."])
+    if state.auto_mode:
+        state.ui.status(f"(autonomous mode: restoring {name} without asking)")
+    elif state.ui.confirm(f"Restore {name} to its version from before the change of {when}?") != "yes":
+        feedback = state.ui.ask_text("Why not? (optional): ")
+        raise ToolError(f"The user rejected the restore; {name} was NOT changed." + (f" User feedback: {feedback}" if feedback else ""))
+    try:
+        message = backups.restore(p, version)
+    except (ValueError, PermissionError) as e:
+        raise ToolError(str(e))
+    state.ui.success(f"Restored {name} (version from before {when})")
+    return message

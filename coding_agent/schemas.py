@@ -319,6 +319,25 @@ TOOLS = [
         },
     },
     {
+        "name": "restore_backup",
+        "description": (
+            "Undo changes to a workbook: before each change it saves, the agent keeps a copy of the workbook "
+            "(for a few days). Without `version`, lists the previous versions of the workbook with their times; "
+            "with `version` (an id from that list), puts that version back -- the person approves, and the "
+            "current version is kept, so the restore can be undone too. Use it when the person asks to undo "
+            "your changes or go back to an earlier state; to undo a whole job, restore the oldest version "
+            "from that job."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The workbook (.xlsx or .xlsm) in the workspace."},
+                "version": {"type": "string", "description": "A version id from the list; omit to list them."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
         "name": "view_image",
         "description": (
             "Look at an image file in the workspace (png, jpg, gif, webp) -- e.g. a design mockup "
