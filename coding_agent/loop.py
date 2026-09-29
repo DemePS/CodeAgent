@@ -1,6 +1,8 @@
 """The agent loop: stream a response, run the requested tools, repeat; one instruction at a time."""
 
 
+import threading
+
 import anthropic
 
 from . import state
@@ -39,8 +41,51 @@ def active_tools() -> list[dict]:
     return [t for t in TOOLS if t["name"] in state.tool_names]
 
 
+class _Call:
+    """One model call running in a helper thread (see stream_response)."""
+
+    def __init__(self) -> None:
+        self.cancelled = False
+        self.stream = None
+        self.result = None
+        self.error: BaseException | None = None
+        self.done = threading.Event()
+
+
 def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int = MAX_TOKENS):
-    """Stream one model response to the UI and return the final message."""
+    """Stream one model response to the UI and return the final message.
+
+    The call runs in a helper thread while this one checks for Stop every 0.1 s: a Stop (session.stop)
+    ends the wait at once, even while a large request is being sent or Claude thinks before its first
+    word. The abandoned call's connection is closed and it shows nothing more."""
+    call = _Call()
+
+    def run() -> None:
+        try:
+            call.result = _stream(client, messages, max_tokens, call)
+        except BaseException as error:  # handed to the waiting thread
+            call.error = error
+        finally:
+            call.done.set()
+
+    threading.Thread(target=run, name="claude-call", daemon=True).start()
+    try:
+        while not call.done.wait(0.1):
+            check_stop()
+    except BaseException:  # Stop, or Ctrl+C in the terminal
+        call.cancelled = True
+        if call.stream is not None:
+            try:
+                call.stream.close()
+            except Exception:
+                pass
+        raise
+    if call.error is not None:
+        raise call.error
+    return call.result
+
+
+def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: _Call):
     ui = state.ui
     with client.messages.stream(
         cache_control={"type": "ephemeral"},  # cache the growing prefix: each loop step re-reads it cheaply
@@ -51,8 +96,10 @@ def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int
         thinking={"type": "adaptive"},
         messages=messages,
     ) as stream:
+        call.stream = stream
         for event in stream:
-            check_stop()
+            if call.cancelled:  # stopped: the waiting thread has moved on
+                return None
             if event.type == "content_block_start":
                 block = event.content_block
                 if block.type == "text":
@@ -76,6 +123,8 @@ def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int
                     if k not in ("content", "old_string", "new_string", "file_text", "old_str", "new_str", "insert_text")
                 )
                 ui.tool_detail(f"({args})")
+        if call.cancelled:
+            return None
         ui.assistant_end()
         return stream.get_final_message()
 
