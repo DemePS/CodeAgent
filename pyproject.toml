@@ -3,7 +3,7 @@ name = "coding-agent"
 version = "0.1.0"
 description = "Personal coding agent: Claude on Azure (Microsoft Foundry) with a manual tool-use loop"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10"
 # Exact versions: the ones tested together (uv.lock pins their own dependencies too). To upgrade,
 # change a version here, run `uv lock`, and run the tests.
 dependencies = [
