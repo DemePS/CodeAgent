@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# screenshot_page: `pip install "codeagent[browser]"`, then `playwright install chromium`
+# screenshot_page: `pip install "codeagent-apim[browser]"`, then `playwright install chromium`
 browser = ["playwright>=1.63.0,<2"]
 
 [project.urls]

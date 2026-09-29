@@ -71,7 +71,7 @@ question and progress message goes through the UI object, so a web or desktop fr
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
 `edit_excel`), `git` (read-only), `run_python` (sandboxed), `download_file`, `clone_repo`,
-`web_search`, `screenshot_page` (`pip install "codeagent[browser]"`), `ask_human`, `load_skill`.
+`web_search`, `screenshot_page` (`pip install "codeagent-apim[browser]"`), `ask_human`, `load_skill`.
 
 ## Safety
 
