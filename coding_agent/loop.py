@@ -126,9 +126,11 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     checkpoint = len(messages)
     state.compacted_this_turn = False
     state.turn.update(instruction=text, excel_read=False)
-    blocks = [] if state.memory_sent else [memory_snapshot(), skills_catalog()]
+    # Memory and the skill list go with the first instruction (skills only when load_skill is enabled).
+    skill_list = [skills_catalog()] if state.tool_enabled("load_skill") else []
+    blocks = [] if state.memory_sent else [memory_snapshot(), *skill_list]
     blocks += state.pending_blocks  # e.g. the summary from /compact
-    if state.skills_note and state.memory_sent:
+    if state.skills_note and state.memory_sent and state.tool_enabled("load_skill"):
         blocks.append(state.skills_note)
     if state.mode_note:
         blocks.append(state.mode_note)

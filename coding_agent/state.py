@@ -29,6 +29,10 @@ skills: dict[str, Path] = {}  # skill name -> its SKILL.md
 tool_names: set[str] | None = None  # the enabled tools, or None for all
 system_prompt: str | None = None  # replaces the coding agent's system prompt ({workspace} is filled in)
 
+
+def tool_enabled(name: str) -> bool:
+    return tool_names is None or name in tool_names
+
 # Paths the agent must never modify: its own files, plus the project's .agent/skills folder.
 protected_paths: list[Path] = list(OWN_FILES)
 

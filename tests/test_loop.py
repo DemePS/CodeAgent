@@ -78,6 +78,8 @@ def test_session_with_tool_subset_and_custom_prompt(tmp_path, ui, claude, monkey
     first = fake.requests[0]
     assert {t["name"] for t in first["tools"]} == {"read_file", "ask_human"}
     assert first["system"] == f"You fill spreadsheets in {project.resolve()}."
+    first_message = [b["text"] for b in first["messages"][0]["content"]]
+    assert first_message[0].startswith("<memory>") and not any(b.startswith("<skills>") for b in first_message)
     results = {r["tool_use_id"]: r for r in fake.requests[1]["messages"][-1]["content"]}
     assert "hello" in results["toolu_0_read_file"]["content"]
     assert results["toolu_1_write_file"]["is_error"]  # not enabled in this session

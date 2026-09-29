@@ -142,7 +142,7 @@ def compacted_block(summary: str) -> str:
 
 def session_blocks() -> list[str]:
     """What a fresh context needs besides the summary: memory, skills and the current mode."""
-    blocks = [memory_snapshot(), skills_catalog()]
+    blocks = [memory_snapshot(), *([skills_catalog()] if state.tool_enabled("load_skill") else [])]
     if state.auto_mode:
         blocks.append("<mode>Autonomous mode is ON: your edits, new files and run_python calls are applied "
                       "without asking, and ask_human will not be answered. delete_file and delete_folder still ask the user.</mode>")
