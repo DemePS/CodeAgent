@@ -159,3 +159,27 @@ def test_every_tool_call_and_its_outcome_reach_the_ui(tmp_path, claude, monkeypa
     assert calls[0] == ("read_file", "path='a.txt'", True, "11 characters")  # "    1\thello"
     assert calls[1][:3] == ("read_file", "path='missing.txt'", False) and "File not found" in calls[1][3]
     assert calls[2][1] == "path='b.txt', content=<50 chars>" and calls[2][2] is False  # refused by the headless UI
+
+
+def test_stop_is_immediate_while_claude_has_not_answered_yet(tmp_path, claude, monkeypatch):
+    # A large request being sent, or Claude thinking before its first word: no streamed chunk arrives
+    # for a while. Stop must not wait for it.
+    import threading
+    import time
+    project = tmp_path / "p"
+    project.mkdir()
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    answer = FakeClaude.handler
+    monkeypatch.setattr(FakeClaude, "handler", lambda self, request: (time.sleep(3), answer(self, request))[1])
+    claude([([("text", "too late")], "end_turn")])
+    ui = HeadlessUI()
+    shown = []
+    ui.assistant_text = shown.append
+    session.open_project(project, ui=ui)
+    threading.Timer(0.3, session.stop).start()
+    started = time.monotonic()
+    assert session.send("fill the workbook") is False
+    assert time.monotonic() - started < 1.5  # not the 3 s Claude takes
+    assert session.messages == []
+    time.sleep(3.2)  # the abandoned call ends in the background...
+    assert shown == []  # ...and shows nothing
