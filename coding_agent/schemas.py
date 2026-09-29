@@ -265,8 +265,9 @@ TOOLS = [
     {
         "name": "read_excel",
         "description": (
-            "Read an Excel workbook (.xlsx/.xlsm) from the workspace. Without sheet, lists every "
-            "sheet with its size and shows the first sheet. Cells are shown as 'A1=value'; a formula "
+            "Read an Excel workbook (.xlsx/.xlsm) from the workspace. Without sheet (and range), a "
+            "workbook with several sheets gets an overview: each sheet's size and first rows; then read "
+            "the relevant sheet(s) in full with sheet=... (a one-sheet workbook is shown in full). Cells are shown as 'A1=value'; a formula "
             "cell shows its formula and its last calculated value, e.g. 'C5==SUM(C2:C4) -> 42'. range "
             f"limits it, e.g. 'A1:F40'. At most {EXCEL_MAX_CELLS} non-empty cells per call."
         ),
