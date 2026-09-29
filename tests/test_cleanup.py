@@ -16,19 +16,17 @@ def file(path, age_days, text="x"):
     return path
 
 
-def test_old_backups_go_but_the_newest_copy_of_each_file_stays(tmp_path):
+def test_backups_older_than_three_days_go(tmp_path):
     backups = tmp_path / "backups"
     project = backups / "myapp-1a2b3c4d"
-    old = file(project / "20260101-100000-costs.xlsx", 60)
-    older = file(project / "20251201-100000-costs.xlsx", 90)
-    recent = file(project / "20260920-100000-costs.xlsx", 2)
-    only = file(project / "20250101-100000-grid.xlsx", 300)  # the only copy of grid.xlsx: kept
-    stale = backups / "old-99999999"
-    file(stale / "20250101-100000-a.xlsx", 300)
-    newest_of_stale = file(stale / "20250102-100000-a.xlsx", 290)
-    assert cleanup.clean_backups(backups, 30, NOW) == 3
-    assert not old.exists() and not older.exists()
-    assert recent.exists() and only.exists() and newest_of_stale.exists()
+    old = file(project / "20260920-100000-costs.xlsx", 4)
+    only_copy = file(project / "20250101-100000-grid.xlsx", 300)  # even the only copy of a workbook
+    recent = file(project / "20260928-100000-costs.xlsx", 1)
+    stale = file(backups / "old-99999999" / "20250101-100000-a.xlsx", 10)
+    assert cleanup.clean_backups(backups, cleanup.BACKUP_DAYS, NOW) == 3
+    assert not old.exists() and not only_copy.exists() and not stale.exists()
+    assert recent.exists()
+    assert not stale.parent.exists()  # empty folders go too
 
 
 def test_unused_project_memories_and_old_conversations_go(tmp_path, monkeypatch):
