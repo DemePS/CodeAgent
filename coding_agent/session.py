@@ -52,6 +52,22 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
     return workspace
 
 
+def add_read_folder(path: str | Path) -> Path:
+    """Let the agent read (never write) a folder outside the project, e.g. where the person keeps
+    documents. Claude is told with the next instruction. Returns the resolved folder."""
+    folder = Path(path).expanduser().resolve()
+    if not folder.is_dir():
+        raise NotADirectoryError(f"Not a directory: {folder}")
+    inside = folder == state.workspace or state.workspace in folder.parents or any(
+        folder == root or root in folder.parents for root in state.read_roots)
+    if not inside:
+        state.read_roots = [r for r in state.read_roots if folder not in r.parents] + [folder]
+        state.read_roots_note = ("<read_only_folders>You may also read (never write) these folders; use "
+                                 "absolute paths:\n" + "\n".join(f"- {r.as_posix()}" for r in state.read_roots)
+                                 + "\n</read_only_folders>")
+    return folder
+
+
 def send(text: str) -> bool:
     """Run one instruction to completion (tools, approvals, streaming). False if it failed."""
     return _send(_get_client(), messages, text)

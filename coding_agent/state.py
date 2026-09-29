@@ -23,6 +23,8 @@ auto_mode = False  # autonomous mode: no approval prompts (deletions and network
 memory_dir: Path | None = None  # this project's memory folder
 conversation_file: Path | None = None  # the saved history, used by --resume
 skills: dict[str, Path] = {}  # skill name -> its SKILL.md
+read_roots: list[Path] = []  # extra folders the agent may read but never write (added by the person)
+read_roots_note: str | None = None  # tells Claude about newly added read-only folders
 
 # What this session exposes to Claude. None means everything (the coding agent); an application
 # built on the package (e.g. an Excel filler) narrows the tools and brings its own instructions.
@@ -61,8 +63,9 @@ def reset_conversation() -> None:
 
 def set_workspace(path: Path, project_id: str, memory_home: Path) -> None:
     """Point the session at a project: its folders, memory and saved conversation."""
-    global workspace, cwd, memory_dir, conversation_file, protected_paths
+    global workspace, cwd, memory_dir, conversation_file, protected_paths, read_roots, read_roots_note
     workspace = cwd = path
+    read_roots, read_roots_note = [], None
     memory_dir = memory_home / project_id / "memories"
     conversation_file = memory_home / project_id / "conversation.json"
     protected_paths = [*OWN_FILES, path / ".agent" / "skills"]

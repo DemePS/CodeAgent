@@ -9,7 +9,15 @@ import time
 from pathlib import Path
 
 from .. import state
-from ..common import ToolError, display, is_protected, rel_name, resolve, truncate
+from ..common import (
+    ToolError,
+    display,
+    is_protected,
+    rel_name,
+    resolve,
+    resolve_readable,
+    truncate,
+)
 from ..config import (
     BACKUP_HOME,
     EXCEL_MAX_CELLS,
@@ -61,7 +69,7 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
         from pypdf.errors import PdfReadError
     except ImportError:
         raise ToolError("pypdf is not installed in the agent's environment (uv sync).")
-    p = resolve(path)
+    p = resolve_readable(path)
     if not p.is_file():
         raise ToolError(f"File not found: {path}")
     try:
@@ -106,8 +114,9 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
     ]
 
 
-def excel_path(path: str, must_exist: bool = True) -> Path:
-    p = resolve(path)
+def excel_path(path: str, must_exist: bool = True, readable: bool = False) -> Path:
+    """A workbook path: readable anywhere the agent may read, writable only in the workspace."""
+    p = resolve_readable(path) if readable else resolve(path)
     if p.suffix.lower() not in (".xlsx", ".xlsm"):
         hint = " Save it as .xlsx in Excel first." if p.suffix.lower() == ".xls" else ""
         raise ToolError(f"{path}: only .xlsx and .xlsm workbooks are supported.{hint} For .csv use read_file/edit_file.")
@@ -140,7 +149,7 @@ def show_cell(value) -> str:
 
 def tool_read_excel(path: str, sheet: str | None = None, range: str | None = None) -> str:
     state.turn["excel_read"] = True  # any attempt counts: the workbook may not exist yet (to be created)
-    p = excel_path(path)
+    p = excel_path(path, readable=True)
     formulas = load_workbook(p)                  # formulas as written
     values = load_workbook(p, data_only=True)    # the values Excel calculated last time it saved
     names = formulas.sheetnames
@@ -308,7 +317,7 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
 
 
 def tool_view_image(path: str) -> list:
-    p = resolve(path)
+    p = resolve_readable(path)
     if not p.is_file():
         raise ToolError(f"File not found: {path}")
     media_type = IMAGE_TYPES.get(p.suffix.lower())

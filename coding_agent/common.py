@@ -19,8 +19,25 @@ def resolve(path: str) -> Path:
     return p
 
 
+def resolve_readable(path: str) -> Path:
+    """Resolve a path the agent may read: inside the workspace, or inside a read-only folder the
+    person added (state.read_roots). Writing always goes through resolve(), workspace only."""
+    p = (state.cwd / path).resolve()  # an absolute path ignores the current directory
+    if in_workspace(p) or any(p == root or root in p.parents for root in state.read_roots):
+        return p
+    where = "the workspace and the read-only folders" if state.read_roots else "the workspace"
+    raise ToolError(f"Path '{path}' is outside {where}.")
+
+
+def in_workspace(p: Path) -> bool:
+    return p == state.workspace or state.workspace in p.parents
+
+
 def display(p: Path) -> str:
-    """How a path is shown to the model: relative to the current directory."""
+    """How a path is shown to the model: relative to the current directory, or absolute for a file
+    in a read-only folder outside the workspace."""
+    if not in_workspace(p):
+        return p.as_posix()
     return Path(os.path.relpath(p, state.cwd)).as_posix()
 
 
@@ -37,6 +54,8 @@ def truncate(text: str) -> str:
 
 def rel_name(p: Path) -> str:
     """A path as the user sees it: relative to the repository root, never ambiguous."""
+    if not in_workspace(p):
+        return p.as_posix()
     return p.relative_to(state.workspace).as_posix() if p != state.workspace else "."
 
 

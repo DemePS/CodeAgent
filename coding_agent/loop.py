@@ -144,6 +144,8 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         blocks.append(state.skills_note)
     if state.mode_note:
         blocks.append(state.mode_note)
+    if state.read_roots_note:
+        blocks.append(state.read_roots_note)
     if blocks:
         messages.append({"role": "user", "content": [{"type": "text", "text": t} for t in [*blocks, text]]})
     else:
@@ -154,7 +156,7 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         # After a compaction the turn's start is gone; the whole (small) history stands in for it.
         queue_memory_update(client, messages if state.compacted_this_turn else messages[checkpoint:])
         state.memory_sent = True
-        state.mode_note = state.skills_note = None
+        state.mode_note = state.skills_note = state.read_roots_note = None
         state.pending_blocks.clear()
         state.ui.status(f"[context] {context_status(messages)}")
         return True

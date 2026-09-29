@@ -14,6 +14,7 @@ from ..common import (
     is_protected,
     rel_name,
     resolve,
+    resolve_readable,
     truncate,
     writable_path,
 )
@@ -21,7 +22,7 @@ from ..config import MAX_LISTING_ENTRIES, SKIP_DIRS
 
 
 def tool_list_directory(path: str = ".") -> str:
-    root = resolve(path)
+    root = resolve_readable(path)
     if not root.is_dir():
         raise ToolError(f"Not a directory: {path}")
     try:
@@ -64,7 +65,7 @@ def tool_grep(
     except re.error as e:
         raise ToolError(f"Invalid regex: {e}")
 
-    root = resolve(path)
+    root = resolve_readable(path)
     if not root.exists():
         raise ToolError(f"Path not found: {path}")
 
@@ -94,7 +95,7 @@ def tool_grep(
 
 
 def tool_read_file(path: str, start_line: int | None = None, end_line: int | None = None) -> str:
-    p = resolve(path)
+    p = resolve_readable(path)
     if not p.is_file():
         raise ToolError(f"File not found: {path}")
     try:
@@ -205,7 +206,7 @@ def tool_write_file(path: str, content: str) -> str:
 
 
 def tool_copy_path(source: str, destination: str) -> str:
-    src = resolve(source)
+    src = resolve_readable(source)  # copying from a read-only folder into the workspace is fine
     if not src.exists():
         raise ToolError(f"Not found: {source}")
     dest = resolve(destination)
