@@ -72,7 +72,10 @@ Configuration (environment variables or a .env file):
                                    Windows session's account, `az login`, ... or else the Microsoft
                                    sign-in page, once (see coding_agent/signin.py)
     ANTHROPIC_FOUNDRY_DEPLOYMENT   your Claude deployment name
-    AZURE_TENANT_ID / AZURE_CLIENT_ID  tenant and app registration for the sign-in page (optional)
+    AZURE_TENANT_ID                tenant to sign in to (optional)
+    ANTHROPIC_FOUNDRY_CLIENT_ID    your organization's app registration for signing in (optional)
+    TOKEN_SCOPE                    what the token is for (default https://ai.azure.com/.default;
+                                   an API Management gateway's API: api://<app-id>/.default)
     ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN=0  never open the sign-in page (servers, CI)
 
 Usage:

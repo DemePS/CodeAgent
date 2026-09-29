@@ -13,6 +13,11 @@ from dotenv import load_dotenv
 load_dotenv()  # before reading any configuration below
 
 
+# Headers sent with every request to Claude, e.g. the application's name and version for a gateway's
+# logs. Set them before the first call (the client is created once).
+CLIENT_HEADERS: dict[str, str] = {}
+
+
 @lru_cache(maxsize=1)
 def _get_client() -> AnthropicFoundry:
     """AnthropicFoundry client: API key if ANTHROPIC_FOUNDRY_API_KEY is set, otherwise Azure AD."""
@@ -21,6 +26,7 @@ def _get_client() -> AnthropicFoundry:
         return AnthropicFoundry(
             api_key=api_key,
             base_url=os.environ["ANTHROPIC_FOUNDRY_ENDPOINT"],
+            default_headers=CLIENT_HEADERS or None,
             max_retries=2,
         )
     from azure.identity import get_bearer_token_provider
@@ -32,6 +38,7 @@ def _get_client() -> AnthropicFoundry:
     return AnthropicFoundry(
         azure_ad_token_provider=token_provider,
         base_url=os.environ["ANTHROPIC_FOUNDRY_ENDPOINT"],
+        default_headers=CLIENT_HEADERS or None,
         max_retries=2,
     )
 

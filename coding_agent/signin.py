@@ -1,17 +1,21 @@
 """Microsoft sign-in (Azure AD / Entra ID) when no API key is set.
 
 In order:
-1. What DefaultAzureCredential finds without asking anything: on a company Windows PC the account
-   signed into Windows (through the Windows broker, package azure-identity-broker), a developer's
-   `az login`, Visual Studio Code, environment variables, a managed identity...
+1. Without asking anything:
+   - with your organization's app registration (ANTHROPIC_FOUNDRY_CLIENT_ID, e.g. to call an API
+     Management gateway): the account signed into Windows, through the Windows broker;
+   - otherwise what DefaultAzureCredential finds: the account signed into Windows (Windows
+     broker, package azure-identity-broker), a developer's `az login`, Visual Studio Code,
+     environment variables, a managed identity...
 2. Otherwise the Microsoft sign-in page, opened in the browser once. The account is remembered
-   (~/.coding-agent/azure-account.json, no secret in it) and its tokens are kept in the OS's
+   (~/.coding-agent/azure-account*.json, no secret in it) and its tokens are kept in the OS's
    encrypted token cache on Windows and macOS, so the next launches sign in silently.
 
-Environment variables: AZURE_TENANT_ID (the Foundry resource's tenant, when it is not the account's
-home tenant), AZURE_CLIENT_ID (an app registration of your organization for the sign-in page;
-default: Microsoft's public Azure CLI client), ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN=0 to never open
-the sign-in page (servers, CI).
+Environment variables: AZURE_TENANT_ID (the tenant to sign in to, when it is not the account's home
+tenant), ANTHROPIC_FOUNDRY_CLIENT_ID (your organization's app registration, a public client; default:
+Microsoft's public Azure CLI client), TOKEN_SCOPE (what the token is for; default Foundry:
+https://ai.azure.com/.default), ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN=0 to never open the sign-in page
+(servers, CI).
 """
 
 from __future__ import annotations
@@ -20,7 +24,25 @@ import os
 import sys
 import threading
 
-ACCOUNT_FILE_NAME = "azure-account.json"
+ACCOUNT_FILE_NAME = "azure-account.json"  # with an app registration: azure-account-<client id>.json
+
+
+def client_id() -> str | None:
+    return os.environ.get("ANTHROPIC_FOUNDRY_CLIENT_ID") or None
+
+
+def windows_account(client: str):
+    """The account signed into Windows, for the app registration `client` (None if unavailable)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        from azure.identity.broker import InteractiveBrowserBrokerCredential
+    except ImportError:
+        return None
+    options = {"tenant_id": os.environ["AZURE_TENANT_ID"]} if os.environ.get("AZURE_TENANT_ID") else {}
+    # parent_window_handle 0: no window to attach a prompt to -- only the silent default account is used.
+    return InteractiveBrowserBrokerCredential(client_id=client, use_default_broker_account=True,
+                                              parent_window_handle=0, **options)
 
 
 def browser_sign_in_allowed() -> bool:
@@ -37,8 +59,14 @@ class SignIn:
         from .config import AGENT_HOME
 
         self._lock = threading.Lock()
-        self._account_file = AGENT_HOME / ACCOUNT_FILE_NAME
-        self._default = DefaultAzureCredential()  # never opens a page (interactive browser excluded)
+        client = client_id()
+        # The account remembered for this app registration (one registration's sign-in is not another's).
+        self._account_file = AGENT_HOME / (f"azure-account-{client}.json" if client else ACCOUNT_FILE_NAME)
+        if client:
+            broker = windows_account(client)
+            self._silent = [broker] if broker else []
+        else:
+            self._silent = [DefaultAzureCredential()]  # never opens a page (interactive browser excluded)
         self._browser = None
         # Signed in through the page before: go straight to the remembered account.
         self._use_browser = browser_sign_in_allowed() and self._account_file.is_file()
@@ -49,13 +77,16 @@ class SignIn:
         with self._lock:
             if self._use_browser:
                 return self._browser_token(scopes, kwargs)
-            try:
-                return self._default.get_token(*scopes, **kwargs)
-            except ClientAuthenticationError:
-                if not browser_sign_in_allowed():
-                    raise
-                self._use_browser = True
-                return self._browser_token(scopes, kwargs)
+            failure: Exception = ClientAuthenticationError("No signed-in account was found.")
+            for credential in self._silent:
+                try:
+                    return credential.get_token(*scopes, **kwargs)
+                except Exception as error:  # unavailable, or it needs a prompt: next way
+                    failure = error
+            if not browser_sign_in_allowed():
+                raise failure if isinstance(failure, ClientAuthenticationError) else ClientAuthenticationError(str(failure))
+            self._use_browser = True
+            return self._browser_token(scopes, kwargs)
 
     def _browser_token(self, scopes, kwargs):
         from azure.identity import AuthenticationRecord, InteractiveBrowserCredential, TokenCachePersistenceOptions
@@ -69,8 +100,8 @@ class SignIn:
             options = {}
             if os.environ.get("AZURE_TENANT_ID"):
                 options["tenant_id"] = os.environ["AZURE_TENANT_ID"]
-            if os.environ.get("AZURE_CLIENT_ID"):
-                options["client_id"] = os.environ["AZURE_CLIENT_ID"]
+            if client_id():
+                options["client_id"] = client_id()
             if sys.platform in ("win32", "darwin"):  # encrypted by the OS (DPAPI, Keychain)
                 options["cache_persistence_options"] = TokenCachePersistenceOptions(name="coding-agent")
             self._browser = InteractiveBrowserCredential(authentication_record=record, **options)
