@@ -1,0 +1,62 @@
+"""Plain-language explanations of why a call to Claude failed, with what to check."""
+
+from __future__ import annotations
+
+import os
+
+import anthropic
+
+from .config import MODEL
+
+
+def endpoint() -> str:
+    return os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") or "(ANTHROPIC_FOUNDRY_ENDPOINT is not set)"
+
+
+def connection_summary() -> str:
+    """Which deployment, where, and how the agent signs in -- shown at startup."""
+    auth = "API key" if os.environ.get("ANTHROPIC_FOUNDRY_API_KEY") else "Microsoft sign-in (Azure AD)"
+    return f"deployment {MODEL} at {endpoint()}, {auth}"
+
+
+def root_cause(error: BaseException) -> str:
+    """The innermost exception, e.g. the TLS or DNS error behind an APIConnectionError."""
+    while error.__cause__ is not None or error.__context__ is not None:
+        error = error.__cause__ or error.__context__
+    text = str(error) or type(error).__name__
+    return text if len(text) <= 300 else text[:300] + " …"
+
+
+def describe(error: BaseException) -> str | None:
+    """Explain a failed call to Claude; None if the error is not about reaching Claude."""
+    if isinstance(error, anthropic.APIStatusError):
+        code, detail = error.status_code, str(error.message)[:300]
+        if code in (401, 403):
+            return (f"Access denied by {endpoint()} (HTTP {code}). Check the API key "
+                    "(ANTHROPIC_FOUNDRY_API_KEY), or, with Microsoft sign-in, that your account has a role "
+                    f"such as 'Azure AI User' on the Foundry resource. Details: {detail}")
+        if code == 404:
+            return (f"Not found (HTTP 404): no deployment named '{MODEL}' at {endpoint()}. Check "
+                    "ANTHROPIC_FOUNDRY_DEPLOYMENT (the deployment name in Foundry) and that the endpoint "
+                    f"ends with /anthropic. Details: {detail}")
+        if code == 429:
+            return f"Too many requests (HTTP 429): the deployment's rate limit is reached; wait a minute and retry. Details: {detail}"
+        if code >= 500:
+            return f"The Claude service had a problem (HTTP {code}); retry in a moment. Details: {detail}"
+        return f"The request was refused (HTTP {code}): {detail}"
+    if isinstance(error, anthropic.APIConnectionError):
+        cause = root_cause(error)
+        hint = (" Your network seems to inspect TLS traffic (a company proxy): its certificate must be trusted "
+                "by Python." if "CERTIFICATE_VERIFY_FAILED" in cause or "certificate" in cause.lower() else
+                " Check the endpoint, your network, VPN or proxy.")
+        return f"Could not reach {endpoint()} (network error: {cause}).{hint}"
+    try:
+        from azure.core.exceptions import ClientAuthenticationError
+    except ImportError:
+        ClientAuthenticationError = ()  # noqa: N806
+    if ClientAuthenticationError and isinstance(error, ClientAuthenticationError):
+        return ("Microsoft sign-in failed: no Azure account is signed in on this PC (for developers: run "
+                "`az login`), or set ANTHROPIC_FOUNDRY_API_KEY. Details: " + str(error).splitlines()[0][:300])
+    if isinstance(error, KeyError) and error.args == ("ANTHROPIC_FOUNDRY_ENDPOINT",):
+        return "ANTHROPIC_FOUNDRY_ENDPOINT is not set (the Foundry endpoint, ending with /anthropic)."
+    return None

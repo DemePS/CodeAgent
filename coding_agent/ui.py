@@ -37,6 +37,10 @@ class UI:
     def message(self, text: str) -> None:
         """Plain information for the person (setup, resume summary, stop reasons)."""
 
+    def error(self, text: str) -> None:
+        """Something failed and the instruction could not complete (e.g. Claude is unreachable)."""
+        self.message(f"[error] {text}")
+
     # --- what a tool is about to do
     def panel(self, title: str, lines: list[str] | tuple = (), tone: str = "change") -> None:
         """A titled block: tone is change, danger (deletions), network, run or question."""
@@ -208,6 +212,9 @@ class TerminalUI(UI):
 
     def message(self, text: str) -> None:
         print(linkify(text))
+
+    def error(self, text: str) -> None:
+        print(f"\033[1;31m[error]\033[0m {text}")
 
     def panel(self, title: str, lines=(), tone: str = "change") -> None:
         if tone == "question":

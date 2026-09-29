@@ -18,7 +18,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from . import state
-from .config import MEMORY_HOME, _get_client
+from .config import MEMORY_HOME, MODEL, _get_client
 from .conversation import load_conversation
 from .loop import send as _send
 from .loop import set_auto_mode
@@ -71,6 +71,19 @@ def add_read_folder(path: str | Path) -> Path:
 def send(text: str) -> bool:
     """Run one instruction to completion (tools, approvals, streaming). False if it failed."""
     return _send(_get_client(), messages, text)
+
+
+def check_connection() -> tuple[bool, str]:
+    """A tiny call to Claude: (True, summary) if it answers, else (False, why in plain words)."""
+    from .errors import connection_summary, describe
+    try:
+        _get_client().messages.create(model=MODEL, max_tokens=1, messages=[{"role": "user", "content": "ping"}])
+        return True, connection_summary()
+    except Exception as e:
+        explanation = describe(e)
+        if explanation is None:
+            explanation = f"{type(e).__name__}: {e}"
+        return False, explanation
 
 
 def stop() -> None:

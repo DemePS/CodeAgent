@@ -8,6 +8,7 @@ import anthropic
 
 from . import session, state
 from .config import CLEAR_AT, COMPACT_AT, UV, WEB_SEARCH, _get_client
+from .errors import connection_summary
 from .context import compact_between_instructions, context_status, reset_usage
 from .conversation import save_conversation
 from .loop import send, set_auto_mode
@@ -47,6 +48,7 @@ def main() -> None:
         session.open_project(workspace, ui=TerminalUI(), resume=args.resume, auto=args.auto)
     except NotADirectoryError as e:
         raise SystemExit(str(e))
+    print(f"Claude: {connection_summary()}")
     print(locations_report(verbose=False))
     print(f"Web search: {'off' if WEB_SEARCH == 'off' else 'web_search_' + WEB_SEARCH}")
 

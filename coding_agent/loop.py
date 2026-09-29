@@ -17,6 +17,7 @@ from .context import (
     reset_usage,
 )
 from .conversation import save_conversation
+from .errors import describe as describe_error
 from .memory import memory_snapshot, queue_memory_update
 from .prompts import SYSTEM_PROMPT
 from .schemas import TOOLS
@@ -162,12 +163,11 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         return True
     except KeyboardInterrupt:
         state.ui.message("[interrupted]")
-    except anthropic.APIStatusError as e:
-        state.ui.message(f"[API error {e.status_code}] {e.message}")
-    except anthropic.APIConnectionError:
-        state.ui.message("[network error -- check your Foundry endpoint]")
-    except RuntimeError as e:  # e.g. a compaction that produced no summary
-        state.ui.message(f"[error] {e}")
+    except Exception as e:
+        explanation = describe_error(e)
+        if explanation is None and not isinstance(e, RuntimeError):  # RuntimeError: e.g. an empty summary
+            raise
+        state.ui.error(explanation or str(e))
     # Drop the unfinished turn so the history stays valid for the next request.
     if state.compacted_this_turn:
         # The history before this instruction was replaced by a summary: keep that summary for
