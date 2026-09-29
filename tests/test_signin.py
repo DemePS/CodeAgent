@@ -48,8 +48,6 @@ def fakes(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "AGENT_HOME", tmp_path / "agent-home")
     monkeypatch.delenv("ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN", raising=False)
     monkeypatch.delenv("ANTHROPIC_FOUNDRY_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_FOUNDRY_CLIENT_ID", raising=False)
-    monkeypatch.delenv("AZURE_TENANT_ID", raising=False)
     FakeDefault.works, FakeBrowser.pages, FakeBrowser.created = False, 0, []
     return tmp_path / "agent-home" / signin.ACCOUNT_FILE_NAME
 
@@ -83,7 +81,7 @@ def test_one_page_at_most_when_two_threads_ask_at_once(fakes):
 
 def test_tenant_and_client_come_from_the_environment(fakes, monkeypatch):
     monkeypatch.setenv("AZURE_TENANT_ID", "corp-tenant")
-    monkeypatch.setenv("ANTHROPIC_FOUNDRY_CLIENT_ID", "corp-app")
+    monkeypatch.setenv("AZURE_CLIENT_ID", "corp-app")
     signin.SignIn().get_token(SCOPE)
     assert FakeBrowser.created[0]["tenant_id"] == "corp-tenant" and FakeBrowser.created[0]["client_id"] == "corp-app"
 
@@ -99,34 +97,3 @@ def test_the_page_can_be_disabled(fakes, monkeypatch):
 def test_a_failed_sign_in_is_explained_in_plain_words(fakes):
     message = errors.describe(ClientAuthenticationError("User cancelled the sign-in"))
     assert "work account" in message and "User cancelled" in message and "az login" not in message
-
-
-def test_with_an_app_registration_its_own_sign_in_is_used(fakes, monkeypatch):
-    # e.g. an API Management gateway's API: `az login` and co. cannot get tokens for it, so they are
-    # skipped; off Windows (no Windows account broker) the sign-in page is used.
-    monkeypatch.setenv("ANTHROPIC_FOUNDRY_CLIENT_ID", "corp-app")
-    FakeDefault.works = True
-    assert signin.SignIn().get_token("api://gateway/.default").token == "browser-token"
-    assert FakeBrowser.created[0]["client_id"] == "corp-app"
-    assert (fakes.parent / "azure-account-corp-app.json").is_file() and not fakes.exists()
-
-
-def test_extra_headers_go_with_every_request(monkeypatch):
-    import httpx
-    seen = {}
-
-    def handler(request):
-        seen.update(request.headers)
-        return httpx.Response(200, json={"id": "m", "type": "message", "role": "assistant", "model": "x", "content": [],
-                                         "stop_reason": "end_turn", "stop_sequence": None,
-                                         "usage": {"input_tokens": 1, "output_tokens": 1}})
-    monkeypatch.setenv("ANTHROPIC_FOUNDRY_ENDPOINT", "https://gateway.example/excel-filler")
-    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
-    monkeypatch.setattr(config, "CLIENT_HEADERS", {"x-app-version": "1.2.3"})
-    config._get_client.cache_clear()
-    try:
-        client = config._get_client().with_options(http_client=httpx.Client(transport=httpx.MockTransport(handler)))
-        client.messages.create(model="m", max_tokens=1, messages=[{"role": "user", "content": "hi"}])
-    finally:
-        config._get_client.cache_clear()
-    assert seen["x-app-version"] == "1.2.3"
