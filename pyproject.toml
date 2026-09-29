@@ -1,25 +1,44 @@
 [project]
-name = "coding-agent"
+name = "codeagent"
 version = "0.1.0"
-description = "Personal coding agent: Claude on Azure (Microsoft Foundry) with a manual tool-use loop"
+description = "A coding and document agent on Claude (Azure / Microsoft Foundry): tools, safety rules, memory and context management, usable from the terminal or as a library"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "DemePS" }]
 requires-python = ">=3.10"
-# Exact versions: the ones tested together (uv.lock pins their own dependencies too). To upgrade,
-# change a version here, run `uv lock`, and run the tests.
+keywords = ["claude", "anthropic", "azure", "foundry", "agent", "excel", "pdf"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development",
+    "Topic :: Office/Business :: Financial :: Spreadsheet",
+]
+# Compatible versions: from the tested one (uv.lock pins exactly what the tests ran with) up to the
+# next major version, so that pip can install this next to other packages. Applications built on it
+# (e.g. the Excel filler) pin exact versions in their own lock file.
 dependencies = [
-    "anthropic==0.125.0", # Claude API (AnthropicFoundry client)
-    "azure-identity==1.25.3", # Azure AD sign-in when no API key is set
+    "anthropic>=0.125.0,<1", # Claude API (AnthropicFoundry client)
+    "azure-identity>=1.25.3,<2", # Azure AD sign-in when no API key is set
     # Signs in with the account of the Windows session (no prompt on company PCs)
-    "azure-identity-broker==1.3.0; sys_platform == 'win32'",
-    "httpx==0.28.1", # download_file
-    "python-dotenv==1.1.1", # reads .env
-    "openpyxl==3.1.5", # read_excel / edit_excel
-    "pypdf==6.19.0", # read_pdf (page ranges, text mode)
+    "azure-identity-broker>=1.3.0,<2; sys_platform == 'win32'",
+    "httpx>=0.28.1,<1", # download_file
+    "python-dotenv>=1.1.1,<2", # reads .env
+    "openpyxl>=3.1.5,<4", # read_excel / edit_excel
+    "pypdf>=6.19.0,<7", # read_pdf (page ranges, text mode)
 ]
 
 [project.optional-dependencies]
-# screenshot_page: `uv sync --extra browser`, then `uv run playwright install chromium`
-browser = ["playwright==1.63.0"]
+# screenshot_page: `pip install "codeagent[browser]"`, then `playwright install chromium`
+browser = ["playwright>=1.63.0,<2"]
+
+[project.urls]
+Homepage = "https://github.com/DemePS/CodeAgent"
+Source = "https://github.com/DemePS/CodeAgent"
+Issues = "https://github.com/DemePS/CodeAgent/issues"
 
 [project.scripts]
 coding-agent = "coding_agent.cli:main"
@@ -27,6 +46,9 @@ coding-agent = "coding_agent.cli:main"
 [build-system]
 requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+include = ["coding_agent", "tests", "README.md", "LICENSE"]
 
 [tool.hatch.build.targets.wheel]
 # The coding_agent package, with its bundled skills (coding_agent/skills/*/SKILL.md).
