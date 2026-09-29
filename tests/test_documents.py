@@ -107,11 +107,12 @@ def three_sheets(workspace):
 def test_a_workbook_with_several_sheets_gets_an_overview_first(three_sheets):
     text = documents.tool_read_excel("book.xlsx")
     assert "3 sheets (overview" in text
-    assert "--- sheet Data: 2000 rows x 3 cols ---" in text and "--- sheet Costs: 1 rows x 3 cols ---" in text
+    assert "sheets: Data (2000x3); Costs (1x3); Lookup (1x2)" in text and "[Data]" in text and "[Costs]" in text
     assert "A6=row 5" in text and "A7=" not in text  # only the first rows of the big tab
     assert len(text) < 2000
     full = documents.tool_read_excel("book.xlsx", sheet="Costs")
     assert "--- sheet Costs ---" in full and "A1=Item" in full
+    assert "sheet Costs (1 rows x 3 cols); sheets: Data (2000 rows x 3 cols)" in full  # few sheets: all listed
 
 
 def test_a_one_sheet_workbook_is_shown_in_full(workbook):
@@ -131,3 +132,46 @@ def test_only_the_chosen_sheets_can_be_changed(workspace, three_sheets, ui, monk
         documents.tool_edit_excel("book.xlsx", [], create_sheets=["Notes"])
     ui.answers = ["yes"]
     assert "1 cell(s) changed" in documents.tool_edit_excel("book.xlsx", [{"sheet": "Costs", "cell": "A2", "value": "Sensors"}])
+
+
+
+@pytest.fixture
+def many_sheets(workspace):
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for s in range(86):
+        ws = wb.create_sheet(f"{s} - Questionnaire part {s}")
+        for r in range(1, 40):
+            ws.append([f"Question {r} of part {s}: " + "long wording " * 8, "Yes/No", f"=IF(B{r}=\"Yes\",1,0)"])
+    wb.save(workspace / "big.xlsx")
+    return workspace / "big.xlsx"
+
+
+def test_a_workbook_with_many_sheets_gets_a_bounded_overview(many_sheets):
+    text = documents.tool_read_excel("big.xlsx")
+    assert len(text) <= documents.OVERVIEW_BUDGET + 500
+    assert "85 - Questionnaire part 85 (39x3)" in text  # every sheet is at least listed
+    assert "[0 - Questionnaire part 0]" in text and "A2=" not in text  # one row per sheet with many sheets
+    assert "…" in text  # long values cut
+
+
+def test_a_small_read_stays_small_and_the_workbook_is_loaded_once(many_sheets, monkeypatch):
+    loads = []
+    real = documents.load_workbook
+    monkeypatch.setattr(documents, "load_workbook", lambda p, **o: loads.append(o) or real(p, **o))
+    documents._READ_CACHE.clear()
+    one = documents.tool_read_excel("big.xlsx", sheet="1 - Questionnaire part 1", range="A4:A4")
+    assert len(one) < 600 and "one of 86 sheets" in one and "A4=Question 4" in one
+    documents.tool_read_excel("big.xlsx", sheet="2 - Questionnaire part 2", range="A1:A3")
+    documents.tool_read_excel("big.xlsx")
+    assert loads == [{"data_only": False}]  # no formula shown: the calculated values were never loaded
+    documents.tool_read_excel("big.xlsx", sheet="3 - Questionnaire part 3", range="C1:C2")  # formulas
+    assert loads == [{"data_only": False}, {"data_only": True}]
+
+
+def test_a_changed_workbook_is_read_again(workspace, workbook, ui):
+    documents._READ_CACHE.clear()
+    assert "B2=12" not in documents.tool_read_excel("costs.xlsx")
+    ui.answers = ["yes"]
+    documents.tool_edit_excel("costs.xlsx", [{"sheet": "Costs", "cell": "B2", "value": 12}])
+    assert "B2=12" in documents.tool_read_excel("costs.xlsx")
