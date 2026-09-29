@@ -89,3 +89,45 @@ def test_edit_excel_refusals(workspace, workbook):
         documents.tool_edit_excel("costs.xlsx", [{"cell": "1A", "value": 1}])
     with pytest.raises(ToolError, match="only .xlsx and .xlsm"):
         documents.tool_read_excel("old.xls")
+
+
+@pytest.fixture
+def three_sheets(workspace):
+    wb = openpyxl.Workbook()
+    wb.active.title = "Data"
+    for i in range(2000):  # a big tab that is not the one to fill
+        wb.active.append([f"row {i}", i, i * 2.5])
+    form = wb.create_sheet("Costs")
+    form.append(["Item", "Qty", "Unit price"])
+    wb.create_sheet("Lookup").append(["Code", "Label"])
+    wb.save(workspace / "book.xlsx")
+    return workspace / "book.xlsx"
+
+
+def test_a_workbook_with_several_sheets_gets_an_overview_first(three_sheets):
+    text = documents.tool_read_excel("book.xlsx")
+    assert "3 sheets (overview" in text
+    assert "--- sheet Data: 2000 rows x 3 cols ---" in text and "--- sheet Costs: 1 rows x 3 cols ---" in text
+    assert "A6=row 5" in text and "A7=" not in text  # only the first rows of the big tab
+    assert len(text) < 2000
+    full = documents.tool_read_excel("book.xlsx", sheet="Costs")
+    assert "--- sheet Costs ---" in full and "A1=Item" in full
+
+
+def test_a_one_sheet_workbook_is_shown_in_full(workbook):
+    text = documents.tool_read_excel("costs.xlsx")
+    assert "--- sheet Costs ---" in text and "overview" not in text
+
+
+def test_only_the_chosen_sheets_can_be_changed(workspace, three_sheets, ui, monkeypatch):
+    monkeypatch.setattr(state, "excel_edit_sheets", {three_sheets.resolve(): {"Costs"}})
+    assert "sheets to fill (the person chose them" in documents.tool_read_excel("book.xlsx")
+    with pytest.raises(ToolError, match="Only these sheets of book.xlsx may be filled: Costs.*Not: Data"):
+        documents.tool_edit_excel("book.xlsx", [{"sheet": "Costs", "cell": "A2", "value": "x"},
+                                                {"sheet": "Data", "cell": "A2", "value": "x"}])
+    with pytest.raises(ToolError, match="Not: Data"):  # no sheet named: the first sheet, Data
+        documents.tool_edit_excel("book.xlsx", [{"cell": "A2", "value": "x"}])
+    with pytest.raises(ToolError, match="Not: Notes"):
+        documents.tool_edit_excel("book.xlsx", [], create_sheets=["Notes"])
+    ui.answers = ["yes"]
+    assert "1 cell(s) changed" in documents.tool_edit_excel("book.xlsx", [{"sheet": "Costs", "cell": "A2", "value": "Sensors"}])

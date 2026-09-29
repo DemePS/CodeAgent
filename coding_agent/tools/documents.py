@@ -147,12 +147,43 @@ def show_cell(value) -> str:
     return text if len(text) <= 200 else text[:200] + "..."
 
 
+OVERVIEW_ROWS = 6  # rows shown per sheet by the overview
+OVERVIEW_CELLS = 60  # at most, per sheet
+
+
+def workbook_overview(p: Path, wb, names: list[str]) -> str:
+    """A workbook with several sheets, read without naming one: each sheet's size and first rows, so
+    that Claude picks the sheet(s) to read in full instead of reading the first one blindly."""
+    allowed = state.excel_edit_sheets.get(p.resolve())
+    lines = [f"{display(p)} -- {len(names)} sheets (overview: first rows of each; read one in full with sheet=...)"]
+    if allowed:
+        lines.append("sheets to fill (the person chose them; others cannot be changed): " + ", ".join(sorted(allowed)))
+    for n in names:
+        ws = wb[n]
+        lines.append(f"--- sheet {n}: {ws.max_row} rows x {ws.max_column} cols ---")
+        shown = 0
+        for row in ws.iter_rows(max_row=OVERVIEW_ROWS):
+            parts = [f"{c.coordinate}={show_cell(c.value)}" for c in row
+                     if c.value is not None and hasattr(c, "coordinate")][:OVERVIEW_CELLS - shown]
+            if parts:
+                lines.append(" | ".join(parts))
+                shown += len(parts)
+            if shown >= OVERVIEW_CELLS:
+                break
+        if shown == 0:
+            lines.append("(empty in its first rows)")
+    state.ui.status(f"[excel] {rel_name(p)}: overview of {len(names)} sheets")
+    return truncate("\n".join(lines))
+
+
 def tool_read_excel(path: str, sheet: str | None = None, range: str | None = None) -> str:
     state.turn["excel_read"] = True  # any attempt counts: the workbook may not exist yet (to be created)
     p = excel_path(path, readable=True)
     formulas = load_workbook(p)                  # formulas as written
     values = load_workbook(p, data_only=True)    # the values Excel calculated last time it saved
     names = formulas.sheetnames
+    if sheet is None and range is None and len(names) > 1:
+        return workbook_overview(p, formulas, names)
     ws_name = sheet or names[0]
     if ws_name not in names:
         raise ToolError(f"No sheet {ws_name!r}. Sheets: {', '.join(names)}")
@@ -236,6 +267,13 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         import openpyxl
         wb = openpyxl.Workbook()
     name = rel_name(p)
+    allowed = state.excel_edit_sheets.get(p.resolve())
+    if allowed:
+        others = sorted({s for s in create_sheets or []} | {c.get("sheet") or wb.sheetnames[0] for c in changes
+                                                              if isinstance(c, dict)} - allowed)
+        if others:
+            raise ToolError(f"Only these sheets of {name} may be filled: {', '.join(sorted(allowed))} (the person chose "
+                            f"them). Not: {', '.join(others)}. If a value really belongs there, ask the person.")
 
     for sheet_name in create_sheets or []:
         if sheet_name in wb.sheetnames:

@@ -29,6 +29,9 @@ read_roots_note: str | None = None  # tells Claude about newly added read-only f
 # What this session exposes to Claude. None means everything (the coding agent); an application
 # built on the package (e.g. an Excel filler) narrows the tools and brings its own instructions.
 tool_names: set[str] | None = None  # the enabled tools, or None for all
+# Workbook (resolved path) -> the only sheets edit_excel may change in it; set by an application
+# (e.g. the sheets the person ticked). Workbooks not listed: any sheet.
+excel_edit_sheets: dict[Path, set[str]] = {}
 system_prompt: str | None = None  # replaces the coding agent's system prompt ({workspace} is filled in)
 
 
