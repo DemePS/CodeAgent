@@ -60,3 +60,12 @@ def test_durations_come_from_the_environment(monkeypatch):
 
 def test_nothing_to_clean(tmp_path):
     assert cleanup.run(backups=tmp_path / "b", memory=tmp_path / "m", now=NOW) == "Clean-up: nothing to delete"
+
+
+def test_given_its_folders_it_does_not_load_the_settings(tmp_path):
+    import subprocess
+    import sys
+    code = ("import sys, pathlib; from coding_agent import cleanup; "
+            f"cleanup.run(backups=pathlib.Path({str(tmp_path / 'b')!r}), memory=pathlib.Path({str(tmp_path / 'm')!r})); "
+            "print('coding_agent.config' in sys.modules)")
+    assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "False"

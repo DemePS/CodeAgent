@@ -97,11 +97,13 @@ def clean_conversations(memory: Path, days_old: float, now: float) -> int:
 
 
 def run(backups: Path | None = None, memory: Path | None = None, now: float | None = None) -> str:
-    """The whole clean-up; a one-line summary. Never raises."""
-    from .config import BACKUP_HOME, MEMORY_HOME
+    """The whole clean-up; a one-line summary. Never raises. Given both folders, the agent's settings
+    are not loaded (an application may configure them later, before its first call to Claude)."""
+    if backups is None or memory is None:
+        from .config import BACKUP_HOME, MEMORY_HOME
 
-    backups = BACKUP_HOME if backups is None else backups
-    memory = MEMORY_HOME if memory is None else memory
+        backups = BACKUP_HOME if backups is None else backups
+        memory = MEMORY_HOME if memory is None else memory
     now = time.time() if now is None else now
     done = []
     for label, step in [
