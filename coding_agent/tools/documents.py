@@ -6,6 +6,8 @@ import os
 import re
 from pathlib import Path
 
+from openpyxl.utils import column_index_from_string, get_column_letter
+
 from .. import backups, state
 from ..common import (
     ToolError,
@@ -329,6 +331,10 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         if sheet_name in wb.sheetnames:
             raise ToolError(f"Sheet {sheet_name!r} already exists.")
         wb.create_sheet(sheet_name)
+    if len(wb.sheetnames) > 1 and any(isinstance(c, dict) and not c.get("sheet") for c in changes):
+        raise ToolError(f"{name} has several sheets ({', '.join(wb.sheetnames)}): give 'sheet' for every change. "
+                        "Nothing was changed.")
+    widths = state.excel_max_columns.get(p.resolve(), {})
     rows = []
     for change in changes:
         sheet_name = change.get("sheet") or wb.sheetnames[0]
@@ -339,6 +345,9 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         coord = str(change.get("cell", "")).upper().strip()
         if not re.fullmatch(r"[A-Z]{1,3}[1-9][0-9]{0,6}", coord):
             raise ToolError(f"Invalid cell {change.get('cell')!r}; use an address such as 'B7'.")
+        if sheet_name in widths and column_index_from_string(re.match(r"[A-Z]+", coord).group()) > widths[sheet_name]:
+            raise ToolError(f"{sheet_name}!{coord} is outside the sheet's columns (A to {get_column_letter(widths[sheet_name])}): "
+                            "do not add columns or helper cells. Nothing was changed.")
         cell = ws[coord]
         if type(cell).__name__ == "MergedCell":
             raise ToolError(f"{sheet_name}!{coord} is inside a merged range; write to its top-left cell instead.")
@@ -351,6 +360,12 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         if isinstance(value, (dict, list)):
             raise ToolError(f"{sheet_name}!{coord}: a cell value must be a number, text, boolean or null.")
         old = cell.value
+        if state.excel_protect_formulas:
+            if isinstance(value, str) and value.startswith("="):
+                raise ToolError(f"{sheet_name}!{coord}: formulas may not be written here; write values only. Nothing was changed.")
+            if isinstance(old, str) and old.startswith("=") and value != old:
+                raise ToolError(f"{sheet_name}!{coord} holds a formula ({old[:60]}), which may not be changed or cleared. "
+                                "Nothing was changed.")
         cell.value = value
         if change.get("number_format"):
             cell.number_format = change["number_format"]
