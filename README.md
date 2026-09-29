@@ -96,6 +96,16 @@ of `coding-agent` (`coding_agent/cleanup.py`; applications call `coding_agent.cl
 
 `AGENT_MEMORY=off` stops the agent from writing memory at all.
 
+For developers, to see and delete what the agent remembers:
+
+```bash
+coding-agent --memories              # every project's memory: name, last used, size, notes
+coding-agent --memories myapp        # one project's notes, in full
+coding-agent --forget myapp          # delete one project's memory (asks first)
+coding-agent --forget . -d path      # the memory of that project folder
+coding-agent --forget all            # delete every project's memory (asks first)
+```
+
 ## Development
 
 ```bash
