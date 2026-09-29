@@ -108,8 +108,22 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
     return truncate(body or "(empty file)")
 
 
-def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
-    """Show a diff of old -> new, ask the user, and write the file if approved."""
+def line_ending(p: Path) -> str:
+    """The file's line ending ("\r\n" or "\n"): kept when the file is rewritten."""
+    try:
+        with open(p, "rb") as f:
+            return "\r\n" if b"\r\n" in f.read(1 << 16) else "\n"
+    except OSError:
+        return "\n"
+
+
+def confirm_and_write(path: str, p: Path, old: str, new: str, newline: str | None = None) -> str:
+    """Show a diff of old -> new, ask the user, and write the file if approved.
+
+    Texts use "\n" here (files are read with universal newlines); the file is written with its own
+    line ending (or `newline`), not the platform's: on Windows a file with "\n" endings stays so, instead
+    of every line changing to "\r\n"."""
+    newline = newline or (line_ending(p) if p.exists() else "\n")
     existed = p.exists()
     name = rel_name(p)  # shown to the user: relative to the repository root
     diff = list(difflib.unified_diff(
@@ -159,7 +173,7 @@ def confirm_and_write(path: str, p: Path, old: str, new: str) -> str:
                         "shown; nothing was written. Read the file again and redo the change on its current content.")
     p.parent.mkdir(parents=True, exist_ok=True)
     try:
-        p.write_text(new, encoding="utf-8")
+        p.write_text(new, encoding="utf-8", newline=newline)
     except PermissionError:
         raise ToolError(f"{name} could not be written: another program has it locked (on Windows, e.g. a file "
                         "open in Excel or a running process). Ask the user to close it, then try again.")
@@ -228,10 +242,12 @@ def tool_copy_path(source: str, destination: str) -> str:
             text = None
         if text is not None:  # a text file: same diff and approval as write_file
             p = writable_path(os.path.relpath(dest, state.cwd))
+            ending = "\r\n" if "\r\n" in text else "\n"  # the copy keeps the source's line endings
+            text = text.replace("\r\n", "\n")
             old = p.read_text(encoding="utf-8") if p.exists() else ""
-            if old == text:
+            if old == text and (not p.exists() or line_ending(p) == ending):
                 return f"No changes: {rel} already has this content."
-            return confirm_and_write(display(p), p, old, text) + f" (copied from {display(src)})"
+            return confirm_and_write(display(p), p, old, text, newline=ending) + f" (copied from {display(src)})"
         existed = dest.exists()
         state.ui.panel(f"Copy {rel_name(src)} -> {rel_name(dest)} ({len(data):,} bytes, binary"
                        f"{', REPLACES the existing file' if existed else ''})")
