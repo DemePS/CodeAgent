@@ -7,15 +7,26 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
-from anthropic import AnthropicFoundry
+from anthropic import Anthropic, AnthropicFoundry
 from dotenv import load_dotenv
 
 load_dotenv()  # before reading any configuration below
 
 
+def uses_anthropic_api() -> bool:
+    """Anthropic's own API: only when no Foundry endpoint is set and ANTHROPIC_API_KEY is.
+
+    A Foundry setup always stays on Foundry, even with an ANTHROPIC_API_KEY set for other tools.
+    """
+    return not os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") and bool(os.environ.get("ANTHROPIC_API_KEY"))
+
+
 @lru_cache(maxsize=1)
-def _get_client() -> AnthropicFoundry:
-    """AnthropicFoundry client: API key if ANTHROPIC_FOUNDRY_API_KEY is set, otherwise Azure AD."""
+def _get_client() -> Anthropic:
+    """Anthropic client (ANTHROPIC_API_KEY, no Foundry endpoint), otherwise AnthropicFoundry:
+    API key if ANTHROPIC_FOUNDRY_API_KEY is set, otherwise Azure AD."""
+    if uses_anthropic_api():
+        return Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], max_retries=2)
     api_key = os.environ.get("ANTHROPIC_FOUNDRY_API_KEY")
     if api_key:
         return AnthropicFoundry(
@@ -36,8 +47,8 @@ def _get_client() -> AnthropicFoundry:
     )
 
 
-# On Foundry this is your *deployment name*; change it if yours differs.
-MODEL = os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT", "claude-opus-5")
+# On Foundry this is your *deployment name*; on Anthropic's API, a model ID (ANTHROPIC_MODEL).
+MODEL = (os.environ.get("ANTHROPIC_MODEL") if uses_anthropic_api() else os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT")) or "claude-opus-5"
 MAX_TOKENS = 64000  # safe with streaming (no HTTP timeout risk)
 MAX_TOOL_OUTPUT_CHARS = 50_000
 RUN_TIMEOUT_SECONDS = 120

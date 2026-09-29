@@ -75,6 +75,10 @@ Configuration (environment variables or a .env file):
     AZURE_TENANT_ID / AZURE_CLIENT_ID  tenant and app registration for the sign-in page (optional)
     ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN=0  never open the sign-in page (servers, CI)
 
+    Or, without Azure: Anthropic's own API (used only when ANTHROPIC_FOUNDRY_ENDPOINT is not set)
+    ANTHROPIC_API_KEY              an API key from console.anthropic.com
+    ANTHROPIC_MODEL                a model ID (default claude-opus-5)
+
 Usage:
     uv sync                                   # once, in the agent's folder (add --extra browser for screenshots)
     uv run coding-agent -d path/to/project "Add input validation to the CLI"

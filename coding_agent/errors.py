@@ -6,15 +6,19 @@ import os
 
 import anthropic
 
-from .config import MODEL
+from .config import MODEL, uses_anthropic_api
 
 
 def endpoint() -> str:
+    if uses_anthropic_api():
+        return "the Anthropic API"
     return os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") or "(ANTHROPIC_FOUNDRY_ENDPOINT is not set)"
 
 
 def connection_summary() -> str:
     """Which deployment, where, and how the agent signs in -- shown at startup."""
+    if uses_anthropic_api():
+        return f"model {MODEL} on {endpoint()}, API key"
     auth = "API key" if os.environ.get("ANTHROPIC_FOUNDRY_API_KEY") else "Microsoft sign-in (Azure AD)"
     return f"deployment {MODEL} at {endpoint()}, {auth}"
 
@@ -32,17 +36,23 @@ def describe(error: BaseException) -> str | None:
     if isinstance(error, anthropic.APIStatusError):
         code, detail = error.status_code, str(error.message)[:300]
         if code in (401, 403):
+            if uses_anthropic_api():
+                return f"Access denied by {endpoint()} (HTTP {code}): check the API key (ANTHROPIC_API_KEY). Details: {detail}"
             if os.environ.get("ANTHROPIC_FOUNDRY_API_KEY"):
                 return f"Access denied by {endpoint()} (HTTP {code}): check the API key (ANTHROPIC_FOUNDRY_API_KEY). Details: {detail}"
             return (f"Access denied by {endpoint()} (HTTP {code}): you are signed in, but your account has no "
                     "access to the Claude service. Ask IT for access (a role such as 'Azure AI User' on the "
                     f"Foundry resource). Details: {detail}")
         if code == 404:
+            if uses_anthropic_api():
+                return (f"Not found (HTTP 404): no model named '{MODEL}' on {endpoint()}. Check ANTHROPIC_MODEL "
+                        f"(a model ID such as claude-opus-5). Details: {detail}")
             return (f"Not found (HTTP 404): no deployment named '{MODEL}' at {endpoint()}. Check "
                     "ANTHROPIC_FOUNDRY_DEPLOYMENT (the deployment name in Foundry) and that the endpoint "
                     f"ends with /anthropic. Details: {detail}")
         if code == 429:
-            return f"Too many requests (HTTP 429): the deployment's rate limit is reached; wait a minute and retry. Details: {detail}"
+            limit = "the account's rate limit" if uses_anthropic_api() else "the deployment's rate limit"
+            return f"Too many requests (HTTP 429): {limit} is reached; wait a minute and retry. Details: {detail}"
         if code >= 500:
             return f"The Claude service had a problem (HTTP {code}); retry in a moment. Details: {detail}"
         return f"The request was refused (HTTP {code}): {detail}"
@@ -67,5 +77,6 @@ def describe(error: BaseException) -> str | None:
                 "ANTHROPIC_FOUNDRY_BROWSER_SIGN_IN=0). Run `az login`, or set ANTHROPIC_FOUNDRY_API_KEY. "
                 "Details: " + first)
     if isinstance(error, KeyError) and error.args == ("ANTHROPIC_FOUNDRY_ENDPOINT",):
-        return "ANTHROPIC_FOUNDRY_ENDPOINT is not set (the Foundry endpoint, ending with /anthropic)."
+        return ("ANTHROPIC_FOUNDRY_ENDPOINT is not set (the Foundry endpoint, ending with /anthropic). "
+                "Or set ANTHROPIC_API_KEY to use Anthropic's API directly.")
     return None
