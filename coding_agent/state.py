@@ -49,6 +49,16 @@ context_window: int = DEFAULT_CONTEXT_WINDOW  # tokens; lowered if the API repor
 context = {"tokens": 0, "chars": 0, "compactions": 0, "cleared": 0}  # size at the last API call
 
 
+def reset_conversation() -> None:
+    """Forget the bookkeeping of the previous conversation (a new project or a fresh start)."""
+    global memory_sent, mode_note, skills_note, compacted_this_turn, always_allow_python, stop_requested
+    memory_sent = compacted_this_turn = always_allow_python = stop_requested = False
+    mode_note = skills_note = None
+    pending_blocks.clear()
+    turn.update(instruction="", excel_read=False)
+    context.update(tokens=0, chars=0, compactions=0, cleared=0)
+
+
 def set_workspace(path: Path, project_id: str, memory_home: Path) -> None:
     """Point the session at a project: its folders, memory and saved conversation."""
     global workspace, cwd, memory_dir, conversation_file, protected_paths

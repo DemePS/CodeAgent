@@ -42,6 +42,7 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
         raise NotADirectoryError(f"Not a directory: {workspace}")
     state.ui = ui
     state.set_workspace(workspace, project_id(workspace), MEMORY_HOME)
+    state.reset_conversation()
     state.tool_names = set(tools) if tools is not None else None
     state.system_prompt = system_prompt
     state.skills = discover_skills()

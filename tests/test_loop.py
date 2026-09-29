@@ -127,3 +127,17 @@ def test_stop_rolls_back_the_instruction(tmp_path, claude, monkeypatch):
     session.open_project(project, ui=ui)
     assert session.send("list the files") is False
     assert "[interrupted]" in seen and session.messages == [] and len(fake.requests) == 1
+
+
+def test_opening_another_project_starts_a_fresh_conversation(tmp_path, claude, monkeypatch):
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    for name in ("first", "second"):
+        (tmp_path / name).mkdir()
+    fake = claude([([("text", "one")], "end_turn"), ([("text", "two")], "end_turn")])
+    session.open_project(tmp_path / "first", ui=HeadlessUI())
+    session.send("hello")
+    session.open_project(tmp_path / "second", ui=HeadlessUI())
+    session.send("hello again")
+    second = fake.requests[-1]["messages"]
+    assert len(second) == 1  # not the first project's history
+    assert second[0]["content"][0]["text"].startswith("<memory>")  # the new project's memory is sent
