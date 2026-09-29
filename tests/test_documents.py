@@ -3,7 +3,7 @@
 import openpyxl
 import pytest
 
-from coding_agent import state
+from coding_agent import backups, state
 from coding_agent.common import ToolError
 from coding_agent.tools import documents
 
@@ -66,7 +66,7 @@ def test_spreadsheet_first_rule(invoice, workbook, monkeypatch):
 
 
 def test_edit_excel_diff_backup_and_values(workspace, workbook, ui, tmp_path, monkeypatch):
-    monkeypatch.setattr(documents, "BACKUP_HOME", tmp_path / "backups")
+    monkeypatch.setattr(backups, "BACKUP_HOME", tmp_path / "backups")
     ui.answers = ["yes"]
     result = documents.tool_edit_excel("costs.xlsx", [
         {"sheet": "Costs", "cell": "B2", "value": 12},
@@ -175,3 +175,39 @@ def test_a_changed_workbook_is_read_again(workspace, workbook, ui):
     ui.answers = ["yes"]
     documents.tool_edit_excel("costs.xlsx", [{"sheet": "Costs", "cell": "B2", "value": 12}])
     assert "B2=12" in documents.tool_read_excel("costs.xlsx")
+
+
+def test_restore_backup_lists_and_puts_back_a_previous_version(workspace, workbook, ui, tmp_path, monkeypatch):
+    monkeypatch.setattr(backups, "BACKUP_HOME", tmp_path / "backups")
+    with pytest.raises(ToolError, match="No previous version of costs.xlsx"):
+        documents.tool_restore_backup("costs.xlsx")
+    ui.answers = ["yes"]
+    documents.tool_edit_excel("costs.xlsx", [{"sheet": "Costs", "cell": "B2", "value": 12}])  # keeps the original
+    listing = documents.tool_restore_backup("costs.xlsx")
+    [version] = [v["id"] for v in backups.versions("costs.xlsx")]
+    assert f"version={version!r}" in listing and "as it was before the change of" in listing
+
+    ui.answers = ["no", "keep it"]  # refused: nothing changes
+    with pytest.raises(ToolError, match="rejected the restore.*keep it"):
+        documents.tool_restore_backup("costs.xlsx", version)
+    assert openpyxl.load_workbook(workbook)["Costs"]["B2"].value == 12
+
+    ui.answers = ["yes"]
+    result = documents.tool_restore_backup("costs.xlsx", version)
+    assert "is back to its version from before the change of" in result
+    assert openpyxl.load_workbook(workbook)["Costs"]["B2"].value is None  # the original again
+    assert len(backups.versions("costs.xlsx")) == 2  # the edited version was kept: the restore can be undone
+    with pytest.raises(ToolError, match="not a previous version"):
+        documents.tool_restore_backup("costs.xlsx", "20200101-000000-costs.xlsx")
+
+
+def test_backups_belong_to_their_folder_and_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(backups, "BACKUP_HOME", tmp_path / "backups")
+    a, b = tmp_path / "a" / "project", tmp_path / "b" / "project"  # same name, different folders
+    for ws in (a, b):
+        ws.mkdir(parents=True)
+    backups.save(a / "x.xlsx", b"old x", a)
+    backups.save(a / "y.xlsx", b"old y", a)
+    assert backups.folder(a) != backups.folder(b)
+    assert [v["id"][16:] for v in backups.versions("x.xlsx", a)] == ["x.xlsx"]
+    assert backups.versions("x.xlsx", b) == []
