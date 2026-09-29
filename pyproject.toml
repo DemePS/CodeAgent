@@ -20,8 +20,6 @@ dependencies = [
 [project.optional-dependencies]
 # screenshot_page: `uv sync --extra browser`, then `uv run playwright install chromium`
 browser = ["playwright==1.63.0"]
-# The weather MCP example in this repository (weather.py, client.py): `uv sync --extra weather`
-weather = ["mcp[cli]==1.18.0"]
 
 [project.scripts]
 coding-agent = "coding_agent.cli:main"
