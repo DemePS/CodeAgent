@@ -1,4 +1,18 @@
-# CodeAgent
+# CodeAgent (codeagent-apim)
+
+> **This is `codeagent-apim`**: the [`codeagent`](https://pypi.org/project/codeagent/) engine plus
+> sign-in for an organization's **Azure API Management gateway** in front of Claude:
+> - `ANTHROPIC_FOUNDRY_CLIENT_ID`: the organization's app registration (a public client). Tokens come
+>   from the account signed into Windows (silently), or else the Microsoft sign-in page, once; the
+>   account is remembered per app registration. `TOKEN_SCOPE` = `api://<gateway API app id>/.default`,
+>   `ANTHROPIC_FOUNDRY_ENDPOINT` = the gateway's URL.
+> - `coding_agent.signin.access_token(scope)`: one shared sign-in for the application and Claude's
+>   calls (e.g. an access check at startup), so there is never more than one sign-in page.
+> - `coding_agent.config.CLIENT_HEADERS`: headers sent with every request (e.g. app name and version,
+>   for the gateway's logs).
+>
+> Install it instead of `codeagent` (both provide the `coding_agent` package):
+> `pip install codeagent-apim`. Without these settings it behaves like `codeagent`.
 
 An agent on Claude, running in your Azure subscription (Microsoft Foundry): it reads and edits files,
 Excel workbooks and PDFs in a project folder, asks before every change, and remembers what it learned
@@ -6,7 +20,7 @@ about each project. Use it from the terminal, or as a library to build your own 
 (for example a desktop app that fills Excel workbooks from PDF documents).
 
 ```bash
-pip install codeagent
+pip install codeagent-apim    # or codeagent, without the gateway sign-in
 ```
 
 The package installs the `coding_agent` Python package and the `coding-agent` command.

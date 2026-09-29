@@ -1,13 +1,13 @@
 [project]
-name = "codeagent"
+name = "codeagent-apim"
 version = "0.1.0"
-description = "A coding and document agent on Claude (Azure / Microsoft Foundry): tools, safety rules, memory and context management, usable from the terminal or as a library"
+description = "codeagent with sign-in for an organization's API Management gateway: the agent on Claude (Azure / Microsoft Foundry) behind Azure API Management, signing in with the organization's app registration"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "DemePS" }]
 requires-python = ">=3.10"
-keywords = ["claude", "anthropic", "azure", "foundry", "agent", "excel", "pdf"]
+keywords = ["claude", "anthropic", "azure", "foundry", "api-management", "entra-id", "agent", "excel", "pdf"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
