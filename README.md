@@ -41,6 +41,7 @@ A Foundry endpoint always wins: with `ANTHROPIC_FOUNDRY_ENDPOINT` set, the agent
 coding-agent -d path/to/project "Add input validation to the CLI"
 coding-agent -d path/to/project            # interactive
 coding-agent -d path/to/project -r         # resume the last conversation
+coding-agent --check                      # Claude not answering? test each step of a call
 coding-agent --help
 ```
 

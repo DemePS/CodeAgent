@@ -33,6 +33,7 @@ def project(tmp_path, monkeypatch):
 @pytest.mark.parametrize("status, body, expected", [
     (401, {"error": {"code": "401", "message": "invalid subscription key"}}, "Access denied by https://x.services.ai.azure.com/anthropic (HTTP 401)"),
     (404, {"type": "error", "error": {"type": "not_found_error", "message": "Deployment not found"}}, "no deployment named"),
+    (408, {"error": {"code": "Timeout", "message": "The operation was timeout."}}, "did not answer in time"),
     (429, {"type": "error", "error": {"type": "rate_limit_error", "message": "slow down"}}, "rate limit"),
     (503, {"type": "error", "error": {"type": "overloaded_error", "message": "busy"}}, "retry in a moment"),
 ])
@@ -78,3 +79,32 @@ def test_unrelated_errors_are_not_hidden(project, monkeypatch):
     session.open_project(project, ui=HeadlessUI())
     with pytest.raises(ValueError):
         session.send("hello")
+
+
+def test_check_names_the_first_step_that_fails(project, monkeypatch):
+    # Foundry answers a plain request but times out once thinking is asked for.
+    from coding_agent import diagnose
+
+    reply = {"id": "m", "type": "message", "role": "assistant", "model": "x", "content": [{"type": "text", "text": "hi"}],
+             "stop_reason": "end_turn", "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}}
+    stream = ("event: message_start\ndata: " + __import__("json").dumps({"type": "message_start", "message": {**reply, "content": [], "stop_reason": None}})
+              + "\n\nevent: message_stop\ndata: {\"type\": \"message_stop\"}\n\n")
+
+    def answer(request):
+        body = __import__("json").loads(request.content)
+        if "thinking" in body:
+            return httpx.Response(408, json={"error": {"code": "Timeout", "message": "The operation was timeout."}})
+        if body.get("stream"):
+            return httpx.Response(200, text=stream, headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json=reply)
+
+    client = AnthropicFoundry(api_key="k", base_url=ENDPOINT, http_client=httpx.Client(transport=httpx.MockTransport(answer)))
+    monkeypatch.setenv("ANTHROPIC_FOUNDRY_API_KEY", "k")
+    monkeypatch.setattr(diagnose, "_get_client", lambda: client)
+    session.open_project(project, ui=HeadlessUI())
+    lines = []
+    assert diagnose.run_check(print=lambda *a, **k: lines.append(" ".join(map(str, a)))) is False
+    text = "\n".join(lines)
+    assert text.count("ok (") == 3  # sign-in, plain request, streaming
+    assert "FAILED" in text and "did not answer in time" in text
+    assert "agent's request" not in text  # stopped at the first failure

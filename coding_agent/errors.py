@@ -50,6 +50,10 @@ def describe(error: BaseException) -> str | None:
             return (f"Not found (HTTP 404): no deployment named '{MODEL}' at {endpoint()}. Check "
                     "ANTHROPIC_FOUNDRY_DEPLOYMENT (the deployment name in Foundry) and that the endpoint "
                     f"ends with /anthropic. Details: {detail}")
+        if code in (408, 504):
+            return (f"Claude did not answer in time (HTTP {code}, from {endpoint()}). The deployment '{MODEL}' "
+                    "may be overloaded or not fully deployed; check it in the Foundry portal, retry, and run "
+                    f"`coding-agent --check` to see which step times out. Details: {detail}")
         if code == 429:
             limit = "the account's rate limit" if uses_anthropic_api() else "the deployment's rate limit"
             return f"Too many requests (HTTP 429): {limit} is reached; wait a minute and retry. Details: {detail}"
