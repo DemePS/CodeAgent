@@ -81,6 +81,19 @@ Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_p
 - Deleting always asks, even in autonomous mode; downloads and clones always ask; the agent cannot
   modify its own files; `run_python` cannot start processes or delete files.
 
+## What stays on your machine
+
+Everything is in `~/.coding-agent` (`$HOME`, or your user folder on Windows), cleaned at each start
+of `coding-agent` (`coding_agent/cleanup.py`; applications call `coding_agent.cleanup.run()`):
+
+| What | Where | Kept |
+|---|---|---|
+| Copies of workbooks before each change | `backups/` | 30 days (`AGENT_BACKUP_DAYS`); the latest copy of each file always |
+| What the agent learned about each project | `memory/<project>-<code>/` | notes capped in size; deleted after 90 days unused (`AGENT_MEMORY_DAYS`) |
+| The saved conversation (`--resume`) | `memory/<project>-<code>/conversation.json` | 30 days (`AGENT_CONVERSATION_DAYS`) |
+
+`AGENT_MEMORY=off` stops the agent from writing memory at all.
+
 ## Development
 
 ```bash
