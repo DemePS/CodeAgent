@@ -9,7 +9,9 @@ def test_the_database_architect_skill_is_bundled():
     assert header["name"] == "database-architect" and "schema" in header["description"]
     text = skills.bundled_skill("database-architect")
     assert not text.startswith("---") and text.startswith("# Database architect")
-    assert "questionnaire" in text and "has_physical_interface" in text
+    for topic in ("## Modelling", "## Performance and evolution", "## Deriving a schema from existing data",
+                  "## Reviewing a schema"):
+        assert topic in text
 
 
 def test_every_bundled_skill_is_well_formed():
