@@ -211,3 +211,37 @@ def test_backups_belong_to_their_folder_and_file(tmp_path, monkeypatch):
     assert backups.folder(a) != backups.folder(b)
     assert [v["id"][16:] for v in backups.versions("x.xlsx", a)] == ["x.xlsx"]
     assert backups.versions("x.xlsx", b) == []
+
+
+def test_edit_excel_needs_the_sheet_when_there_are_several(workspace, ui, tmp_path, monkeypatch):
+    monkeypatch.setattr(backups, "BACKUP_HOME", tmp_path / "backups")
+    wb = openpyxl.Workbook()
+    wb.active.title = "Instructions"
+    wb.create_sheet("Questionnaire")
+    wb.save(workspace / "q.xlsx")
+    with pytest.raises(ToolError, match="several sheets.*give 'sheet' for every change"):
+        documents.tool_edit_excel("q.xlsx", [{"cell": "D2", "value": "Yes"}])  # would have gone to Instructions
+    ui.answers = ["yes"]
+    documents.tool_edit_excel("q.xlsx", [{"sheet": "Questionnaire", "cell": "D2", "value": "Yes"}])
+    assert openpyxl.load_workbook(workspace / "q.xlsx")["Questionnaire"]["D2"].value == "Yes"
+
+
+def test_applications_can_protect_formulas_and_the_columns(workspace, ui, tmp_path, monkeypatch):
+    monkeypatch.setattr(backups, "BACKUP_HOME", tmp_path / "backups")
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Q"
+    ws.append(["#", "Question", "Answer"])
+    ws["C3"] = "=B2"
+    wb.save(workspace / "q.xlsx")
+    monkeypatch.setattr(state, "excel_protect_formulas", True)
+    monkeypatch.setattr(state, "excel_max_columns", {(workspace / "q.xlsx").resolve(): {"Q": 3}})
+    with pytest.raises(ToolError, match="formulas may not be written"):
+        documents.tool_edit_excel("q.xlsx", [{"sheet": "Q", "cell": "C2", "value": "=MID(B2,200,600)"}])
+    with pytest.raises(ToolError, match="holds a formula.*may not be changed or cleared"):
+        documents.tool_edit_excel("q.xlsx", [{"sheet": "Q", "cell": "C3", "value": None}])
+    with pytest.raises(ToolError, match="outside the sheet's columns \\(A to C\\)"):
+        documents.tool_edit_excel("q.xlsx", [{"sheet": "Q", "cell": "I2", "value": "note"}])
+    ui.answers = ["yes"]
+    documents.tool_edit_excel("q.xlsx", [{"sheet": "Q", "cell": "C2", "value": "Yes"}])  # a value in its column
+    assert openpyxl.load_workbook(workspace / "q.xlsx")["Q"]["C2"].value == "Yes"

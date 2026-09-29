@@ -301,7 +301,7 @@ TOOLS = [
                     "items": {
                         "type": "object",
                         "properties": {
-                            "sheet": {"type": "string", "description": "Sheet name (default: the first sheet)."},
+                            "sheet": {"type": "string", "description": "Sheet name; required when the workbook has several sheets."},
                             "cell": {"type": "string", "description": "Cell address, e.g. 'B7'."},
                             "value": {"description": "Number, text, boolean, null, or a formula starting with '='."},
                             "as_date": {"type": "boolean", "description": "Store the text value as a date."},

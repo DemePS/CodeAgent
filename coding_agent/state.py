@@ -32,6 +32,12 @@ tool_names: set[str] | None = None  # the enabled tools, or None for all
 # Workbook (resolved path) -> the only sheets edit_excel may change in it; set by an application
 # (e.g. the sheets the person ticked). Workbooks not listed: any sheet.
 excel_edit_sheets: dict[Path, set[str]] = {}
+# Workbook (resolved path) -> {sheet: its number of columns}: edit_excel may not write beyond them (no
+# new helper columns); set by an application, e.g. from the workbook as the job started.
+excel_max_columns: dict[Path, dict[str, int]] = {}
+# True: edit_excel never writes a formula, and never overwrites or clears one (for an application
+# whose users fill in values, not formulas).
+excel_protect_formulas: bool = False
 system_prompt: str | None = None  # replaces the coding agent's system prompt ({workspace} is filled in)
 
 
