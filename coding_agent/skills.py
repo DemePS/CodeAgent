@@ -122,3 +122,16 @@ def tool_load_skill(name: str) -> str:
     return skill_md.read_text(encoding="utf-8")
 
 
+
+
+def bundled_skill(name: str) -> str:
+    """The instructions of a skill shipped with the agent (its SKILL.md without the --- header), for
+    applications that use a skill directly, e.g. as the system prompt of a call to Claude."""
+    skill_md = find_skill_file(BUNDLED_SKILLS / name) if (BUNDLED_SKILLS / name).is_dir() else None
+    if skill_md is None:
+        raise KeyError(f"No bundled skill {name!r} in {BUNDLED_SKILLS}")
+    text = skill_md.read_text(encoding="utf-8")
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        text = text[end + 4:] if end != -1 else text
+    return text.strip()

@@ -41,12 +41,16 @@ def active_tools() -> list[dict]:
     return [t for t in TOOLS if t["name"] in state.tool_names]
 
 
+WAIT_NOTICE_SECONDS = 30  # say so while Claude has not started answering (the SDK retries timeouts quietly)
+
+
 class _Call:
     """One model call running in a helper thread (see stream_response)."""
 
     def __init__(self) -> None:
         self.cancelled = False
         self.stream = None
+        self.started = False  # the first streamed event arrived
         self.result = None
         self.error: BaseException | None = None
         self.done = threading.Event()
@@ -69,9 +73,13 @@ def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int
             call.done.set()
 
     threading.Thread(target=run, name="claude-call", daemon=True).start()
+    ticks = 0  # of 0.1 s
     try:
         while not call.done.wait(0.1):
             check_stop()
+            ticks += 1
+            if not call.started and ticks % (WAIT_NOTICE_SECONDS * 10) == 0:
+                state.ui.message(f"[still waiting for Claude: {ticks // 10} s]")
     except BaseException:  # Stop, or Ctrl+C in the terminal
         call.cancelled = True
         if call.stream is not None:
@@ -98,6 +106,7 @@ def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: 
     ) as stream:
         call.stream = stream
         for event in stream:
+            call.started = True
             if call.cancelled:  # stopped: the waiting thread has moved on
                 return None
             if event.type == "content_block_start":

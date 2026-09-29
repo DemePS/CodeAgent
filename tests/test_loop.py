@@ -183,3 +183,23 @@ def test_stop_is_immediate_while_claude_has_not_answered_yet(tmp_path, claude, m
     assert session.messages == []
     time.sleep(3.2)  # the abandoned call ends in the background...
     assert shown == []  # ...and shows nothing
+
+
+def test_a_slow_first_answer_is_reported(tmp_path, claude, monkeypatch):
+    # Claude (or the SDK's quiet retries of a timeout) takes long: the person sees it is still waiting.
+    import time
+
+    from coding_agent import loop
+    project = tmp_path / "p"
+    project.mkdir()
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    monkeypatch.setattr(loop, "WAIT_NOTICE_SECONDS", 1)
+    answer = FakeClaude.handler
+    monkeypatch.setattr(FakeClaude, "handler", lambda self, request: (time.sleep(2.3), answer(self, request))[1])
+    claude([([("text", "hello")], "end_turn")])
+    ui = HeadlessUI()
+    notes = []
+    ui.message = notes.append
+    session.open_project(project, ui=ui)
+    assert session.send("hello") is True
+    assert [n for n in notes if "still waiting" in n] == ["[still waiting for Claude: 1 s]", "[still waiting for Claude: 2 s]"]

@@ -8,6 +8,7 @@ from ..tools.documents import (
     tool_edit_excel,
     tool_read_excel,
     tool_read_pdf,
+    tool_restore_backup,
     tool_view_image,
 )
 from ..tools.files import (
@@ -38,6 +39,7 @@ TOOL_HANDLERS = {
     "read_pdf": tool_read_pdf,
     "read_excel": tool_read_excel,
     "edit_excel": tool_edit_excel,
+    "restore_backup": tool_restore_backup,
     "copy_path": tool_copy_path,
     "delete_file": tool_delete_file,
     "delete_folder": tool_delete_folder,

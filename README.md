@@ -41,6 +41,7 @@ A Foundry endpoint always wins: with `ANTHROPIC_FOUNDRY_ENDPOINT` set, the agent
 coding-agent -d path/to/project "Add input validation to the CLI"
 coding-agent -d path/to/project            # interactive
 coding-agent -d path/to/project -r         # resume the last conversation
+coding-agent --check                      # Claude not answering? test each step of a call
 coding-agent --help
 ```
 
@@ -66,16 +67,31 @@ question and progress message goes through the UI object, so a web or desktop fr
 
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
-`edit_excel`), `git` (read-only), `run_python` (sandboxed), `download_file`, `clone_repo`,
+`edit_excel`, `restore_backup`), `git` (read-only), `run_python` (sandboxed), `download_file`, `clone_repo`,
 `web_search`, `screenshot_page` (`pip install "codeagent[browser]"`), `ask_human`, `load_skill`.
 
 ## Safety
 
 - It writes only inside the project folder; extra folders you add are read-only.
 - Every file or workbook change is shown (a diff, or a cell-by-cell table) and waits for your
-  approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/`.
+  approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/` for 3 days,
+  and `restore_backup` puts one back ("undo your changes to costs.xlsx"). Applications can list and
+  restore them with `coding_agent.backups` (`versions()`, `restore()`).
 - Deleting always asks, even in autonomous mode; downloads and clones always ask; the agent cannot
   modify its own files; `run_python` cannot start processes or delete files.
+
+## What stays on your machine
+
+Everything is in `~/.coding-agent` (`$HOME`, or your user folder on Windows), cleaned at each start
+of `coding-agent` (`coding_agent/cleanup.py`; applications call `coding_agent.cleanup.run()`):
+
+| What | Where | Kept |
+|---|---|---|
+| Copies of workbooks before each change | `backups/` | 3 days (`AGENT_BACKUP_DAYS`) |
+| What the agent learned about each project | `memory/<project>-<code>/` | notes capped in size; deleted after 90 days unused (`AGENT_MEMORY_DAYS`) |
+| The saved conversation (`--resume`) | `memory/<project>-<code>/conversation.json` | 30 days (`AGENT_CONVERSATION_DAYS`) |
+
+`AGENT_MEMORY=off` stops the agent from writing memory at all.
 
 ## Development
 

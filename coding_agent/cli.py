@@ -26,6 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-r", "--resume", action="store_true", help="Continue the last conversation in this project.")
     parser.add_argument("--auto", action="store_true", help="Autonomous mode: apply edits and Python runs without asking.")
     parser.add_argument("--where", action="store_true", help="Show where memory and skills are read from, then exit.")
+    parser.add_argument("--check", action="store_true", help="Test each step of a call to Claude (sign-in, request, streaming, thinking, tools), then exit.")
     parser.add_argument("--check-browser", action="store_true", help="Test the browser used by screenshot_page, then exit.")
     return parser.parse_args()
 
@@ -37,12 +38,19 @@ def main() -> None:
         return
     try:
         workspace = Path(args.dir).expanduser().resolve()
+        if args.check:
+            from .diagnose import run_check
+            session.open_project(workspace, ui=TerminalUI())
+            raise SystemExit(0 if run_check() else 1)
         if args.where:  # no API client, no saved conversation needed
             session.open_project(workspace, ui=TerminalUI())
             print(f"Workspace: {state.workspace}")
             print(locations_report(verbose=True))
             return
         client = _get_client()
+        from .cleanup import run as clean_up
+        if (cleaned := clean_up()) != "Clean-up: nothing to delete":  # old backups, unused memories
+            print(cleaned)
         print(f"Workspace: {workspace}")
         print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
         session.open_project(workspace, ui=TerminalUI(), resume=args.resume, auto=args.auto)
