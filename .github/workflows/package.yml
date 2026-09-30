@@ -5,7 +5,7 @@
 #   locked versions (uv.lock), then with the newest versions pip would install today; the build
 #   (sdist and wheel) is kept as an artifact.
 # - A tag apim-v<version> (the version in pyproject.toml, e.g. apim-v0.1.0; "v" tags are for the
-#   codeagent package on master): the same, then the package is published to PyPI
+#   codeagent package on main): the same, then the package is published to PyPI
 #   (pip install codeagent-apim) and attached to a GitHub Release.
 #
 # Publishing uses PyPI trusted publishing: no token is stored here. One-time setup on pypi.org:
@@ -16,7 +16,7 @@ name: Package
 
 on:
   push:
-    branches: [master, claude/coding-agent-tools-8dvdd2, api-management]
+    branches: [main, api-management]
     tags: ["apim-v*"]
   pull_request:
   workflow_dispatch:
