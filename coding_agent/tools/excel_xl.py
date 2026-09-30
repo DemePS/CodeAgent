@@ -237,6 +237,7 @@ def freeze(book, ws, cell: str) -> None:
     ws.activate()
     window = book.app.api.ActiveWindow
     window.FreezePanes = False
+    window.ScrollRow = window.ScrollColumn = 1  # from the top: no old scroll position left in the view
     target = ws.range(cell)
     window.SplitRow = target.row - 1
     window.SplitColumn = target.column - 1
