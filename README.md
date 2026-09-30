@@ -9,6 +9,9 @@ about each project. Use it from the terminal, or as a library to build your own 
 pip install codeagent
 ```
 
+Not on PyPI yet (see [Publishing to PyPI](#publishing-to-pypi-to-do)): until then, install it from GitHub:
+`pip install "codeagent @ git+https://github.com/DemePS/CodeAgent.git@main"` (or pin a commit).
+
 The package installs the `coding_agent` Python package and the `coding-agent` command.
 Python 3.10 or later; Windows, macOS and Linux.
 
@@ -130,6 +133,28 @@ uv sync            # the exact versions the tests ran with (uv.lock)
 uv run pytest
 uv build           # dist/codeagent-<version>.tar.gz and .whl
 ```
+
+## Publishing to PyPI (to do)
+
+The workflow (`.github/workflows/package.yml`) is ready but nothing has been published yet: the
+applications install the engine from a GitHub commit meanwhile. To publish a version:
+
+1. **Once, on pypi.org** -- Your account > Publishing > *Add a new pending publisher*: PyPI project
+   `codeagent`, owner `DemePS`, repository `CodeAgent`, workflow `package.yml`, environment `pypi`.
+   (The api-management branch publishes `codeagent-apim` the same way: add a second pending publisher
+   with that project name.)
+2. **For each release**, tag the commit whose `pyproject.toml` has that version, and push the tag:
+   ```bash
+   git fetch origin
+   git tag -a v0.5.0 origin/main -m "v0.5.0"     # api-management: apim-v0.5.0 on origin/api-management
+   git push origin v0.5.0
+   ```
+   The tag runs the tests and the build, publishes to PyPI (trusted publishing: no token stored) and
+   creates a GitHub Release. A tag whose version differs from `pyproject.toml` is refused. If the tag
+   was pushed before step 1, only the publish job fails: re-run it (Actions > the run > *Re-run
+   failed jobs*) once PyPI is set up.
+3. **Afterwards**, the applications can depend on the published package (`codeagent==0.5.0`) and drop
+   their `[tool.uv.sources]` git pin (then `uv lock`).
 
 ## License
 
