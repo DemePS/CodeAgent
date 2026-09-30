@@ -50,6 +50,7 @@ Without an API key, the agent signs in with the account of your Windows session,
 coding-agent -d path/to/project "Add input validation to the CLI"
 coding-agent -d path/to/project            # interactive
 coding-agent -d path/to/project -r         # resume the last conversation
+coding-agent -d path/to/project --read D:/docs --read //server/share   # also read (never write) other folders
 coding-agent --help
 ```
 
