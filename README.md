@@ -84,13 +84,9 @@ Who changes, formats and renders workbooks is set by `AGENT_EXCEL_BACKEND`:
 | Saving | rewrites the file: charts, pictures, pivot tables can be damaged (you are warned first) | Excel saves: nothing is lost |
 | Formulas after an edit | old results until the file is opened in Excel | recalculated at once |
 | `view_excel` | a drawing of the cells (needs the `browser` extra); charts listed, not drawn | what Excel prints, charts included |
-| While the agent works on a workbook | the file is held open: others can only read it | the agent's Excel keeps it open: yours offers it read-only |
+| A workbook open in Excel | refused (locked) | written in that window, if it has no unsaved changes |
 
 `auto` (the default) uses xlwings when it is installed and Excel can be started, else openpyxl.
-Either way a workbook is locked from the agent's first read of it until the instruction ends (finished,
-failed or stopped): opened meanwhile in Excel it comes up read-only, so nobody changes it under the agent.
-A workbook already open elsewhere can be read, not changed, until it is closed. Documents outside the
-project folder are never locked.
 Reading (`read_excel`) is the same in both: it never changes the file, lists the charts, pictures,
 tables and pivot tables of a sheet, and shows a long cell whole when that one cell is read.
 `scripts/compare_excel_backends.py` runs the same edits, formatting and views with both backends and

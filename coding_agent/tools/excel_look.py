@@ -41,8 +41,6 @@ def tool_view_excel(path: str, sheet: str | None = None, range: str | None = Non
     from openpyxl.utils import range_boundaries
 
     p = excel_path(path, readable=True)
-    from . import excel_lock
-    excel_lock.try_hold(p)
     wb = load_workbook(p)
     name = sheet or wb.sheetnames[0]
     if name not in wb.sheetnames:
@@ -245,8 +243,6 @@ def tool_format_excel(path: str, range: str, sheet: str | None = None, bold: boo
         raise ToolError(f"Invalid range {range!r}: e.g. 'A1:G1', 'A:G' or 'A1:G1, A2:A40'.")
 
     backend = excel_backend()
-    from . import excel_lock
-    excel_lock.hold(p)  # refused if another program has it open
     before = p.read_bytes()
     wb = load_workbook(p)
     if len(wb.sheetnames) > 1 and not sheet:

@@ -181,16 +181,7 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
 
 
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
-    """Run one user instruction through the agent loop. Returns False if it failed. The workbooks
-    locked during it (excel_lock) are let go at the end, whatever happens."""
-    try:
-        return run_instruction(client, messages, text)
-    finally:
-        from .tools import excel_lock
-        excel_lock.release_all()
-
-
-def run_instruction(client: anthropic.Anthropic, messages: list, text: str) -> bool:
+    """Run one user instruction through the agent loop. Returns False if it failed."""
     checkpoint = len(messages)
     state.compacted_this_turn = False
     state.turn.update(instruction=text, excel_read=False)
