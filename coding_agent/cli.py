@@ -25,6 +25,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-i", "--interactive", action="store_true", help="Keep chatting after the instruction finishes.")
     parser.add_argument("-r", "--resume", action="store_true", help="Continue the last conversation in this project.")
     parser.add_argument("--auto", action="store_true", help="Autonomous mode: apply edits and Python runs without asking.")
+    parser.add_argument("--read", action="append", default=[], metavar="DIR",
+                        help="Another folder the agent may read but never write (repeat for several).")
     parser.add_argument("--where", action="store_true", help="Show where memory and skills are read from, then exit.")
     parser.add_argument("--check", action="store_true", help="Test each step of a call to Claude (sign-in, request, streaming, thinking, tools), then exit.")
     parser.add_argument("--memories", nargs="?", const="", metavar="NAME",
@@ -69,6 +71,8 @@ def main() -> None:
         print(f"Workspace: {workspace}")
         print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
         session.open_project(workspace, ui=TerminalUI(), resume=args.resume, auto=args.auto)
+        for folder in args.read:  # read-only folders, e.g. documents kept elsewhere
+            print(f"Read-only: {session.add_read_folder(folder)}")
     except NotADirectoryError as e:
         raise SystemExit(str(e))
     print(f"Claude: {connection_summary()}")
