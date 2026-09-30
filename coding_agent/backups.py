@@ -67,7 +67,7 @@ def versions(name: str, workspace: Path | None = None) -> list[dict]:
     return sorted(found, key=lambda v: v["id"], reverse=True)
 
 
-def restore(path: Path, version: str, workspace: Path | None = None) -> str:
+def restore(path: Path, version: str, workspace: Path | None = None, write=None) -> str:
     """Put a previous version back in place of `path`, after backing up the current one. Returns a
     sentence for the person. Raises ValueError (no such version) or PermissionError (the file is
     open, e.g. in Excel)."""
@@ -76,6 +76,10 @@ def restore(path: Path, version: str, workspace: Path | None = None) -> str:
     source = folder(workspace) / version
     if path.exists():  # so that the restore can be undone
         save(path, path.read_bytes(), workspace)
+    if write is not None:  # the file is held open by the agent (excel_lock): written through it
+        write(source.read_bytes())
+        return (f"{path.name} is back to its version from before the change of {moment(version):%d %b %Y at %H:%M}. "
+                "The version it replaced is kept among the previous versions.")
     tmp = path.with_name(f".{path.name}.restore-tmp")
     try:
         shutil.copyfile(source, tmp)

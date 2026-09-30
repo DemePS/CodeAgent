@@ -77,3 +77,11 @@ def workspace(tmp_path, ui, monkeypatch):
     monkeypatch.setattr(state, "compacted_this_turn", False)
     assert state.protected_paths[: len(OWN_FILES)] == OWN_FILES
     return ws.resolve()
+
+
+@pytest.fixture(autouse=True)
+def no_locked_workbooks():
+    """Workbooks locked by a test (excel_lock) are let go after it, as at the end of an instruction."""
+    yield
+    from coding_agent.tools import excel_lock
+    excel_lock.release_all()

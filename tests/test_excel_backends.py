@@ -9,7 +9,7 @@ from openpyxl.chart import BarChart, Reference
 
 from coding_agent import backups, state
 from coding_agent.common import ToolError
-from coding_agent.tools import documents, excel_look, excel_xl
+from coding_agent.tools import documents, excel_lock, excel_look, excel_xl
 
 import fake_xlwings
 
@@ -98,7 +98,9 @@ def test_excel_saves_the_changes_and_keeps_what_openpyxl_would_lose(workspace, c
     ws = openpyxl.load_workbook(charted)["Schools"]
     assert ws["B5"].value == "=SUM(B2:B4)" and ws["A7"].value == "00123" and ws["A8"].value == 42
     [app] = [excel_xl._app]
-    assert app.saved == ["schools.xlsx"] and app.open_books == []  # saved by Excel, then closed
+    assert app.saved == ["schools.xlsx"] and len(app.open_books) == 1  # saved by Excel, kept open: locked
+    excel_lock.release_all()  # the instruction ends
+    assert app.open_books == []
     assert app.visible is False and app.display_alerts is False
     assert backups.versions("schools.xlsx")  # the previous version is kept
 
@@ -144,17 +146,15 @@ def test_excel_creates_a_workbook_with_the_same_sheets(workspace, ui, xl):
     assert wb.sheetnames == ["Sheet", "Data"] and wb["Data"]["A1"].value == "Pays"  # not "Feuil1"
 
 
-def test_a_workbook_open_in_the_persons_excel(workspace, charted, ui, xl, monkeypatch):
+def test_a_workbook_open_in_the_persons_excel_is_not_changed(workspace, charted, ui, xl, monkeypatch):
     theirs = xl.App()
-    book = theirs.books.open(str(charted))
+    theirs.books.open(str(charted))
     monkeypatch.setattr(xl, "apps", [theirs])
     monkeypatch.setattr(state, "auto_mode", True)
-    book.api.Saved = False
-    with pytest.raises(ToolError, match="open in Excel with unsaved changes"):
+    with pytest.raises(ToolError, match="open in another program"):
         documents.tool_edit_excel("schools.xlsx", [{"cell": "A8", "value": 1}])
-    book.api.Saved = True
-    documents.tool_edit_excel("schools.xlsx", [{"cell": "A8", "value": 1}])
-    assert theirs.saved == ["schools.xlsx"] and book in theirs.open_books  # written in their window, left open
+    assert "not locked: schools.xlsx is open in another program" in documents.tool_read_excel("schools.xlsx")
+    assert theirs.saved == []
 
 
 # --- format_excel
@@ -238,3 +238,83 @@ def test_excel_freezes_from_the_top(workspace, charted, ui, xl, monkeypatch):
     excel_look.tool_format_excel("schools.xlsx", "A1:B1", freeze="A2")
     window = excel_xl._app.api.ActiveWindow
     assert window.ScrollRow == 1 and window.FreezePanes is True
+
+
+# --- the lock: nobody else changes a workbook while the agent works on it
+
+def other_program_can_write(path) -> bool:
+    import fcntl
+    with open(path, "r+b") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(f, fcntl.LOCK_UN)
+            return True
+        except OSError:
+            return False
+
+
+def test_the_workbook_is_locked_from_the_first_read_to_the_end(workspace, charted, ui, openpyxl_backend, monkeypatch):
+    import os
+    assert other_program_can_write(charted)
+    documents.tool_read_excel("schools.xlsx")
+    assert not other_program_can_write(charted)  # taken at the first read
+    inode = os.stat(charted).st_ino
+    ui.answers = ["yes"]  # a workbook with a chart: openpyxl always asks
+    documents.tool_edit_excel("schools.xlsx", [{"cell": "A8", "value": 42}])
+    assert os.stat(charted).st_ino == inode  # written through the lock, not replaced
+    assert openpyxl.load_workbook(charted)["Schools"]["A8"].value == 42
+    assert not other_program_can_write(charted)
+    excel_lock.release_all()
+    assert other_program_can_write(charted)
+
+
+def test_a_workbook_in_use_elsewhere_is_read_but_not_changed(workspace, charted, ui, openpyxl_backend, monkeypatch):
+    import fcntl
+    with open(charted, "r+b") as someone:
+        fcntl.flock(someone, fcntl.LOCK_EX | fcntl.LOCK_NB)  # another program has it
+        assert "(not locked: schools.xlsx is open in another program" in documents.tool_read_excel("schools.xlsx")
+        monkeypatch.setattr(state, "auto_mode", True)
+        with pytest.raises(ToolError, match="open in another program"):
+            documents.tool_edit_excel("schools.xlsx", [{"cell": "A8", "value": 42}])
+        with pytest.raises(ToolError, match="open in another program"):
+            excel_look.tool_format_excel("schools.xlsx", "A1", bold=True)
+    assert openpyxl.load_workbook(charted)["Schools"]["A8"].value is None
+
+
+def test_restore_works_through_the_lock(workspace, charted, ui, openpyxl_backend, monkeypatch):
+    monkeypatch.setattr(state, "auto_mode", True)
+    ui.answers = ["yes"]
+    documents.tool_edit_excel("schools.xlsx", [{"cell": "A8", "value": 42}])
+    [version] = [v["id"] for v in backups.versions("schools.xlsx")]
+    documents.tool_restore_backup("schools.xlsx", version)
+    assert openpyxl.load_workbook(charted)["Schools"]["A8"].value is None
+    assert not other_program_can_write(charted)
+
+
+def test_documents_outside_the_project_are_never_locked(tmp_path, workspace, ui, openpyxl_backend):
+    outside = tmp_path / "elsewhere.xlsx"
+    openpyxl.Workbook().save(outside)
+    assert excel_lock.hold(outside) is None and other_program_can_write(outside)
+
+
+def test_the_lock_ends_with_the_instruction_whatever_happens(workspace, charted, ui, openpyxl_backend, monkeypatch):
+    from coding_agent import loop
+
+    def instruction(client, messages, text):
+        documents.tool_read_excel("schools.xlsx")
+        raise RuntimeError("stopped")
+    monkeypatch.setattr(loop, "run_instruction", instruction)
+    with pytest.raises(RuntimeError):
+        loop.send(None, [], "fill it")
+    assert other_program_can_write(charted)
+
+
+def test_excel_keeps_the_workbook_open_for_the_whole_instruction(workspace, charted, ui, xl, monkeypatch):
+    monkeypatch.setattr(state, "auto_mode", True)
+    documents.tool_read_excel("schools.xlsx")
+    documents.tool_edit_excel("schools.xlsx", [{"cell": "A8", "value": 1}])
+    excel_look.tool_format_excel("schools.xlsx", "A1:B1", bold=True)
+    app = excel_xl._app
+    assert len(app.open_books) == 1 and app.saved == ["schools.xlsx", "schools.xlsx"]  # one book, reused
+    excel_lock.release_all()
+    assert app.open_books == []
