@@ -73,14 +73,14 @@ question and progress message goes through the UI object, so a web or desktop fr
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
 `edit_excel`, `view_excel`, `format_excel`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
-`download_file`, `clone_repo`, `web_search`, `screenshot_page` (`pip install "codeagent[browser]"`), `ask_human`,
+`download_file`, `clone_repo`, `web_search`, `screenshot_page` (`uv sync --extra browser`), `ask_human`,
 `load_skill`.
 
 ### Excel: two backends
 
 Who changes, formats and renders workbooks is set by `AGENT_EXCEL_BACKEND`:
 
-| | `openpyxl` | `xlwings` (`pip install "codeagent[excel]"`) |
+| | `openpyxl` | `xlwings` (`uv sync --extra excel`) |
 |---|---|---|
 | Runs on | anywhere | Windows or macOS with Excel installed |
 | Saving | rewrites the file: charts, pictures, pivot tables can be damaged (you are warned first) | Excel saves: nothing is lost |
