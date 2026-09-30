@@ -14,7 +14,7 @@ name: Package
 
 on:
   push:
-    branches: [master, claude/coding-agent-tools-8dvdd2, api-management]
+    branches: [main, api-management]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
