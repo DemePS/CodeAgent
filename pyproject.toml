@@ -1,6 +1,6 @@
 [project]
 name = "codeagent-apim"
-version = "0.4.0"
+version = "0.5.0"
 description = "codeagent with sign-in for an organization's API Management gateway: the agent on Claude (Azure / Microsoft Foundry) behind Azure API Management, signing in with the organization's app registration"
 readme = "README.md"
 license = "MIT"
