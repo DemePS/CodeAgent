@@ -38,6 +38,9 @@ excel_max_columns: dict[Path, dict[str, int]] = {}
 # True: edit_excel never writes a formula, and never overwrites or clears one (for an application
 # whose users fill in values, not formulas).
 excel_protect_formulas: bool = False
+# False: format_excel is refused (for an application that fills existing workbooks, whose layout must
+# never change).
+excel_allow_format: bool = True
 system_prompt: str | None = None  # replaces the coding agent's system prompt ({workspace} is filled in)
 
 

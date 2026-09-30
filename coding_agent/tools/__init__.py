@@ -11,6 +11,7 @@ from ..tools.documents import (
     tool_restore_backup,
     tool_view_image,
 )
+from ..tools.excel_look import tool_format_excel, tool_view_excel
 from ..tools.files import (
     tool_change_directory,
     tool_copy_path,
@@ -39,6 +40,8 @@ TOOL_HANDLERS = {
     "read_pdf": tool_read_pdf,
     "read_excel": tool_read_excel,
     "edit_excel": tool_edit_excel,
+    "view_excel": tool_view_excel,
+    "format_excel": tool_format_excel,
     "restore_backup": tool_restore_backup,
     "copy_path": tool_copy_path,
     "delete_file": tool_delete_file,

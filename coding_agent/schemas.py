@@ -269,7 +269,10 @@ TOOLS = [
             "workbook with several sheets gets an overview: each sheet's size and first rows; then read "
             "the relevant sheet(s) in full with sheet=... (a one-sheet workbook is shown in full). Cells are shown as 'A1=value'; a formula "
             "cell shows its formula and its last calculated value, e.g. 'C5==SUM(C2:C4) -> 42'. range "
-            f"limits it, e.g. 'A1:F40'. At most {EXCEL_MAX_CELLS} non-empty cells per call."
+            f"limits it, e.g. 'A1:F40'. At most {EXCEL_MAX_CELLS} non-empty cells per call. Long cells are cut in a "
+            "sheet read (the cut is marked); read that one cell (range='C4') to see it whole. Charts, pictures, "
+            "Excel tables and pivot tables of the sheet are listed (type, title, place, the cells a chart plots): "
+            "use view_excel to see them."
         ),
         "input_schema": {
             "type": "object",
@@ -289,8 +292,10 @@ TOOLS = [
             "clear, or a formula starting with '=' (e.g. '=SUM(B2:B9)'); set as_date for an ISO date "
             "('2025-03-31') and number_format to format it (e.g. '0.00', '#,##0 €', 'dd/mm/yyyy'). "
             "The user sees a cell-by-cell diff and approves it (unless autonomous mode is on). "
-            "Formulas are recalculated when the file is opened in Excel. Charts, images and pivot "
-            "tables are lost when saving with this tool; the user is warned first."
+            "When Excel does the saving (xlwings backend) formulas are recalculated at once and nothing in "
+            "the file is lost; otherwise (openpyxl) formulas are recalculated when the file is opened in Excel, "
+            "and charts, images and pivot tables can be damaged -- the user is warned first. Put one value "
+            "per cell: no labels or prefixes inside values (not 'Tel: +216...'), remarks in their own column."
         ),
         "input_schema": {
             "type": "object",
@@ -316,6 +321,55 @@ TOOLS = [
                 },
             },
             "required": ["path", "changes"],
+        },
+    },
+    {
+        "name": "view_excel",
+        "description": (
+            "See a sheet or a range of an Excel workbook as the person sees it: with Excel (xlwings "
+            "backend) the pages Excel would print, charts and pictures included, or a picture of the range; "
+            "without Excel a drawing of the cells (widths, fonts, fills, borders, merged cells; charts are "
+            "listed, not drawn). Use it to check the layout of a sheet you created or formatted, or to read "
+            "a chart. Costs about as much as a PDF page: look once at the end of a job, not after each edit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path."},
+                "sheet": {"type": "string", "description": "Sheet name (default: the first sheet)."},
+                "range": {"type": "string", "description": "Only this range, e.g. 'A1:H30' (default: the whole sheet)."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "format_excel",
+        "description": (
+            "Format cells of a workbook: bold/italic, font color, fill color, wrap text, alignment, borders, "
+            "number format, column width ('auto' fits the content), freeze panes (the first cell not frozen, "
+            "e.g. 'A2' keeps the header row in view) and filters on a header. For a sheet you created: a bold, "
+            "filled header, fitted widths, wrapped long text, the header frozen and filtered. Never reformat a "
+            "workbook the person gave you unless asked. The person approves it like any change; a backup is kept."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "sheet": {"type": "string", "description": "Sheet name; required when the workbook has several sheets."},
+                "range": {"type": "string", "description": "Cells to format: 'A1:G1', 'A:G', or several: 'A1:G1, A2:A40'."},
+                "bold": {"type": "boolean"},
+                "italic": {"type": "boolean"},
+                "font_color": {"type": "string", "description": "#RRGGBB"},
+                "fill": {"type": "string", "description": "Background color #RRGGBB, e.g. #DDEBF7."},
+                "wrap": {"type": "boolean", "description": "Wrap long text inside the cells."},
+                "align": {"type": "string", "enum": ["left", "center", "right"]},
+                "border": {"type": "boolean", "description": "Thin borders around every cell (false removes them)."},
+                "number_format": {"type": "string", "description": "e.g. '0.00', 'dd/mm/yyyy', '#,##0 €'."},
+                "column_width": {"description": "'auto' to fit the content, or a width in characters (1-255), for the range's columns."},
+                "freeze": {"type": "string", "description": "Freeze the rows above and columns left of this cell, e.g. 'A2'."},
+                "autofilter": {"type": "boolean", "description": "Add filters on the range (its first row is the header)."},
+            },
+            "required": ["path", "range"],
         },
     },
     {
