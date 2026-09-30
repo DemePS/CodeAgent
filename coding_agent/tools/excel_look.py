@@ -342,5 +342,12 @@ def format_openpyxl(ws, ranges: list[str], style: dict) -> list[str]:
     if style["autofilter"]:
         ws.auto_filter.ref = ranges[0] if ":" in ranges[0] else ws.dimensions
     if style["freeze"]:
+        # The view is written whole, as Excel writes it: scrolled to the top, the frozen pane starting
+        # at the freeze cell, the cursor there. openpyxl alone would keep the old scroll position (e.g.
+        # topLeftCell A43 from a sheet left scrolled down) next to a pane starting at A2: Excel then
+        # opens the sheet in a contradictory state.
         ws.freeze_panes = style["freeze"]
+        ws.sheet_view.topLeftCell = "A1"
+        for selection in ws.sheet_view.selection:
+            selection.activeCell = selection.sqref = style["freeze"]
     return []

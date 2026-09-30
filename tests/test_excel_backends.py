@@ -214,3 +214,27 @@ def test_view_without_excel_draws_the_cells(charted, openpyxl_backend, monkeypat
     view = excel_look.tool_view_excel("schools.xlsx")
     assert "drawn without Excel" in view[0]["text"] and "not drawn: chart: bar chart 'Ecoles par pays'" in view[0]["text"]
     assert view[1]["type"] == "image"
+
+
+def test_freezing_resets_a_stale_scroll_position(workspace, ui, openpyxl_backend, monkeypatch):
+    import re
+    import zipfile
+
+    wb = openpyxl.Workbook()
+    for i in range(100):
+        wb.active.append([i])
+    wb.active.sheet_view.topLeftCell = "A43"  # left scrolled down by the person
+    wb.save(workspace / "long.xlsx")
+    monkeypatch.setattr(state, "auto_mode", True)
+    excel_look.tool_format_excel("long.xlsx", "A1:A1", freeze="A2")
+    xml = zipfile.ZipFile(workspace / "long.xlsx").read("xl/worksheets/sheet1.xml").decode()
+    view = re.search(r"<sheetView .*?</sheetView>", xml).group()
+    assert 'topLeftCell="A1"' in view and '<pane ySplit="1" topLeftCell="A2"' in view and 'activeCell="A2"' in view
+    assert "A43" not in view
+
+
+def test_excel_freezes_from_the_top(workspace, charted, ui, xl, monkeypatch):
+    monkeypatch.setattr(state, "auto_mode", True)
+    excel_look.tool_format_excel("schools.xlsx", "A1:B1", freeze="A2")
+    window = excel_xl._app.api.ActiveWindow
+    assert window.ScrollRow == 1 and window.FreezePanes is True

@@ -221,7 +221,7 @@ class App:
         App.started += 1
         self.visible, self.open_books, self.saved = visible, [], []
         self.display_alerts = self.screen_updating = True
-        self.api = SimpleNamespace(ActiveWindow=SimpleNamespace(FreezePanes=False, SplitRow=0, SplitColumn=0))
+        self.api = SimpleNamespace(ActiveWindow=SimpleNamespace(FreezePanes=False, SplitRow=0, SplitColumn=0, ScrollRow=43, ScrollColumn=1))
         self.quit_called = False
 
     @property
