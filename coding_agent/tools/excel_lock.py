@@ -65,7 +65,7 @@ def hold(p: Path, wait: bool = True) -> Held | None:
     return entry
 
 
-WAIT_SECONDS = float(os.environ.get("AGENT_LOCK_WAIT_SECONDS") or 15)
+WAIT_SECONDS = float(os.environ.get("AGENT_LOCK_WAIT_SECONDS") or 5)
 RETRY_SECONDS = 0.5
 
 
