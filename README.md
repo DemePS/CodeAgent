@@ -67,8 +67,28 @@ question and progress message goes through the UI object, so a web or desktop fr
 
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
-`edit_excel`, `restore_backup`), `git` (read-only), `run_python` (sandboxed), `download_file`, `clone_repo`,
-`web_search`, `screenshot_page` (`pip install "codeagent[browser]"`), `ask_human`, `load_skill`.
+`edit_excel`, `view_excel`, `format_excel`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
+`download_file`, `clone_repo`, `web_search`, `screenshot_page` (`pip install "codeagent[browser]"`), `ask_human`,
+`load_skill`.
+
+### Excel: two backends
+
+Who changes, formats and renders workbooks is set by `AGENT_EXCEL_BACKEND`:
+
+| | `openpyxl` | `xlwings` (`pip install "codeagent[excel]"`) |
+|---|---|---|
+| Runs on | anywhere | Windows or macOS with Excel installed |
+| Saving | rewrites the file: charts, pictures, pivot tables can be damaged (you are warned first) | Excel saves: nothing is lost |
+| Formulas after an edit | old results until the file is opened in Excel | recalculated at once |
+| `view_excel` | a drawing of the cells (needs the `browser` extra); charts listed, not drawn | what Excel prints, charts included |
+| A workbook open in Excel | refused (locked) | written in that window, if it has no unsaved changes |
+
+`auto` (the default) uses xlwings when it is installed and Excel can be started, else openpyxl.
+Reading (`read_excel`) is the same in both: it never changes the file, lists the charts, pictures,
+tables and pivot tables of a sheet, and shows a long cell whole when that one cell is read.
+`scripts/compare_excel_backends.py` runs the same edits, formatting and views with both backends and
+reports what each kept (run it on a PC with Excel: `uv run --extra excel --extra browser python
+scripts/compare_excel_backends.py [your.xlsx ...]`).
 
 ## Safety
 

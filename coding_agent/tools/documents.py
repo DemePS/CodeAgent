@@ -19,6 +19,8 @@ from ..common import (
     truncate,
 )
 from ..config import (
+    EXCEL_BACKEND,
+    EXCEL_CELL_CHARS,
     EXCEL_MAX_CELLS,
     EXCEL_MAX_CHANGES,
     IMAGE_TYPES,
@@ -169,13 +171,26 @@ def load_workbook(p: Path, **options):
         raise ToolError(f"{rel_name(p)} could not be opened as a workbook: {type(e).__name__}: {e}")
 
 
-def show_cell(value) -> str:
+def show_cell(value, limit: int = EXCEL_CELL_CHARS) -> str:
     if value is None:
         return ""
     if hasattr(value, "isoformat"):
         return value.isoformat()
     text = str(value)
-    return text if len(text) <= 200 else text[:200] + "..."
+    return text if len(text) <= limit else text[:limit] + f"... [{len(text) - limit} more characters: read this cell alone to see it whole]"
+
+
+def excel_backend() -> str:
+    """"xlwings" or "openpyxl": who changes, formats and renders workbooks (see excel_xl)."""
+    from . import excel_xl
+
+    if EXCEL_BACKEND == "openpyxl":
+        return "openpyxl"
+    if EXCEL_BACKEND == "xlwings":
+        if not excel_xl.installed():
+            raise ToolError("AGENT_EXCEL_BACKEND is xlwings but xlwings is not installed (pip install xlwings).")
+        return "xlwings"
+    return "xlwings" if excel_xl.available() else "openpyxl"
 
 
 OVERVIEW_BUDGET = 12_000  # characters, whatever the number of sheets
@@ -246,7 +261,8 @@ def tool_read_excel(path: str, sheet: str | None = None, range: str | None = Non
         cells = ws[range] if range else ws.iter_rows()
     except ValueError:
         raise ToolError(f"Invalid range {range!r}; use e.g. 'A1:F40'.")
-    if range and not isinstance(cells, tuple):  # a single cell
+    single = bool(range) and not isinstance(cells, tuple)
+    if single:  # a single cell: shown whole, however long
         rows = ((cells,),)
     elif range and cells and not isinstance(cells[0], tuple):  # a single column such as "A:A"
         rows = tuple((c,) for c in cells)
@@ -254,6 +270,7 @@ def tool_read_excel(path: str, sheet: str | None = None, range: str | None = Non
         rows = cells
     if ws.merged_cells.ranges:
         lines.append("merged: " + ", ".join(str(r) for r in list(ws.merged_cells.ranges)[:50]))
+    lines += sheet_objects(ws)
     lines.append(f"--- sheet {ws_name}" + (f" range {range}" if range else "") + " ---")
     shown = size = 0
 
@@ -265,12 +282,13 @@ def tool_read_excel(path: str, sheet: str | None = None, range: str | None = Non
         for c in row:
             if c.value is None or not hasattr(c, "coordinate"):
                 continue
+            limit = MAX_TOOL_OUTPUT_CHARS if single else EXCEL_CELL_CHARS
             if isinstance(c.value, str) and c.value.startswith("="):
                 cached = calculated(c.coordinate)
-                parts.append(f"{c.coordinate}={c.value} -> {show_cell(cached) if cached is not None else '(not calculated)'}")
+                parts.append(f"{c.coordinate}={c.value} -> {show_cell(cached, limit) if cached is not None else '(not calculated)'}")
             else:
                 fmt = f" [{c.number_format}]" if c.number_format not in ("General", None) else ""
-                parts.append(f"{c.coordinate}={show_cell(c.value)}{fmt}")
+                parts.append(f"{c.coordinate}={show_cell(c.value, limit)}{fmt}")
         if parts:
             lines.append(" | ".join(parts))
             shown += len(parts)
@@ -284,6 +302,46 @@ def tool_read_excel(path: str, sheet: str | None = None, range: str | None = Non
         lines.append("(no values)")
     state.ui.status(f"[excel] {rel_name(p)} sheet {ws_name}{' ' + range if range else ''}: {shown} cell(s)")
     return truncate("\n".join(lines))
+
+
+def anchor_cell(obj) -> str:
+    """The top-left cell a chart or picture is placed on, e.g. 'D2' ('?' if unknown)."""
+    try:
+        marker = obj.anchor._from
+        return f"{get_column_letter(marker.col + 1)}{marker.row + 1}"
+    except Exception:
+        return "?"
+
+
+def chart_title(chart) -> str:
+    try:
+        return "".join(r.t for p in chart.title.tx.rich.p for r in (p.r or []))
+    except Exception:
+        return ""
+
+
+def sheet_objects(ws) -> list[str]:
+    """What the sheet holds besides cells: charts (type, title, place, the cells they plot), pictures,
+    Excel tables and pivot tables -- so they are known before anything is changed."""
+    lines = []
+    for chart in getattr(ws, "_charts", []):
+        refs = []
+        for series in getattr(chart, "series", [])[:6]:
+            for part in (getattr(series, "cat", None), getattr(series, "val", None)):
+                ref = getattr(getattr(part, "numRef", None), "f", None) or getattr(getattr(part, "strRef", None), "f", None)
+                if ref and ref not in refs:
+                    refs.append(ref)
+        title = chart_title(chart)
+        lines.append(f"chart: {type(chart).__name__.replace('Chart', '').lower() or 'chart'} chart"
+                     + (f" '{title}'" if title else "") + f" at {anchor_cell(chart)}"
+                     + (f", plotting {', '.join(refs)}" if refs else ""))
+    for image in getattr(ws, "_images", []):
+        lines.append(f"picture at {anchor_cell(image)}")
+    for name, table in getattr(ws, "tables", {}).items():
+        lines.append(f"Excel table '{name}': {getattr(table, 'ref', table)}")
+    for pivot in getattr(ws, "_pivots", []):
+        lines.append(f"pivot table '{getattr(pivot, 'name', '')}' at {getattr(getattr(pivot, 'location', None), 'ref', '?')}")
+    return lines
 
 
 def lossy_features(p: Path) -> list[str]:
@@ -312,8 +370,9 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
     if len(changes) > EXCEL_MAX_CHANGES:
         raise ToolError(f"At most {EXCEL_MAX_CHANGES} cells per call; split the changes.")
     existed = p.exists()
+    backend = excel_backend()
     before = p.read_bytes() if existed else None
-    if existed:
+    if existed:  # checked (and, with openpyxl, changed) on openpyxl's copy; xlwings has Excel apply it
         wb = load_workbook(p)
     else:
         import openpyxl
@@ -335,7 +394,7 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         raise ToolError(f"{name} has several sheets ({', '.join(wb.sheetnames)}): give 'sheet' for every change. "
                         "Nothing was changed.")
     widths = state.excel_max_columns.get(p.resolve(), {})
-    rows = []
+    rows, writes = [], []
     for change in changes:
         sheet_name = change.get("sheet") or wb.sheetnames[0]
         if sheet_name not in wb.sheetnames:
@@ -369,10 +428,11 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         cell.value = value
         if change.get("number_format"):
             cell.number_format = change["number_format"]
+        writes.append((sheet_name, coord, value, change.get("number_format")))
         if show_cell(old) != show_cell(value) or change.get("number_format"):
             rows.append((f"{sheet_name}!{coord}", show_cell(old), show_cell(value), change.get("number_format")))
 
-    lossy = lossy_features(p) if existed else []
+    lossy = lossy_features(p) if existed and backend == "openpyxl" else []  # Excel keeps everything
     state.ui.cell_changes(f"{'Modify' if existed else 'Create'} workbook {name} ({len(rows)} cell(s)"
                           f"{', new sheets: ' + ', '.join(create_sheets) if create_sheets else ''})",
                           rows[:200], max(0, len(rows) - 200))
@@ -399,6 +459,21 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
     if existed:  # a copy of the previous version, outside the project (see backups.py)
         backup = backups.save(p, before)
     p.parent.mkdir(parents=True, exist_ok=True)
+    if backend == "xlwings":
+        from . import excel_xl
+        excel_xl.apply_changes(p, existed, list(create_sheets or []), writes)
+    else:
+        save_openpyxl(wb, p, name)
+    state.ui.success(f"{'Modified' if existed else 'Created'} {name} ({len(rows)} cell(s))")
+    return (f"{'Modified' if existed else 'Created'} {display(p)}: {len(rows)} cell(s) changed."
+            + (f" Previous version saved to {backup}." if backup else "")
+            + (f" Warning: {', '.join(lossy)} may have been lost." if lossy else "")
+            + (" Excel recalculated the formulas." if backend == "xlwings" else
+               " Formulas are recalculated when the file is opened in Excel." if any(
+                isinstance(r[2], str) and r[2].startswith("=") for r in rows) else ""))
+
+
+def save_openpyxl(wb, p: Path, name: str) -> None:
     tmp = p.with_name(f".{p.name}.agent-tmp")
     try:
         wb.save(str(tmp))
@@ -408,12 +483,6 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
     finally:
         if tmp.exists():
             tmp.unlink()
-    state.ui.success(f"{'Modified' if existed else 'Created'} {name} ({len(rows)} cell(s))")
-    return (f"{'Modified' if existed else 'Created'} {display(p)}: {len(rows)} cell(s) changed."
-            + (f" Previous version saved to {backup}." if backup else "")
-            + (f" Warning: {', '.join(lossy)} may have been lost." if lossy else "")
-            + (" Formulas are recalculated when the file is opened in Excel." if any(
-                isinstance(r[2], str) and r[2].startswith("=") for r in rows) else ""))
 
 
 def tool_view_image(path: str) -> list:

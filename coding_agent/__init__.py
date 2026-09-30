@@ -28,7 +28,10 @@ Tools:
   - edit_excel  : set cell values or formulas in an .xlsx/.xlsm (or create a new workbook) -- shows a
                   cell-by-cell diff and asks first; a copy of the previous file is kept in
                   $HOME/.coding-agent/backups/; warns (and always asks) when the workbook has charts,
-                  images or pivot tables, which openpyxl cannot keep
+                  images or pivot tables, which openpyxl cannot keep (with Excel doing the saving --
+                  AGENT_EXCEL_BACKEND=xlwings, the default when Excel and xlwings are there -- nothing is lost)
+  - view_excel  : see a sheet or range as the person sees it (Excel's rendering with charts, or a drawing)
+  - format_excel: bold, fills, borders, wrap, widths, number formats, frozen header, filters
   - copy_path   : copy a file or a folder inside the workspace -- a text file shows a diff, a
                   binary file or folder shows what will be created; asks permission first
   - delete_file : delete a file -- always asks for human validation, even in autonomous mode

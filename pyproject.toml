@@ -34,6 +34,9 @@ dependencies = [
 [project.optional-dependencies]
 # screenshot_page: `pip install "codeagent[browser]"`, then `playwright install chromium`
 browser = ["playwright>=1.63.0,<2"]
+# Excel itself does the saving, formatting and rendering (Windows or macOS with Excel installed):
+# `pip install "codeagent[excel]"`; AGENT_EXCEL_BACKEND=auto (default) uses it when it can.
+excel = ["xlwings>=0.33,<1"]
 
 [project.urls]
 Homepage = "https://github.com/DemePS/CodeAgent"

@@ -64,6 +64,11 @@ PDF_PAGE_TOKENS = 2500  # rough context cost of one PDF page (text + page image)
 PDF_MAX_VISUAL_PAGES = 20  # pages per read_pdf call in visual mode
 EXCEL_MAX_CELLS = 3000  # cells shown per read_excel call
 EXCEL_MAX_CHANGES = 1000  # cells changed per edit_excel call
+# Who changes, formats and renders workbooks: "xlwings" (Excel itself), "openpyxl" (rewrites the file,
+# runs anywhere), or "auto": xlwings when it is installed and Excel can be started, else openpyxl.
+EXCEL_BACKEND = (os.environ.get("AGENT_EXCEL_BACKEND") or "auto").strip().lower()
+EXCEL_CELL_CHARS = 200  # a long cell is cut in a sheet read; reading that one cell shows it whole
+EXCEL_VIEW_MAX_CELLS = 2000  # cells drawn by view_excel without Excel (openpyxl backend)
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 UV = shutil.which("uv")  # None when uv is not installed
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
