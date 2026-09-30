@@ -44,9 +44,10 @@ def held(p: Path) -> Held | None:
     return _held.get(p.resolve())
 
 
-def hold(p: Path) -> Held | None:
+def hold(p: Path, wait: bool = True) -> Held | None:
     """Take the workbook for the rest of the instruction (nothing for a file that does not exist
-    yet, or outside the project). Raises ToolError when another program has it open."""
+    yet, or outside the project). Raises ToolError when another program has it open (after waiting
+    for it a little, unless wait is False)."""
     from .documents import excel_backend
 
     p = p.resolve()
@@ -56,18 +57,44 @@ def hold(p: Path) -> Held | None:
         return None
     if excel_backend() == "xlwings":
         from . import excel_xl
-        entry = Held(p, book=excel_xl.open_locked(p))
+        entry = Held(p, book=patiently(p, excel_xl.open_locked) if wait else excel_xl.open_locked(p))
     else:
-        entry = Held(p, file=open_exclusive(p))
+        entry = Held(p, file=patiently(p, open_exclusive) if wait else open_exclusive(p))
     _held[p] = entry
     state.ui.status(f"[excel] {rel_name(p)} locked until this instruction ends (others can only read it)")
     return entry
 
 
+WAIT_SECONDS = float(os.environ.get("AGENT_LOCK_WAIT_SECONDS") or 15)
+RETRY_SECONDS = 0.5
+
+
+def patiently(p: Path, take):
+    """take(p), tried again for up to WAIT_SECONDS while the file is in use: Excel keeps a file for a
+    few seconds after its window is closed (and OneDrive opens it to upload it), so a workbook the
+    person has just closed is not refused at once."""
+    import time
+
+    deadline = time.monotonic() + WAIT_SECONDS
+    told = False
+    while True:
+        try:
+            return take(p)
+        except ToolError as e:
+            if "open in another program" not in str(e) or time.monotonic() >= deadline:
+                raise
+            if not told:
+                state.ui.status(f"[excel] {p.name} is still in use (just closed in Excel?): waiting up to "
+                                f"{WAIT_SECONDS:.0f} s for it to be free")
+                told = True
+            time.sleep(RETRY_SECONDS)
+
+
 def try_hold(p: Path) -> str:
-    """hold() for a read: '' when locked (or nothing to lock), else a note on why it could not be."""
+    """hold() for a read, without waiting: '' when locked (or nothing to lock), else a note on why it
+    could not be (a change will wait for it, then be refused)."""
     try:
-        hold(p)
+        hold(p, wait=False)
         return ""
     except ToolError as e:
         return f"(not locked: {e})"
