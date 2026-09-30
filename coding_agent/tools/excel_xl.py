@@ -7,12 +7,11 @@ else openpyxl). What changes with Excel doing the work:
   formats, macros... (openpyxl rewrites the whole file and drops or damages them);
 - formulas are recalculated at once (openpyxl leaves the old results until Excel opens the file);
 - a sheet or range can be rendered as Excel shows it (view_excel), and formatted (format_excel);
-- while the agent works on a workbook, its Excel keeps it open, so the person's Excel only offers it
-  read-only (see excel_lock); a workbook the person already has open is not changed.
+- a workbook the person has open in Excel is changed in that window (if it has no unsaved changes).
 Reading stays with openpyxl in both backends: it never changes the file, and it is fast.
 
-Excel runs invisibly (one instance for the whole session, closed at exit); a workbook stays open in
-it until the end of the instruction (excel_lock), then is closed.
+Excel runs invisibly (one instance for the whole session, closed at exit); each workbook is closed
+again after each tool call, so the person can open it meanwhile.
 """
 
 from __future__ import annotations
@@ -90,57 +89,8 @@ def same_file(a, b: Path) -> bool:
 
 
 def open_book(p: Path):
-    """(book, keep_open): the workbook the agent holds (excel_lock), else as open in the person's
-    Excel, else opened in ours (closed again after use). A workbook the person has open with unsaved
-    changes is refused: saving would save them too."""
-    from . import excel_lock
-
-    entry = excel_lock.held(p)
-    if entry is not None and entry.book is not None:
-        return entry.book, False
-    theirs = persons_book(p)
-    if theirs is not None:
-        try:
-            saved = bool(theirs.api.Saved)
-        except Exception:  # cannot tell (e.g. macOS): as if it had unsaved changes
-            saved = False
-        if not saved:
-            raise ToolError(f"{p.name} is open in Excel with unsaved changes: ask the person to save "
-                            "(or close) it first. Nothing was changed.")
-        return theirs, False
-    return open_in_ours(p), True
-
-
-def open_locked(p: Path):
-    """The workbook opened in the agent's Excel for the whole instruction (excel_lock): the person's
-    Excel then sees it as locked for editing. Refused when the person has it open."""
-    from . import excel_lock
-
-    if persons_book(p) is not None:
-        raise excel_lock.in_use(p)
-    with _lock:
-        return open_in_ours(p)
-
-
-def close_locked(p: Path, book) -> None:
-    with _lock:
-        try:
-            book.close()  # already saved by every change: nothing is lost
-        except Exception:
-            pass
-
-
-def open_in_ours(p: Path):
-    try:
-        return app().books.open(str(p), update_links=False)
-    except ToolError:
-        raise
-    except Exception as e:
-        raise ToolError(f"Excel could not open {p.name}: {type(e).__name__}: {e}")
-
-
-def persons_book(p: Path):
-    """The workbook if it is open in another Excel (the person's), else None."""
+    """(book, opened_here): the workbook as open in the person's Excel, else opened in ours.
+    A workbook the person has open with unsaved changes is refused: saving would save them too."""
     import xlwings as xw
 
     for other in list(getattr(xw, "apps", [])):
@@ -149,8 +99,20 @@ def persons_book(p: Path):
             continue  # our own invisible Excel
         for book in list(other.books):
             if same_file(book.fullname, p):
-                return book
-    return None
+                try:
+                    saved = bool(book.api.Saved)
+                except Exception:  # cannot tell (e.g. macOS): as if it had unsaved changes
+                    saved = False
+                if not saved:
+                    raise ToolError(f"{p.name} is open in Excel with unsaved changes: ask the person to save "
+                                    "(or close) it first. Nothing was changed.")
+                return book, False
+    try:
+        return app().books.open(str(p), update_links=False), True
+    except ToolError:
+        raise
+    except Exception as e:
+        raise ToolError(f"Excel could not open {p.name}: {type(e).__name__}: {e}")
 
 
 def close_book(book, opened_here: bool) -> None:

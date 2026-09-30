@@ -237,12 +237,10 @@ def workbook_overview(p: Path, wb, names: list[str]) -> str:
 def tool_read_excel(path: str, sheet: str | None = None, range: str | None = None) -> str:
     state.turn["excel_read"] = True  # any attempt counts: the workbook may not exist yet (to be created)
     p = excel_path(path, readable=True)
-    from . import excel_lock
-    lock_note = excel_lock.try_hold(p)  # nobody else changes it until the instruction ends
     formulas = read_workbook(p)  # formulas as written
     names = formulas.sheetnames
     if sheet is None and range is None and len(names) > 1:
-        return workbook_overview(p, formulas, names) + (f"\n{lock_note}" if lock_note else "")
+        return workbook_overview(p, formulas, names)
     ws_name = sheet or names[0]
     if ws_name not in names:
         raise ToolError(f"No sheet {ws_name!r}. Sheets: {', '.join(names)}")
@@ -259,8 +257,6 @@ def tool_read_excel(path: str, sheet: str | None = None, range: str | None = Non
     others = ("sheets: " + "; ".join(f"{n} ({sheet_size(formulas, n)})" for n in names)
               if len(names) <= 10 else f"one of {len(names)} sheets (read_excel without sheet lists them)")
     lines = [f"{display(p)} -- sheet {ws_name} ({sheet_size(formulas, ws_name)}); {others}"]
-    if lock_note:
-        lines.append(lock_note)
     try:
         cells = ws[range] if range else ws.iter_rows()
     except ValueError:
@@ -375,9 +371,6 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         raise ToolError(f"At most {EXCEL_MAX_CHANGES} cells per call; split the changes.")
     existed = p.exists()
     backend = excel_backend()
-    from . import excel_lock
-    if existed:
-        excel_lock.hold(p)  # refused if another program has it open
     before = p.read_bytes() if existed else None
     if existed:  # checked (and, with openpyxl, changed) on openpyxl's copy; xlwings has Excel apply it
         wb = load_workbook(p)
@@ -471,8 +464,6 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
         excel_xl.apply_changes(p, existed, list(create_sheets or []), writes)
     else:
         save_openpyxl(wb, p, name)
-    if not existed:
-        excel_lock.try_hold(p)  # a new workbook is the agent's too until the instruction ends
     state.ui.success(f"{'Modified' if existed else 'Created'} {name} ({len(rows)} cell(s))")
     return (f"{'Modified' if existed else 'Created'} {display(p)}: {len(rows)} cell(s) changed."
             + (f" Previous version saved to {backup}." if backup else "")
@@ -483,13 +474,10 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
 
 
 def save_openpyxl(wb, p: Path, name: str) -> None:
-    from . import excel_lock
-
     tmp = p.with_name(f".{p.name}.agent-tmp")
     try:
         wb.save(str(tmp))
-        if not excel_lock.write(p, tmp.read_bytes()):  # held: written through the lock
-            os.replace(tmp, p)
+        os.replace(tmp, p)
     except PermissionError:
         raise ToolError(f"{name} could not be written: it is locked (open in Excel?). Ask the user to close it.")
     finally:
@@ -543,17 +531,8 @@ def tool_restore_backup(path: str, version: str | None = None) -> str:
     elif state.ui.confirm(f"Restore {name} to its version from before the change of {when}?") != "yes":
         feedback = state.ui.ask_text("Why not? (optional): ")
         raise ToolError(f"The user rejected the restore; {name} was NOT changed." + (f" User feedback: {feedback}" if feedback else ""))
-    from . import excel_lock
-    entry = excel_lock.hold(p)
     try:
-        if entry is not None and entry.file is not None:  # openpyxl: through the lock
-            message = backups.restore(p, version, write=lambda data: excel_lock.write(p, data))
-        else:
-            if entry is not None:  # xlwings: the agent's Excel lets it go for the swap, then takes it again
-                excel_lock.release(p)
-            message = backups.restore(p, version)
-            if entry is not None:
-                excel_lock.try_hold(p)
+        message = backups.restore(p, version)
     except (ValueError, PermissionError) as e:
         raise ToolError(str(e))
     state.ui.success(f"Restored {name} (version from before {when})")
