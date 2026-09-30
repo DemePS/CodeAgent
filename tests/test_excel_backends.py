@@ -147,7 +147,6 @@ def test_excel_creates_a_workbook_with_the_same_sheets(workspace, ui, xl):
 
 
 def test_a_workbook_open_in_the_persons_excel_is_not_changed(workspace, charted, ui, xl, monkeypatch):
-    monkeypatch.setattr(excel_lock, "WAIT_SECONDS", 0.2)
     theirs = xl.App()
     theirs.books.open(str(charted))
     monkeypatch.setattr(xl, "apps", [theirs])
@@ -271,7 +270,6 @@ def test_the_workbook_is_locked_from_the_first_read_to_the_end(workspace, charte
 
 def test_a_workbook_in_use_elsewhere_is_read_but_not_changed(workspace, charted, ui, openpyxl_backend, monkeypatch):
     import fcntl
-    monkeypatch.setattr(excel_lock, "WAIT_SECONDS", 0.2)
     with open(charted, "r+b") as someone:
         fcntl.flock(someone, fcntl.LOCK_EX | fcntl.LOCK_NB)  # another program has it
         assert "(not locked: schools.xlsx is open in another program" in documents.tool_read_excel("schools.xlsx")
@@ -320,28 +318,3 @@ def test_excel_keeps_the_workbook_open_for_the_whole_instruction(workspace, char
     assert len(app.open_books) == 1 and app.saved == ["schools.xlsx", "schools.xlsx"]  # one book, reused
     excel_lock.release_all()
     assert app.open_books == []
-
-
-def test_a_workbook_just_closed_elsewhere_is_waited_for(workspace, charted, ui, openpyxl_backend, monkeypatch):
-    import fcntl
-    import threading
-    someone = open(charted, "r+b")
-    fcntl.flock(someone, fcntl.LOCK_EX | fcntl.LOCK_NB)  # Excel still has it, a moment after its window closed
-    assert "(not locked" in documents.tool_read_excel("schools.xlsx")  # a read does not wait
-    threading.Timer(0.6, someone.close).start()
-    monkeypatch.setattr(state, "auto_mode", True)
-    ui.answers = ["yes"]
-    documents.tool_edit_excel("schools.xlsx", [{"cell": "A8", "value": 42}])  # waits, then works
-    assert openpyxl.load_workbook(charted)["Schools"]["A8"].value == 42
-    assert any("still in use" in e[1] for e in ui.of("status"))
-
-
-def test_excel_just_closing_the_workbook_is_waited_for(workspace, charted, ui, xl, monkeypatch):
-    import threading
-    theirs = xl.App()
-    theirs.books.open(str(charted))
-    monkeypatch.setattr(xl, "apps", [theirs])
-    threading.Timer(0.6, lambda: theirs.open_books.clear()).start()  # the person closes it
-    monkeypatch.setattr(state, "auto_mode", True)
-    documents.tool_edit_excel("schools.xlsx", [{"cell": "A8", "value": 1}])
-    assert openpyxl.load_workbook(charted)["Schools"]["A8"].value == 1
