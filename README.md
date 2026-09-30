@@ -24,7 +24,14 @@ pip install codeagent-apim    # or codeagent, without the gateway sign-in
 ```
 
 Not on PyPI yet (see [Publishing to PyPI](#publishing-to-pypi-to-do)): until then, install it from GitHub:
-`pip install "codeagent-apim @ git+https://github.com/DemePS/CodeAgent.git@api-management"` (or pin a commit).
+
+```bash
+pip install "codeagent-apim @ git+https://github.com/DemePS/CodeAgent.git@1773cb2dba493341844c0e6d942ed0488db5bbfa"   # 0.5.0
+```
+
+A commit hash, not a branch name: a branch moves with every push, a commit always installs the same
+code (the applications pin it the same way, in `[tool.uv.sources]`). For a later version, use the
+commit of its version bump (`git log -1 --format=%H -- pyproject.toml`).
 
 The package installs the `coding_agent` Python package and the `coding-agent` command.
 Python 3.10 or later; Windows, macOS and Linux.
