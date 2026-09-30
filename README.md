@@ -23,6 +23,9 @@ about each project. Use it from the terminal, or as a library to build your own 
 pip install codeagent-apim    # or codeagent, without the gateway sign-in
 ```
 
+Not on PyPI yet (see [Publishing to PyPI](#publishing-to-pypi-to-do)): until then, install it from GitHub:
+`pip install "codeagent-apim @ git+https://github.com/DemePS/CodeAgent.git@api-management"` (or pin a commit).
+
 The package installs the `coding_agent` Python package and the `coding-agent` command.
 Python 3.10 or later; Windows, macOS and Linux.
 
@@ -133,6 +136,30 @@ uv sync            # the exact versions the tests ran with (uv.lock)
 uv run pytest
 uv build           # dist/codeagent-<version>.tar.gz and .whl
 ```
+
+## Publishing to PyPI (to do)
+
+Not done yet, on purpose: the API Management side (gateway, sign-in, central settings) is still being
+worked out, and the applications install the engine from a GitHub commit meanwhile. The workflow
+(`.github/workflows/package.yml`) is ready. When it is time:
+
+1. **Once, on pypi.org** -- Your account > Publishing > *Add a new pending publisher*: PyPI project
+   `codeagent-apim`, owner `DemePS`, repository `CodeAgent`, workflow `package.yml`, environment `pypi`.
+   (`codeagent`, from the main branch, needs its own pending publisher with that project name.)
+2. **For each release**, tag the commit whose `pyproject.toml` has that version (on this branch the tags
+   start with `apim-`; `v` tags are for `codeagent` on main), and push the tag:
+   ```bash
+   git fetch origin
+   git tag -a apim-v0.5.0 origin/api-management -m "apim-v0.5.0"
+   git push origin apim-v0.5.0
+   ```
+   The tag runs the tests and the build, publishes to PyPI (trusted publishing: no token stored) and
+   creates a GitHub Release. A tag whose version differs from `pyproject.toml` is refused. If the tag
+   was pushed before step 1, only the publish job fails: re-run it (Actions > the run > *Re-run
+   failed jobs*) once PyPI is set up.
+3. **Afterwards**, the applications (the Excel filler, Excel-Filler-CRA) can depend on the published
+   package (`codeagent-apim==0.5.0`) and drop their `[tool.uv.sources]` git pin (then `uv lock`). For
+   an application built in Azure DevOps, check first that its pipeline can reach pypi.org.
 
 ## License
 
