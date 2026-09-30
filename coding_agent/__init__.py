@@ -127,3 +127,8 @@ conversation (memory notes are kept).
 `path:line` references in the output are clickable links that open the file at that line.
 Set AGENT_EDITOR to vscode (default), cursor, file, or none.
 """
+
+from .certificates import use_system_certificates as _use_system_certificates
+
+_use_system_certificates()  # HTTPS behind a company proxy: trust what the operating system trusts
+

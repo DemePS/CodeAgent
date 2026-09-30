@@ -57,6 +57,8 @@ def tool_download_file(url: str, destination: str = ".") -> str:
 
     import httpx
 
+    from ..certificates import explain, ssl_context
+
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         raise ToolError("Only http:// and https:// URLs can be downloaded.")
@@ -78,7 +80,7 @@ def tool_download_file(url: str, destination: str = ".") -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=dest.parent, prefix=".download-")
     try:
-        with httpx.Client(follow_redirects=False, timeout=DOWNLOAD_TIMEOUT_SECONDS,
+        with httpx.Client(follow_redirects=False, timeout=DOWNLOAD_TIMEOUT_SECONDS, verify=ssl_context(),
                           headers={"User-Agent": "coding-agent"}) as client, os.fdopen(fd, "wb") as out:
             current = url
             for _ in range(6):  # the request + at most 5 redirects, each one checked
@@ -110,7 +112,7 @@ def tool_download_file(url: str, destination: str = ".") -> str:
         os.replace(tmp_name, dest)
         state.ui.success(f"Downloaded {rel_name(dest)} ({size:,} bytes)")
     except httpx.HTTPError as e:
-        raise ToolError(f"Download failed: {type(e).__name__}: {e}")
+        raise ToolError(f"Download failed: {explain(e) or f'{type(e).__name__}: {e}'}")
     finally:
         if os.path.exists(tmp_name):
             os.remove(tmp_name)
