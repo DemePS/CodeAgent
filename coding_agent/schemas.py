@@ -2,6 +2,7 @@
 
 from .config import (
     EXCEL_MAX_CELLS,
+    EXCEL_SCRIPTS,
     MAX_SCREENSHOT_TILES,
     PDF_MAX_VISUAL_PAGES,
     RUN_TIMEOUT_SECONDS,
@@ -373,6 +374,83 @@ TOOLS = [
         },
     },
     {
+        "name": "add_chart",
+        "description": (
+            "Add a chart to a sheet, from a block of cells with a header row (source): labels (or the x values "
+            "of a scatter chart) from its first column, one series per following column. Placed at anchor, "
+            "default beside the data. Read the sheet with read_excel first to know the source range. Only add "
+            "a chart the person asked for. The person approves it like any change; a backup is kept. Check the "
+            "result with view_excel."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "source": {"type": "string", "description": "The data with its header row, e.g. 'A1:C13'."},
+                "chart_type": {"type": "string", "enum": ["column", "bar", "line", "pie", "area", "scatter"],
+                               "description": "pie takes exactly two columns (labels, numbers)."},
+                "sheet": {"type": "string", "description": "Sheet holding the source; required when the workbook has several sheets."},
+                "title": {"type": "string"},
+                "anchor": {"type": "string", "description": "The cell of the chart's top-left corner, e.g. 'F2'."},
+            },
+            "required": ["path", "source", "chart_type"],
+        },
+    },
+    {
+        "name": "add_table",
+        "description": (
+            "Turn a block of cells with a header row into an Excel table: filter buttons, banded rows, and "
+            "formulas can refer to it by name. Every column needs a distinct header. Only add a table the "
+            "person asked for. The person approves it like any change; a backup is kept."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "source": {"type": "string", "description": "The cells with their header row, e.g. 'A1:D20'."},
+                "sheet": {"type": "string", "description": "Sheet holding the source; required when the workbook has several sheets."},
+                "name": {"type": "string", "description": "The table's name, e.g. 'Expenses' (default Table1, Table2...)."},
+            },
+            "required": ["path", "source"],
+        },
+    },
+    {
+        "name": "add_pivot_table",
+        "description": (
+            "Add a pivot table: Excel groups the rows of a source (cells with a header row) by the rows "
+            "(and columns) headers and totals the values; it can be refreshed when the data changes. On a "
+            "new sheet 'Pivot' unless target_sheet is given. Needs Excel; without it, sum with formulas "
+            "(SUMIFS) instead. Only add one the person asked for. The person approves it like any change; "
+            "a backup is kept. Check the result with view_excel."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "source": {"type": "string", "description": "The data with its header row, e.g. 'A1:D200'."},
+                "rows": {"type": "array", "items": {"type": "string"}, "description": "Header(s) to group by, one row per value, e.g. ['Supplier']."},
+                "values": {
+                    "type": "array",
+                    "description": "What to total, e.g. [{'field': 'Amount', 'summary': 'sum'}].",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": {"type": "string", "description": "A header of the source."},
+                            "summary": {"type": "string", "enum": ["sum", "count", "average", "min", "max"]},
+                        },
+                        "required": ["field"],
+                    },
+                },
+                "sheet": {"type": "string", "description": "Sheet holding the source; required when the workbook has several sheets."},
+                "columns": {"type": "array", "items": {"type": "string"}, "description": "Header(s) spread across columns, e.g. ['Month'] (optional)."},
+                "target_sheet": {"type": "string", "description": "Sheet to put it on (created if missing; default a new sheet 'Pivot')."},
+                "anchor": {"type": "string", "description": "Its first cell (default A3); required on an existing sheet."},
+                "name": {"type": "string", "description": "Its name (default Pivot1, Pivot2...)."},
+            },
+            "required": ["path", "source", "rows", "values"],
+        },
+    },
+    {
         "name": "restore_backup",
         "description": (
             "Undo changes to a workbook: before each change it saves, the agent keeps a copy of the workbook "
@@ -491,6 +569,31 @@ TOOLS = [
         },
     },
 ] + (
+    [] if not EXCEL_SCRIPTS else [{
+        "name": "run_python_excel",
+        "description": (
+            "Run a Python script that changes a workbook through Excel (xlwings), only for what the Excel "
+            "tools cannot do (e.g. a chart setting, a pivot table layout, a formula filled down a column). "
+            "The script gets `book` (the open workbook: book.sheets['Data'].range('A1').value, "
+            "ws.charts, ws.api...) and may import only math, statistics, datetime, calendar, decimal, "
+            "fractions, re, string, itertools, collections, json. Refused before running: macros (Run, "
+            "Evaluate, VBProject...), programs, other files or workbooks (save, SaveAs, Open, books, app), external "
+            "data, eval/exec, getattr with a computed name, _private attributes. Excel saves the workbook at "
+            "the end; a backup is kept first (restore_backup undoes it). The person approves the script, and "
+            "sees what it changed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "code": {"type": "string", "description": "The script; `book` is the workbook."},
+                "timeout": {"type": "integer", "minimum": 1,
+                            "description": f"Seconds before the run is stopped (default {RUN_TIMEOUT_SECONDS})."},
+            },
+            "required": ["path", "code"],
+        },
+    }]
+) + (
     [] if WEB_SEARCH == "off"
     else [{"type": f"web_search_{WEB_SEARCH}", "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES}]
 )

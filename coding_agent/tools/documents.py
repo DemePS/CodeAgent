@@ -327,7 +327,8 @@ def sheet_objects(ws) -> list[str]:
     for chart in getattr(ws, "_charts", []):
         refs = []
         for series in getattr(chart, "series", [])[:6]:
-            for part in (getattr(series, "cat", None), getattr(series, "val", None)):
+            for part in (getattr(series, "cat", None), getattr(series, "val", None),  # scatter: x and y values
+                         getattr(series, "xVal", None), getattr(series, "yVal", None)):
                 ref = getattr(getattr(part, "numRef", None), "f", None) or getattr(getattr(part, "strRef", None), "f", None)
                 if ref and ref not in refs:
                     refs.append(ref)

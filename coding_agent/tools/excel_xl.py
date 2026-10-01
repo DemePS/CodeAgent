@@ -268,3 +268,103 @@ def render(p: Path, sheet: str, address: str | None) -> tuple[bytes, str]:
                 return out.read_bytes(), "application/pdf"
         finally:
             close_book(book, opened_here)
+
+
+# --- add_chart, add_table, add_pivot_table -----------------------------------------------------------
+
+XL_CHART_TYPES = {"column": "column_clustered", "bar": "bar_clustered", "line": "line", "pie": "pie",
+                  "area": "area", "scatter": "xy_scatter"}
+XL_COLUMNS = 2  # xlColumns: each column of the source is a series
+XL_DATABASE = 1  # xlDatabase: a pivot cache built from a range with a header row
+XL_ROW_FIELD, XL_COLUMN_FIELD = 1, 2
+XL_SUMMARY = {"sum": -4157, "count": -4112, "average": -4106, "max": -4136, "min": -4139}
+CHART_WIDTH, CHART_HEIGHT = 480, 288  # points: the size Excel gives a new chart
+
+
+def chart_object(chart):
+    """The Chart of an xlwings chart's api (Windows gives (ChartObject, Chart))."""
+    api = chart.api
+    return api[1] if isinstance(api, tuple) else api
+
+
+def save_book(book, p: Path) -> None:
+    try:
+        book.save()
+    except Exception as e:
+        raise ToolError(f"Excel could not save {p.name} (locked or read-only?): {type(e).__name__}: {e}")
+
+
+def add_chart(p: Path, sheet: str, source: str, spec: dict) -> list[str]:
+    """Add a chart with Excel and save; returns the settings that could not be applied (as words)."""
+    skipped = []
+    with _lock:
+        book, opened_here = open_book(p)
+        try:
+            ws = book.sheets[sheet]
+            try:
+                target = ws.range(spec["anchor"])
+                chart = ws.charts.add(left=target.left, top=target.top, width=CHART_WIDTH, height=CHART_HEIGHT)
+                chart.set_source_data(ws.range(source))
+                chart.chart_type = XL_CHART_TYPES[spec["chart_type"]]
+            except Exception as e:
+                raise ToolError(f"Excel could not add the chart: {type(e).__name__}: {e}. Nothing was saved.")
+            try:
+                chart_object(chart).PlotBy = XL_COLUMNS
+            except Exception:
+                skipped.append("one series per column")
+            if spec["title"]:
+                try:
+                    api = chart_object(chart)
+                    api.HasTitle = True
+                    api.ChartTitle.Text = spec["title"]
+                except Exception:
+                    skipped.append("title")
+            save_book(book, p)
+        finally:
+            close_book(book, opened_here)
+    return skipped
+
+
+def add_table(p: Path, sheet: str, source: str, spec: dict) -> None:
+    """Turn a range into an Excel table with Excel and save."""
+    with _lock:
+        book, opened_here = open_book(p)
+        try:
+            ws = book.sheets[sheet]
+            try:
+                ws.tables.add(source=ws.range(source), name=spec["name"], table_style_name=spec["style"],
+                              has_headers=True)
+            except Exception as e:
+                raise ToolError(f"Excel could not add the table: {type(e).__name__}: {e}. Nothing was saved.")
+            save_book(book, p)
+        finally:
+            close_book(book, opened_here)
+
+
+def add_pivot_table(p: Path, sheet: str, source: str, spec: dict) -> None:
+    """Build a pivot table with Excel (on a new or existing sheet) and save."""
+    with _lock:
+        book, opened_here = open_book(p)
+        try:
+            try:
+                if spec["new_sheet"]:
+                    target_ws = book.sheets.add(spec["target_sheet"], after=book.sheets[len(book.sheets) - 1])
+                else:
+                    target_ws = book.sheets[spec["target_sheet"]]
+                cache = book.api.PivotCaches().Create(SourceType=XL_DATABASE,
+                                                      SourceData=book.sheets[sheet].range(source).api)
+                pivot = cache.CreatePivotTable(TableDestination=target_ws.range(spec["anchor"]).api,
+                                               TableName=spec["name"])
+                for position, name in enumerate(spec["rows"], start=1):
+                    field = pivot.PivotFields(name)
+                    field.Orientation, field.Position = XL_ROW_FIELD, position
+                for position, name in enumerate(spec["columns"], start=1):
+                    field = pivot.PivotFields(name)
+                    field.Orientation, field.Position = XL_COLUMN_FIELD, position
+                for name, summary in spec["values"]:
+                    pivot.AddDataField(pivot.PivotFields(name), f"{summary.capitalize()} of {name}", XL_SUMMARY[summary])
+            except Exception as e:
+                raise ToolError(f"Excel could not build the pivot table: {type(e).__name__}: {e}. Nothing was saved.")
+            save_book(book, p)
+        finally:
+            close_book(book, opened_here)

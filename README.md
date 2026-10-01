@@ -73,7 +73,7 @@ question and progress message goes through the UI object, so a web or desktop fr
 
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
-`edit_excel`, `view_excel`, `format_excel`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
+`edit_excel`, `view_excel`, `format_excel`, `add_chart`, `add_table`, `add_pivot_table`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
 `download_file`, `clone_repo`, `web_search`, `screenshot_page` (`uv sync --extra browser`), `ask_human`,
 `load_skill`.
 
@@ -88,6 +88,8 @@ Who changes, formats and renders workbooks is set by `AGENT_EXCEL_BACKEND`:
 | Formulas after an edit | old results until the file is opened in Excel | recalculated at once |
 | `view_excel` | a drawing of the cells (needs the `browser` extra); charts listed, not drawn | what Excel prints, charts included |
 | A workbook open in Excel | refused (locked) | written in that window, if it has no unsaved changes |
+| `add_chart`, `add_table` | written by openpyxl | added by Excel |
+| `add_pivot_table` | refused (openpyxl cannot build them) | built by Excel |
 
 `auto` (the default) uses xlwings when it is installed and Excel can be started, else openpyxl.
 Reading (`read_excel`) is the same in both: it never changes the file, lists the charts, pictures,
@@ -95,6 +97,27 @@ tables and pivot tables of a sheet, and shows a long cell whole when that one ce
 `scripts/compare_excel_backends.py` runs the same edits, formatting and views with both backends and
 reports what each kept (run it on a PC with Excel: `uv run --extra excel --extra browser python
 scripts/compare_excel_backends.py [your.xlsx ...]`).
+
+### Excel scripts (`run_python_excel`, off by default)
+
+For what no Excel tool does, `AGENT_EXCEL_SCRIPTS=on` gives the agent `run_python_excel`: a Python
+script run with Excel (xlwings backend only) on a workbook, which it gets as `book`. Excel can do far
+more than the `run_python` sandbox can see (run macros, start programs, open and save any file), so:
+
+- the script is checked before it runs, and refused if it uses macros (`Run`, `Evaluate`,
+  `VBProject`, `ExecuteExcel4Macro`...), programs or links (`Shell`, `FollowHyperlink`, DDE
+  formulas such as `=cmd|...`), other files or workbooks (`save`, `SaveAs`, `Open`, `books`,
+  `app`, `Application`, `Parent`), external data (`QueryTables`, `WEBSERVICE`), imports beyond
+  `math`, `datetime`, `re`, `collections`... , or ways around the check (`eval`, `exec`, `getattr`
+  with a computed name, `_private` attributes);
+- you approve the script (unless autonomous mode is on), and a backup of the workbook is kept first
+  (`restore_backup` undoes it);
+- it runs in its own invisible Excel with macros forced off and events off, inside the `run_python`
+  sandbox; macros it adds are refused and the workbook is put back;
+- you see what it changed: cells, sheets, charts, tables, pivot tables.
+
+The check reads the script; it cannot prove what Excel will do. Turn it on for developers on their
+own machines, never in an application for end users.
 
 ## Safety
 
