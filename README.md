@@ -98,6 +98,27 @@ tables and pivot tables of a sheet, and shows a long cell whole when that one ce
 reports what each kept (run it on a PC with Excel: `uv run --extra excel --extra browser python
 scripts/compare_excel_backends.py [your.xlsx ...]`).
 
+### Excel scripts (`run_python_excel`, off by default)
+
+For what no Excel tool does, `AGENT_EXCEL_SCRIPTS=on` gives the agent `run_python_excel`: a Python
+script run with Excel (xlwings backend only) on a workbook, which it gets as `book`. Excel can do far
+more than the `run_python` sandbox can see (run macros, start programs, open and save any file), so:
+
+- the script is checked before it runs, and refused if it uses macros (`Run`, `Evaluate`,
+  `VBProject`, `ExecuteExcel4Macro`...), programs or links (`Shell`, `FollowHyperlink`, DDE
+  formulas such as `=cmd|...`), other files or workbooks (`save`, `SaveAs`, `Open`, `books`,
+  `app`, `Application`, `Parent`), external data (`QueryTables`, `WEBSERVICE`), imports beyond
+  `math`, `datetime`, `re`, `collections`... , or ways around the check (`eval`, `exec`, `getattr`
+  with a computed name, `_private` attributes);
+- you approve the script (unless autonomous mode is on), and a backup of the workbook is kept first
+  (`restore_backup` undoes it);
+- it runs in its own invisible Excel with macros forced off and events off, inside the `run_python`
+  sandbox; macros it adds are refused and the workbook is put back;
+- you see what it changed: cells, sheets, charts, tables, pivot tables.
+
+The check reads the script; it cannot prove what Excel will do. Turn it on for developers on their
+own machines, never in an application for end users.
+
 ## Safety
 
 - It writes only inside the project folder; extra folders you add are read-only.

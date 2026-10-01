@@ -13,6 +13,7 @@ from ..tools.documents import (
 )
 from ..tools.excel_add import tool_add_chart, tool_add_pivot_table, tool_add_table
 from ..tools.excel_look import tool_format_excel, tool_view_excel
+from ..tools.excel_script import tool_run_python_excel
 from ..tools.files import (
     tool_change_directory,
     tool_copy_path,
@@ -55,6 +56,7 @@ TOOL_HANDLERS = {
     "download_file": tool_download_file,
     "clone_repo": tool_clone_repo,
     "run_python": tool_run_python,
+    "run_python_excel": tool_run_python_excel,
     "load_skill": tool_load_skill,
 }
 

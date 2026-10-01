@@ -2,6 +2,7 @@
 
 from .config import (
     EXCEL_MAX_CELLS,
+    EXCEL_SCRIPTS,
     MAX_SCREENSHOT_TILES,
     PDF_MAX_VISUAL_PAGES,
     RUN_TIMEOUT_SECONDS,
@@ -568,6 +569,31 @@ TOOLS = [
         },
     },
 ] + (
+    [] if not EXCEL_SCRIPTS else [{
+        "name": "run_python_excel",
+        "description": (
+            "Run a Python script that changes a workbook through Excel (xlwings), only for what the Excel "
+            "tools cannot do (e.g. a chart setting, a pivot table layout, a formula filled down a column). "
+            "The script gets `book` (the open workbook: book.sheets['Data'].range('A1').value, "
+            "ws.charts, ws.api...) and may import only math, statistics, datetime, calendar, decimal, "
+            "fractions, re, string, itertools, collections, json. Refused before running: macros (Run, "
+            "Evaluate, VBProject...), programs, other files or workbooks (save, SaveAs, Open, books, app), external "
+            "data, eval/exec, getattr with a computed name, _private attributes. Excel saves the workbook at "
+            "the end; a backup is kept first (restore_backup undoes it). The person approves the script, and "
+            "sees what it changed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "code": {"type": "string", "description": "The script; `book` is the workbook."},
+                "timeout": {"type": "integer", "minimum": 1,
+                            "description": f"Seconds before the run is stopped (default {RUN_TIMEOUT_SECONDS})."},
+            },
+            "required": ["path", "code"],
+        },
+    }]
+) + (
     [] if WEB_SEARCH == "off"
     else [{"type": f"web_search_{WEB_SEARCH}", "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES}]
 )
