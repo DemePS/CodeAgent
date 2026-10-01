@@ -18,6 +18,10 @@ def file_url_path(url_path: str) -> str:
     return url2pathname(url_path)
 
 
+# Playwright errors meaning the page reloaded or navigated while being read.
+NAVIGATED = ("Execution context was destroyed", "because of a navigation")
+
+
 # No background traffic (updates, sync, safe-browsing lists): only the page's own requests go out,
 # which matters behind a firewall and keeps the browser quiet.
 BROWSER_ARGS = ["--disable-background-networking", "--disable-component-update", "--disable-sync",
@@ -158,22 +162,33 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
                 response = page.goto(url, wait_until="load", timeout=30_000)
                 page.wait_for_timeout(max(0, min(int(wait_ms), 15_000)))
 
+                def settled(action):
+                    """Run `action` on the page; if the page reloaded or navigated meanwhile (a game
+                    restarting, a redirect), wait for the new page to load and try again."""
+                    for attempt in range(3):
+                        try:
+                            return action()
+                        except PlaywrightError as e:
+                            if attempt == 2 or not any(m in str(e) for m in NAVIGATED):
+                                raise
+                            page.wait_for_load_state("load", timeout=30_000)
+
                 shots = []
                 if selector:
-                    element = page.query_selector(selector)
+                    element = settled(lambda: page.query_selector(selector))
                     if element is None:
                         raise ToolError(f"No element matches {selector!r} on the page.")
                     shots.append(element.screenshot(type="png"))
                 elif full_page:
-                    total = page.evaluate("document.documentElement.scrollHeight")
+                    total = settled(lambda: page.evaluate("document.documentElement.scrollHeight"))
                     for i in range(min(MAX_SCREENSHOT_TILES, -(-total // height))):
                         clip = {"x": 0, "y": i * height, "width": width, "height": min(height, total - i * height)}
                         shots.append(page.screenshot(type="png", full_page=True, clip=clip))
                 else:
-                    shots.append(page.screenshot(type="png"))
-                title = page.title()
-                text = page.inner_text("body") if include_text else ""
-                total_height = page.evaluate("document.documentElement.scrollHeight")
+                    shots.append(settled(lambda: page.screenshot(type="png")))
+                title = settled(page.title)
+                text = settled(lambda: page.inner_text("body")) if include_text else ""
+                total_height = settled(lambda: page.evaluate("document.documentElement.scrollHeight"))
             finally:
                 browser.close()
     except PlaywrightError as e:
