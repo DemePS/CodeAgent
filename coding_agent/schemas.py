@@ -373,6 +373,48 @@ TOOLS = [
         },
     },
     {
+        "name": "excel_add",
+        "description": (
+            "Add to a workbook, from a block of cells with a header row (source): kind 'chart' (chart_type; "
+            "labels from the first column, one series per following column; placed at anchor, default beside "
+            "the data), 'table' (an Excel table: filter buttons, banded rows, grows with new rows) or "
+            "'pivot_table' (groups the rows by the rows/columns headers and totals the values; on a new sheet "
+            "unless target_sheet and anchor are given; needs Excel). Read the sheet with read_excel first to "
+            "know the source range and its headers. Only add what the person asked for. The person approves it "
+            "like any change; a backup is kept. Check the result with view_excel."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "kind": {"type": "string", "enum": ["chart", "table", "pivot_table"]},
+                "source": {"type": "string", "description": "The data with its header row, e.g. 'A1:D20'."},
+                "sheet": {"type": "string", "description": "Sheet holding the source; required when the workbook has several sheets."},
+                "chart_type": {"type": "string", "enum": ["column", "bar", "line", "pie", "area", "scatter"],
+                               "description": "chart: pie takes exactly two columns (labels, numbers)."},
+                "title": {"type": "string", "description": "chart: its title."},
+                "anchor": {"type": "string", "description": "chart: the cell of its top-left corner. pivot_table: its first cell (default A3)."},
+                "name": {"type": "string", "description": "table / pivot_table: its name, e.g. 'Expenses' (default Table1, Pivot1...)."},
+                "rows": {"type": "array", "items": {"type": "string"}, "description": "pivot_table: header(s) to group by, one row per value."},
+                "columns": {"type": "array", "items": {"type": "string"}, "description": "pivot_table: header(s) spread across columns (optional)."},
+                "values": {
+                    "type": "array",
+                    "description": "pivot_table: what to total.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": {"type": "string", "description": "A header of the source."},
+                            "summary": {"type": "string", "enum": ["sum", "count", "average", "min", "max"]},
+                        },
+                        "required": ["field"],
+                    },
+                },
+                "target_sheet": {"type": "string", "description": "pivot_table: the sheet to put it on (created if missing; default a new sheet 'Pivot')."},
+            },
+            "required": ["path", "kind", "source"],
+        },
+    },
+    {
         "name": "restore_backup",
         "description": (
             "Undo changes to a workbook: before each change it saves, the agent keeps a copy of the workbook "

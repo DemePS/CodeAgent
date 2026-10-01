@@ -73,7 +73,7 @@ question and progress message goes through the UI object, so a web or desktop fr
 
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
-`edit_excel`, `view_excel`, `format_excel`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
+`edit_excel`, `view_excel`, `format_excel`, `excel_add`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
 `download_file`, `clone_repo`, `web_search`, `screenshot_page` (`uv sync --extra browser`), `ask_human`,
 `load_skill`.
 
@@ -88,6 +88,8 @@ Who changes, formats and renders workbooks is set by `AGENT_EXCEL_BACKEND`:
 | Formulas after an edit | old results until the file is opened in Excel | recalculated at once |
 | `view_excel` | a drawing of the cells (needs the `browser` extra); charts listed, not drawn | what Excel prints, charts included |
 | A workbook open in Excel | refused (locked) | written in that window, if it has no unsaved changes |
+| `excel_add`: charts, Excel tables | written by openpyxl | added by Excel |
+| `excel_add`: pivot tables | refused (openpyxl cannot build them) | built by Excel |
 
 `auto` (the default) uses xlwings when it is installed and Excel can be started, else openpyxl.
 Reading (`read_excel`) is the same in both: it never changes the file, lists the charts, pictures,

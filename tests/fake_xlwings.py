@@ -46,7 +46,7 @@ class Font:
 class Range:
     def __init__(self, sheet, address):
         self.sheet, self.address = sheet, address
-        self.api = SimpleNamespace(WrapText=None, HorizontalAlignment=None, Borders=SimpleNamespace(LineStyle=None),
+        self.api = SimpleNamespace(Address=address, WrapText=None, HorizontalAlignment=None, Borders=SimpleNamespace(LineStyle=None),
                                    AutoFilter=lambda *a: sheet.calls.append(("autofilter", address)))
         self.columns = SimpleNamespace(autofit=lambda: sheet.calls.append(("autofit", address)))
 
@@ -59,6 +59,14 @@ class Range:
     @property
     def row(self):
         return self.cells()[0].row
+
+    @property
+    def left(self):
+        return (self.column - 1) * 48.0
+
+    @property
+    def top(self):
+        return (self.row - 1) * 15.0
 
     @property
     def column(self):
@@ -139,11 +147,79 @@ class Sheet:
     def range(self, address):
         return Range(self, address)
 
+    @property
+    def charts(self):
+        return Charts(self)
+
+    @property
+    def tables(self):
+        return Tables(self)
+
     def activate(self):
         self.book.app.active_sheet = self
 
     def to_pdf(self, path):
         Path(path).write_bytes(minimal_pdf())
+
+
+class Chart:
+    """A chart Excel adds: what is asked of it is recorded on the app."""
+
+    def __init__(self, sheet, **position):
+        self.sheet, self.position = sheet, position
+        self.api = (SimpleNamespace(), SimpleNamespace(PlotBy=None, HasTitle=False, ChartTitle=SimpleNamespace(Text="")))
+        self._type = None
+        sheet.book.app.charts.append(self)
+
+    def set_source_data(self, rng):
+        self.source = rng.address
+
+    chart_type = property(lambda self: self._type, lambda self, value: setattr(self, "_type", value))
+
+
+class Charts:
+    def __init__(self, sheet):
+        self.sheet = sheet
+
+    def add(self, left=0, top=0, width=355, height=211):
+        return Chart(self.sheet, left=left, top=top, width=width, height=height)
+
+
+class Tables:
+    """Excel tables, written to the file as openpyxl tables."""
+
+    def __init__(self, sheet):
+        self.sheet = sheet
+
+    def add(self, source, name=None, table_style_name=None, has_headers=True):
+        from openpyxl.worksheet.table import Table, TableStyleInfo
+
+        table = Table(displayName=name, ref=source.address)
+        table.tableStyleInfo = TableStyleInfo(name=table_style_name, showRowStripes=True)
+        self.sheet.ws.add_table(table)
+
+
+class PivotTable:
+    def __init__(self, app, destination, name):
+        self.app, self.destination, self.name, self.fields, self.data = app, destination, name, {}, []
+        app.pivots.append(self)
+
+    def PivotFields(self, name):
+        return self.fields.setdefault(name, SimpleNamespace(Name=name, Orientation=None, Position=None))
+
+    def AddDataField(self, field, caption, function):
+        self.data.append((field.Name, caption, function))
+
+
+class PivotCaches:
+    def __init__(self, app):
+        self.app = app
+
+    def Create(self, SourceType=None, SourceData=None):
+        app = self.app
+        return SimpleNamespace(source=SourceData,
+                               CreatePivotTable=lambda TableDestination=None, TableName=None:
+                               PivotTable(app, TableDestination, TableName))
 
 
 class Sheets:
@@ -172,7 +248,7 @@ class Book:
         self.wb = openpyxl.load_workbook(path) if path else openpyxl.Workbook()
         if not path:
             self.wb.active.title = "Feuil1"  # a French Excel
-        self.api = SimpleNamespace(Saved=saved)
+        self.api = SimpleNamespace(Saved=saved, PivotCaches=lambda: PivotCaches(app))
         self.closed = False
         self.saves = 0
 
@@ -220,6 +296,7 @@ class App:
     def __init__(self, visible=True, add_book=True):
         App.started += 1
         self.visible, self.open_books, self.saved = visible, [], []
+        self.charts, self.pivots = [], []
         self.display_alerts = self.screen_updating = True
         self.api = SimpleNamespace(ActiveWindow=SimpleNamespace(FreezePanes=False, SplitRow=0, SplitColumn=0, ScrollRow=43, ScrollColumn=1))
         self.quit_called = False
