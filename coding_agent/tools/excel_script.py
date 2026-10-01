@@ -1,5 +1,5 @@
 """run_python_excel: a Python script that changes a workbook through Excel (xlwings), for what no
-dedicated tool does. Off unless AGENT_EXCEL_SCRIPTS=on (for developers: see the README).
+dedicated tool does.
 
 Excel can do far more than edit a workbook -- run macros, start programs, open and save any file --
 and the run_python sandbox cannot see what Excel does. So, in order:
@@ -13,7 +13,7 @@ and the run_python sandbox cannot see what Excel does. So, in order:
    (the workbook is put back);
 4. the agent and the person see what changed: cells, sheets, charts, tables, pivot tables...
 Limits: the check reads the script's text, it does not prove what Excel will do. It is a strong
-filter, not a sandbox for Excel; turn the tool on only on machines where that is acceptable.
+filter, not a sandbox for Excel. Applications that pass their own tool list only get it if they list it.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from pathlib import Path
 
 from .. import backups, state
 from ..common import ToolError, display, is_protected, rel_name, truncate
-from ..config import EXCEL_SCRIPTS, RUN_TIMEOUT_SECONDS
+from ..config import RUN_TIMEOUT_SECONDS
 from ..guard import GUARD_SOURCE
 from .documents import excel_backend, excel_path, load_workbook, show_cell
 
@@ -182,8 +182,6 @@ def compare(before: Path, after: Path) -> tuple[list[tuple], list[str]]:
 
 
 def tool_run_python_excel(path: str, code: str, timeout: int = RUN_TIMEOUT_SECONDS) -> str:
-    if not EXCEL_SCRIPTS:
-        raise ToolError("run_python_excel is off (AGENT_EXCEL_SCRIPTS=on turns it on). Use the Excel tools.")
     if state.excel_edit_sheets or state.excel_protect_formulas or not state.excel_allow_format:
         raise ToolError("Excel scripts are not allowed in this application; use edit_excel.")
     p = excel_path(path)

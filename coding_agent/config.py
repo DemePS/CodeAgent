@@ -71,9 +71,6 @@ EXCEL_MAX_CHANGES = 1000  # cells changed per edit_excel call
 # Who changes, formats and renders workbooks: "xlwings" (Excel itself), "openpyxl" (rewrites the file,
 # runs anywhere), or "auto": xlwings when it is installed and Excel can be started, else openpyxl.
 EXCEL_BACKEND = (os.environ.get("AGENT_EXCEL_BACKEND") or "auto").strip().lower()
-# run_python_excel (a Python script that changes a workbook through Excel): off unless "on". Excel can
-# do far more than the sandbox sees; turn it on only for developers, never in an end-user application.
-EXCEL_SCRIPTS = (os.environ.get("AGENT_EXCEL_SCRIPTS") or "off").strip().lower() in ("on", "1", "true", "yes")
 EXCEL_CELL_CHARS = 200  # a long cell is cut in a sheet read; reading that one cell shows it whole
 EXCEL_VIEW_MAX_CELLS = 2000  # cells drawn by view_excel without Excel (openpyxl backend)
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}

@@ -2,7 +2,6 @@
 
 from .config import (
     EXCEL_MAX_CELLS,
-    EXCEL_SCRIPTS,
     MAX_SCREENSHOT_TILES,
     PDF_MAX_VISUAL_PAGES,
     RUN_TIMEOUT_SECONDS,
@@ -568,8 +567,7 @@ TOOLS = [
             },
         },
     },
-] + (
-    [] if not EXCEL_SCRIPTS else [{
+    {
         "name": "run_python_excel",
         "description": (
             "Run a Python script that changes a workbook through Excel (xlwings), only for what the Excel "
@@ -592,8 +590,8 @@ TOOLS = [
             },
             "required": ["path", "code"],
         },
-    }]
-) + (
+    },
+] + (
     [] if WEB_SEARCH == "off"
     else [{"type": f"web_search_{WEB_SEARCH}", "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES}]
 )

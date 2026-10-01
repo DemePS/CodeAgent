@@ -98,9 +98,9 @@ tables and pivot tables of a sheet, and shows a long cell whole when that one ce
 reports what each kept (run it on a PC with Excel: `uv run --extra excel --extra browser python
 scripts/compare_excel_backends.py [your.xlsx ...]`).
 
-### Excel scripts (`run_python_excel`, off by default)
+### Excel scripts (`run_python_excel`)
 
-For what no Excel tool does, `AGENT_EXCEL_SCRIPTS=on` gives the agent `run_python_excel`: a Python
+For what no Excel tool does, the agent has `run_python_excel`: a Python
 script run with Excel (xlwings backend only) on a workbook, which it gets as `book`. Excel can do far
 more than the `run_python` sandbox can see (run macros, start programs, open and save any file), so:
 
@@ -116,8 +116,9 @@ more than the `run_python` sandbox can see (run macros, start programs, open and
   sandbox; macros it adds are refused and the workbook is put back;
 - you see what it changed: cells, sheets, charts, tables, pivot tables.
 
-The check reads the script; it cannot prove what Excel will do. Turn it on for developers on their
-own machines, never in an application for end users.
+The check reads the script; it cannot prove what Excel will do. An application that passes its own
+list of tools (`session.open_project(tools=[...])`) does not get it unless it lists it, and it is
+refused in applications that restrict edits (chosen sheets, protected formulas, no formatting).
 
 ## Safety
 

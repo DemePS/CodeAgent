@@ -20,7 +20,6 @@ TESTS = Path(__file__).parent
 @pytest.fixture
 def scripts_on(monkeypatch, tmp_path):
     monkeypatch.setattr(backups, "BACKUP_HOME", tmp_path / "backups")
-    monkeypatch.setattr(excel_script, "EXCEL_SCRIPTS", True)
     monkeypatch.setitem(sys.modules, "xlwings", fake_xlwings)
     monkeypatch.setattr(fake_xlwings, "apps", [])
     monkeypatch.setattr(excel_xl, "_app", None)
@@ -96,9 +95,12 @@ def test_refused_scripts(code, refused):
 
 # --- the run
 
-def test_off_unless_switched_on(workspace, book):
-    with pytest.raises(ToolError, match="AGENT_EXCEL_SCRIPTS=on"):
-        tool_run_python_excel("book.xlsx", "print(1)")
+def test_always_offered_unless_the_application_lists_its_own_tools(workspace, monkeypatch):
+    from coding_agent.loop import active_tools
+
+    assert "run_python_excel" in [t["name"] for t in active_tools()]
+    monkeypatch.setattr(state, "tool_names", {"read_excel", "edit_excel"})  # e.g. the Excel filler
+    assert "run_python_excel" not in [t["name"] for t in active_tools()]
 
 
 def test_needs_excel_and_a_permissive_application(workspace, book, scripts_on, monkeypatch):
@@ -197,17 +199,17 @@ def test_the_real_runner_runs_in_the_sandbox(workspace, book, scripts_on, monkey
 
 
 @pytest.mark.parametrize("where", ["run folder", "home"])
-def test_switched_on_by_a_dotenv(tmp_path, where):
-    """AGENT_EXCEL_SCRIPTS=on in the .env of the folder the agent runs from, or in ~/.coding-agent/.env,
-    is read when the agent is started as a script (as the coding-agent command is), wherever the
-    package is installed."""
+def test_settings_read_from_a_dotenv(tmp_path, where):
+    """A setting in the .env of the folder the agent runs from, or in ~/.coding-agent/.env, is read
+    when the agent is started as a script (as the coding-agent command is), wherever the package is
+    installed."""
     run, home = tmp_path / "project", tmp_path / "home"
     (home / ".coding-agent").mkdir(parents=True)
     run.mkdir()
-    (run / ".env" if where == "run folder" else home / ".coding-agent" / ".env").write_text("AGENT_EXCEL_SCRIPTS=on\n")
+    (run / ".env" if where == "run folder" else home / ".coding-agent" / ".env").write_text("AGENT_EXCEL_BACKEND=openpyxl\n")
     start = tmp_path / "start.py"
-    start.write_text("import coding_agent.schemas as s\nprint('run_python_excel' in [t['name'] for t in s.TOOLS])\n")
-    env = {k: v for k, v in __import__("os").environ.items() if k != "AGENT_EXCEL_SCRIPTS"}
+    start.write_text("import coding_agent.config as c\nprint(c.EXCEL_BACKEND)\n")
+    env = {k: v for k, v in __import__("os").environ.items() if k != "AGENT_EXCEL_BACKEND"}
     env.update(HOME=str(home), USERPROFILE=str(home), PYTHONPATH=str(TESTS.parent))
     out = subprocess.run([sys.executable, str(start)], cwd=run, env=env, capture_output=True, text=True)
-    assert out.stdout.strip() == "True", out.stderr
+    assert out.stdout.strip() == "openpyxl", out.stderr

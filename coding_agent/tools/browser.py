@@ -9,6 +9,15 @@ from ..config import MAX_IMAGE_BYTES, MAX_SCREENSHOT_TILES
 from ..tools.documents import image_block
 from ..tools.network import check_host, confirm_network
 
+def file_url_path(url_path: str) -> str:
+    """The local path of a file:// URL's path: '/C:/My%20Docs/a.html' -> 'C:\\My Docs\\a.html' on
+    Windows, '/home/me/a.html' elsewhere. Unquoting alone would keep the '/' before the drive letter,
+    which Windows does not read as a path -- every local page was then blocked (net::ERR_FAILED)."""
+    from urllib.request import url2pathname
+
+    return url2pathname(url_path)
+
+
 # No background traffic (updates, sync, safe-browsing lists): only the page's own requests go out,
 # which matters behind a firewall and keeps the browser quiet.
 BROWSER_ARGS = ["--disable-background-networking", "--disable-component-update", "--disable-sync",
@@ -79,7 +88,7 @@ def check_browser() -> str:
 def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_page: bool = False,
                          selector: str | None = None, dark_mode: bool = False, wait_ms: int = 500,
                          include_text: bool = False) -> list:
-    from urllib.parse import unquote, urlsplit
+    from urllib.parse import urlsplit
     try:
         from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
@@ -94,7 +103,7 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
         if not note:  # a public site: the URL leaves the machine, so the user decides
             confirm_network("Open web page", [f"url: {url}", "a headless browser loads it and takes a screenshot"])
     elif parts.scheme in ("", "file"):
-        page_file = resolve(parts.path if parts.scheme == "file" else url)
+        page_file = resolve(file_url_path(parts.path) if parts.scheme == "file" else url)
         if not page_file.is_file():
             raise ToolError(f"File not found: {url}")
         url = page_file.as_uri()
@@ -108,7 +117,7 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
         u = urlsplit(request_url)
         if u.scheme == "file":
             try:
-                resolve(unquote(u.path))
+                resolve(file_url_path(u.path))
                 return True
             except ToolError:
                 return False
