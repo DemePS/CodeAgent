@@ -71,6 +71,8 @@ EXCEL_MAX_CHANGES = 1000  # cells changed per edit_excel call
 # Who changes, formats and renders workbooks: "xlwings" (Excel itself), "openpyxl" (rewrites the file,
 # runs anywhere), or "auto": xlwings when it is installed and Excel can be started, else openpyxl.
 EXCEL_BACKEND = (os.environ.get("AGENT_EXCEL_BACKEND") or "auto").strip().lower()
+WEB_PAGE_CHARS = 5000  # page text shown per web_open / web_click / web_page; the rest is read with web_page(offset=...)
+WEB_MAX_CONTROLS = 100  # links and controls listed per page
 EXCEL_CELL_CHARS = 200  # a long cell is cut in a sheet read; reading that one cell shows it whole
 EXCEL_VIEW_MAX_CELLS = 2000  # cells drawn by view_excel without Excel (openpyxl backend)
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}

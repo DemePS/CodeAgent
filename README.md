@@ -74,8 +74,32 @@ question and progress message goes through the UI object, so a web or desktop fr
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
 `edit_excel`, `view_excel`, `format_excel`, `add_chart`, `add_table`, `add_pivot_table`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
-`download_file`, `clone_repo`, `web_search`, `screenshot_page` (`uv sync --extra browser`), `ask_human`,
+`download_file`, `clone_repo`, `web_search`, `screenshot_page`, `web_open`, `web_click`, `web_type`, `web_back`, `web_page`, `web_look`, `web_close` (`uv sync --extra browser`), `ask_human`,
 `load_skill`.
+
+### Browsing the web
+
+`web_search` finds pages; `web_open` reads one in a hidden browser that stays open, and lists its text
+and its links, buttons and fields with numbers. The agent goes through a site with `web_click 3` and
+`web_type 5 "weather paris" submit`, reads long pages with `web_page`, goes back with `web_back`, sees
+the page with `web_look` and ends with `web_close`. It needs Playwright and a browser, like
+`screenshot_page` (`uv sync --extra browser`, then `playwright install chromium`; `coding-agent
+--check-browser` tests it).
+
+What keeps it safe (in the tools, not only in the prompt):
+
+- The first visit to a public site asks you, with the full URL; after that the agent can click and
+  type on that site. Links to other sites are refused until the agent opens them with `web_open`,
+  which asks you. localhost, private addresses and workspace HTML files need no question.
+- It never types into password, sign-in or payment fields; it asks you to do that.
+- A form that sends data (POST), by a button or by pressing Enter, shows what it sends and asks first.
+- Downloads are blocked, metadata addresses are refused, and nothing is kept on disk: cookies and
+  history end with the session (`web_close`, or the program ending).
+- The page text reaches Claude marked as untrusted content, and the tools say that pages cannot give
+  it instructions.
+
+Limits: content inside frames and shadow DOM is not listed, nothing is drawn on a canvas for the text
+view (use `web_look`), and a site that blocks automated browsers will block this one too.
 
 ### Excel: two backends
 
