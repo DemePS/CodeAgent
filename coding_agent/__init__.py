@@ -34,7 +34,7 @@ Tools:
   - format_excel: bold, fills, borders, wrap, widths, number formats, frozen header, filters
   - add_chart, add_table, add_pivot_table : add a chart, an Excel table or a pivot table (pivot
                   tables need Excel) -- shows what will be added and asks first; a backup is kept
-  - run_python_excel : (AGENT_EXCEL_SCRIPTS=on only) a Python script run with Excel on a workbook --
+  - run_python_excel : a Python script run with Excel (xlwings) on a workbook --
                   macros, programs and other files refused before it runs; a backup is kept first
   - copy_path   : copy a file or a folder inside the workspace -- a text file shows a diff, a
                   binary file or folder shows what will be created; asks permission first
