@@ -373,33 +373,64 @@ TOOLS = [
         },
     },
     {
-        "name": "excel_add",
+        "name": "add_chart",
         "description": (
-            "Add to a workbook, from a block of cells with a header row (source): kind 'chart' (chart_type; "
-            "labels from the first column, one series per following column; placed at anchor, default beside "
-            "the data), 'table' (an Excel table: filter buttons, banded rows, grows with new rows) or "
-            "'pivot_table' (groups the rows by the rows/columns headers and totals the values; on a new sheet "
-            "unless target_sheet and anchor are given; needs Excel). Read the sheet with read_excel first to "
-            "know the source range and its headers. Only add what the person asked for. The person approves it "
-            "like any change; a backup is kept. Check the result with view_excel."
+            "Add a chart to a sheet, from a block of cells with a header row (source): labels (or the x values "
+            "of a scatter chart) from its first column, one series per following column. Placed at anchor, "
+            "default beside the data. Read the sheet with read_excel first to know the source range. Only add "
+            "a chart the person asked for. The person approves it like any change; a backup is kept. Check the "
+            "result with view_excel."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Workbook path relative to the current directory."},
-                "kind": {"type": "string", "enum": ["chart", "table", "pivot_table"]},
-                "source": {"type": "string", "description": "The data with its header row, e.g. 'A1:D20'."},
-                "sheet": {"type": "string", "description": "Sheet holding the source; required when the workbook has several sheets."},
+                "source": {"type": "string", "description": "The data with its header row, e.g. 'A1:C13'."},
                 "chart_type": {"type": "string", "enum": ["column", "bar", "line", "pie", "area", "scatter"],
-                               "description": "chart: pie takes exactly two columns (labels, numbers)."},
-                "title": {"type": "string", "description": "chart: its title."},
-                "anchor": {"type": "string", "description": "chart: the cell of its top-left corner. pivot_table: its first cell (default A3)."},
-                "name": {"type": "string", "description": "table / pivot_table: its name, e.g. 'Expenses' (default Table1, Pivot1...)."},
-                "rows": {"type": "array", "items": {"type": "string"}, "description": "pivot_table: header(s) to group by, one row per value."},
-                "columns": {"type": "array", "items": {"type": "string"}, "description": "pivot_table: header(s) spread across columns (optional)."},
+                               "description": "pie takes exactly two columns (labels, numbers)."},
+                "sheet": {"type": "string", "description": "Sheet holding the source; required when the workbook has several sheets."},
+                "title": {"type": "string"},
+                "anchor": {"type": "string", "description": "The cell of the chart's top-left corner, e.g. 'F2'."},
+            },
+            "required": ["path", "source", "chart_type"],
+        },
+    },
+    {
+        "name": "add_table",
+        "description": (
+            "Turn a block of cells with a header row into an Excel table: filter buttons, banded rows, and "
+            "formulas can refer to it by name. Every column needs a distinct header. Only add a table the "
+            "person asked for. The person approves it like any change; a backup is kept."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "source": {"type": "string", "description": "The cells with their header row, e.g. 'A1:D20'."},
+                "sheet": {"type": "string", "description": "Sheet holding the source; required when the workbook has several sheets."},
+                "name": {"type": "string", "description": "The table's name, e.g. 'Expenses' (default Table1, Table2...)."},
+            },
+            "required": ["path", "source"],
+        },
+    },
+    {
+        "name": "add_pivot_table",
+        "description": (
+            "Add a pivot table: Excel groups the rows of a source (cells with a header row) by the rows "
+            "(and columns) headers and totals the values; it can be refreshed when the data changes. On a "
+            "new sheet 'Pivot' unless target_sheet is given. Needs Excel; without it, sum with formulas "
+            "(SUMIFS) instead. Only add one the person asked for. The person approves it like any change; "
+            "a backup is kept. Check the result with view_excel."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Workbook path relative to the current directory."},
+                "source": {"type": "string", "description": "The data with its header row, e.g. 'A1:D200'."},
+                "rows": {"type": "array", "items": {"type": "string"}, "description": "Header(s) to group by, one row per value, e.g. ['Supplier']."},
                 "values": {
                     "type": "array",
-                    "description": "pivot_table: what to total.",
+                    "description": "What to total, e.g. [{'field': 'Amount', 'summary': 'sum'}].",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -409,9 +440,13 @@ TOOLS = [
                         "required": ["field"],
                     },
                 },
-                "target_sheet": {"type": "string", "description": "pivot_table: the sheet to put it on (created if missing; default a new sheet 'Pivot')."},
+                "sheet": {"type": "string", "description": "Sheet holding the source; required when the workbook has several sheets."},
+                "columns": {"type": "array", "items": {"type": "string"}, "description": "Header(s) spread across columns, e.g. ['Month'] (optional)."},
+                "target_sheet": {"type": "string", "description": "Sheet to put it on (created if missing; default a new sheet 'Pivot')."},
+                "anchor": {"type": "string", "description": "Its first cell (default A3); required on an existing sheet."},
+                "name": {"type": "string", "description": "Its name (default Pivot1, Pivot2...)."},
             },
-            "required": ["path", "kind", "source"],
+            "required": ["path", "source", "rows", "values"],
         },
     },
     {

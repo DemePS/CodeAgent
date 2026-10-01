@@ -17,7 +17,7 @@ What is compared, for each backend:
   3. Creating a clean table (the schools list), formatting it (header, widths, wrap, frozen header,
      filters) and viewing it.
   4. Viewing a sheet with a chart.
-  5. excel_add: a chart, an Excel table and a pivot table (Excel only) added to a list of expenses,
+  5. add_chart, add_table, add_pivot_table: a chart, an Excel table and a pivot table (Excel only) added to a list of expenses,
      then the file checked and the sheets viewed.
   6. How long each step takes.
 """
@@ -46,7 +46,7 @@ from openpyxl.worksheet.datavalidation import DataValidation  # noqa: E402
 
 from coding_agent import backups, state  # noqa: E402
 from coding_agent.tools import documents, excel_look, excel_xl  # noqa: E402
-from coding_agent.tools.excel_add import tool_excel_add  # noqa: E402
+from coding_agent.tools.excel_add import tool_add_chart, tool_add_pivot_table, tool_add_table  # noqa: E402
 from coding_agent.ui import UI  # noqa: E402
 
 OUT = Path("excel-backend-comparison")
@@ -221,7 +221,7 @@ def run(backend: str, work: Path, own: list[Path], with_excel: bool) -> dict:
     chart_view = timed(r, "chart: view", lambda: excel_look.tool_view_excel("sample.xlsx", sheet="Data"))
     r["chart: view gives"] = save_view(chart_view, folder / "sample-view")
 
-    # 4. excel_add: a chart, an Excel table and a pivot table on a list of expenses
+    # 4. add_chart, add_table, add_pivot_table: a chart, an Excel table and a pivot table on a list of expenses
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Expenses"
@@ -230,11 +230,11 @@ def run(backend: str, work: Path, own: list[Path], with_excel: bool) -> dict:
                 ["2026-02-02", "Acme", "Feb", 200], ["2026-02-20", "Gamma", "Feb", 45]]:
         ws.append(row)
     wb.save(folder / "expenses.xlsx")
-    timed(r, "add: table", lambda: tool_excel_add("expenses.xlsx", "table", "A1:D5", name="Expenses"))
-    timed(r, "add: chart", lambda: tool_excel_add("expenses.xlsx", "chart", "B1:D5", chart_type="column",
+    timed(r, "add: table", lambda: tool_add_table("expenses.xlsx", "A1:D5", name="Expenses"))
+    timed(r, "add: chart", lambda: tool_add_chart("expenses.xlsx", "B1:D5", chart_type="column",
                                                   title="Spend by supplier", anchor="F2"))
-    pivot = timed(r, "add: pivot table", lambda: tool_excel_add(
-        "expenses.xlsx", "pivot_table", "A1:D5", rows=["Supplier"], columns=["Month"],
+    pivot = timed(r, "add: pivot table", lambda: tool_add_pivot_table(
+        "expenses.xlsx", "A1:D5", rows=["Supplier"], columns=["Month"],
         values=[{"field": "Amount", "summary": "sum"}]))
     if pivot is None and backend == "openpyxl":
         r["add: pivot table"] = "refused (needs Excel) ✅"

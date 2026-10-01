@@ -11,7 +11,7 @@ from ..tools.documents import (
     tool_restore_backup,
     tool_view_image,
 )
-from ..tools.excel_add import tool_excel_add
+from ..tools.excel_add import tool_add_chart, tool_add_pivot_table, tool_add_table
 from ..tools.excel_look import tool_format_excel, tool_view_excel
 from ..tools.files import (
     tool_change_directory,
@@ -43,7 +43,9 @@ TOOL_HANDLERS = {
     "edit_excel": tool_edit_excel,
     "view_excel": tool_view_excel,
     "format_excel": tool_format_excel,
-    "excel_add": tool_excel_add,
+    "add_chart": tool_add_chart,
+    "add_table": tool_add_table,
+    "add_pivot_table": tool_add_pivot_table,
     "restore_backup": tool_restore_backup,
     "copy_path": tool_copy_path,
     "delete_file": tool_delete_file,

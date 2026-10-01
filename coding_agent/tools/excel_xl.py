@@ -270,7 +270,7 @@ def render(p: Path, sheet: str, address: str | None) -> tuple[bytes, str]:
             close_book(book, opened_here)
 
 
-# --- excel_add -----------------------------------------------------------------------------------------
+# --- add_chart, add_table, add_pivot_table -----------------------------------------------------------
 
 XL_CHART_TYPES = {"column": "column_clustered", "bar": "bar_clustered", "line": "line", "pie": "pie",
                   "area": "area", "scatter": "xy_scatter"}

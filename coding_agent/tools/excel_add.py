@@ -1,6 +1,6 @@
-"""excel_add: add a chart, an Excel table or a pivot table to a workbook.
+"""add_chart, add_table, add_pivot_table: add a chart, an Excel table or a pivot table to a workbook.
 
-Each kind takes a fixed set of fields, checked here before anything is shown; the person approves
+Each tool takes a fixed set of fields, checked here before anything is shown; the person approves
 what will be added (like edit_excel and format_excel), a backup is kept, then the workbook is saved:
 - with Excel (xlwings backend), Excel adds the object and saves -- nothing else in the file is touched;
 - with openpyxl, charts and tables are written by openpyxl (the save rewrites the file: the person is
@@ -19,7 +19,6 @@ from .. import backups, state
 from ..common import ToolError, display, is_protected, rel_name
 from .documents import excel_backend, excel_path, load_workbook, lossy_features, save_openpyxl
 
-KINDS = ("chart", "table", "pivot_table")
 CHART_TYPES = ("column", "bar", "line", "pie", "area", "scatter")
 SUMMARIES = ("sum", "count", "average", "min", "max")
 TABLE_STYLE = "TableStyleMedium2"
@@ -31,15 +30,29 @@ NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]{0,254}$")
 CELL_LIKE = re.compile(r"^([A-Za-z]{1,3}[0-9]+|[Rr][0-9]*[Cc][0-9]*|[RrCc])$")
 
 
-def tool_excel_add(path: str, kind: str, source: str, sheet: str | None = None, chart_type: str | None = None,
-                   title: str | None = None, anchor: str | None = None, name: str | None = None,
-                   rows: list | None = None, columns: list | None = None, values: list | None = None,
-                   target_sheet: str | None = None) -> str:
+def tool_add_chart(path: str, source: str, chart_type: str, sheet: str | None = None, title: str | None = None,
+                   anchor: str | None = None) -> str:
+    return add(path, "chart", source, sheet, chart_type=chart_type, title=title, anchor=anchor)
+
+
+def tool_add_table(path: str, source: str, sheet: str | None = None, name: str | None = None) -> str:
+    return add(path, "table", source, sheet, name=name)
+
+
+def tool_add_pivot_table(path: str, source: str, rows: list, values: list, sheet: str | None = None,
+                         columns: list | None = None, target_sheet: str | None = None, anchor: str | None = None,
+                         name: str | None = None) -> str:
+    return add(path, "pivot_table", source, sheet, rows=rows, values=values, columns=columns,
+               target_sheet=target_sheet, anchor=anchor, name=name)
+
+
+def add(path: str, kind: str, source: str, sheet: str | None = None, chart_type: str | None = None,
+        title: str | None = None, anchor: str | None = None, name: str | None = None, rows: list | None = None,
+        columns: list | None = None, values: list | None = None, target_sheet: str | None = None) -> str:
+    """What the three tools share: checks, the person's approval, a backup, then the save."""
     if not state.excel_allow_format:
         raise ToolError("Adding charts or tables is not allowed in this application: write values only, the "
                         "workbook's layout stays as it is.")
-    if kind not in KINDS:
-        raise ToolError(f"kind: one of {', '.join(KINDS)}.")
     p = excel_path(path)
     if is_protected(p):
         raise ToolError(f"{path} is part of the coding agent's own files and cannot be modified.")
