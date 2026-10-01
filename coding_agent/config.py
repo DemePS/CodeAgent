@@ -8,9 +8,13 @@ from functools import lru_cache
 from pathlib import Path
 
 from anthropic import Anthropic, AnthropicFoundry
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
-load_dotenv()  # before reading any configuration below
+# Before reading any configuration below: the environment, then a .env in the folder you run from (or
+# a folder above it), then ~/.coding-agent/.env -- a setting found first wins. usecwd: without it,
+# python-dotenv searches from where this package is installed, not from where you run the agent.
+load_dotenv(find_dotenv(usecwd=True))
+load_dotenv((Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") else Path.home()) / ".coding-agent" / ".env")
 
 
 def uses_anthropic_api() -> bool:
