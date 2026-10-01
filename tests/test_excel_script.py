@@ -194,3 +194,20 @@ def test_the_real_runner_runs_in_the_sandbox(workspace, book, scripts_on, monkey
     assert "rows: 120" in message  # the script ran, with `book`
     assert "Blocked by the coding agent" in message and "was not changed" in message
     assert book.read_bytes() == before
+
+
+@pytest.mark.parametrize("where", ["run folder", "home"])
+def test_switched_on_by_a_dotenv(tmp_path, where):
+    """AGENT_EXCEL_SCRIPTS=on in the .env of the folder the agent runs from, or in ~/.coding-agent/.env,
+    is read when the agent is started as a script (as the coding-agent command is), wherever the
+    package is installed."""
+    run, home = tmp_path / "project", tmp_path / "home"
+    (home / ".coding-agent").mkdir(parents=True)
+    run.mkdir()
+    (run / ".env" if where == "run folder" else home / ".coding-agent" / ".env").write_text("AGENT_EXCEL_SCRIPTS=on\n")
+    start = tmp_path / "start.py"
+    start.write_text("import coding_agent.schemas as s\nprint('run_python_excel' in [t['name'] for t in s.TOOLS])\n")
+    env = {k: v for k, v in __import__("os").environ.items() if k != "AGENT_EXCEL_SCRIPTS"}
+    env.update(HOME=str(home), USERPROFILE=str(home), PYTHONPATH=str(TESTS.parent))
+    out = subprocess.run([sys.executable, str(start)], cwd=run, env=env, capture_output=True, text=True)
+    assert out.stdout.strip() == "True", out.stderr
