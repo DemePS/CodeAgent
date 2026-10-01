@@ -22,6 +22,30 @@ def file_url_path(url_path: str) -> str:
 NAVIGATED = ("Execution context was destroyed", "because of a navigation")
 
 
+def request_allowed(request_url: str, host_ok: dict) -> bool:
+    """Every request a page makes: no metadata addresses, no local files outside the workspace.
+    `host_ok` remembers each host's answer (the check resolves the name)."""
+    from urllib.parse import urlsplit
+
+    u = urlsplit(request_url)
+    if u.scheme == "file":
+        try:
+            resolve(file_url_path(u.path))
+            return True
+        except ToolError:
+            return False
+    if u.scheme in ("http", "https", "ws", "wss"):
+        host = u.hostname or ""
+        if host not in host_ok:
+            try:
+                check_host(host)
+                host_ok[host] = True
+            except ToolError:
+                host_ok[host] = False
+        return host_ok[host]
+    return True  # data:, blob: and the like stay inside the page
+
+
 # No background traffic (updates, sync, safe-browsing lists): only the page's own requests go out,
 # which matters behind a firewall and keeps the browser quiet.
 BROWSER_ARGS = ["--disable-background-networking", "--disable-component-update", "--disable-sync",
@@ -117,24 +141,7 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
     host_ok: dict[str, bool] = {}
 
     def allowed(request_url: str) -> bool:
-        """Every request the page makes: no metadata addresses, no local files outside the workspace."""
-        u = urlsplit(request_url)
-        if u.scheme == "file":
-            try:
-                resolve(file_url_path(u.path))
-                return True
-            except ToolError:
-                return False
-        if u.scheme in ("http", "https", "ws", "wss"):
-            host = u.hostname or ""
-            if host not in host_ok:
-                try:
-                    check_host(host)
-                    host_ok[host] = True
-                except ToolError:
-                    host_ok[host] = False
-            return host_ok[host]
-        return True  # data:, blob: and the like stay inside the page
+        return request_allowed(request_url, host_ok)
 
     state.ui.status(f"[browser] {url} ({width}x{height}{', dark' if dark_mode else ''}"
                     f"{', full page' if full_page else ''}{', ' + selector if selector else ''})")

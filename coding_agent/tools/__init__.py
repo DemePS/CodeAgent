@@ -28,6 +28,15 @@ from ..tools.files import (
 from ..tools.git import tool_git
 from ..tools.interaction import tool_ask_human
 from ..tools.network import tool_clone_repo, tool_download_file
+from ..tools.web import (
+    tool_web_back,
+    tool_web_click,
+    tool_web_close,
+    tool_web_look,
+    tool_web_open,
+    tool_web_page,
+    tool_web_type,
+)
 from ..tools.python_runner import tool_run_python
 
 TOOL_HANDLERS = {
@@ -38,6 +47,13 @@ TOOL_HANDLERS = {
     "edit_file": tool_edit_file,
     "write_file": tool_write_file,
     "screenshot_page": tool_screenshot_page,
+    "web_open": tool_web_open,
+    "web_click": tool_web_click,
+    "web_type": tool_web_type,
+    "web_back": tool_web_back,
+    "web_page": tool_web_page,
+    "web_look": tool_web_look,
+    "web_close": tool_web_close,
     "view_image": tool_view_image,
     "read_pdf": tool_read_pdf,
     "read_excel": tool_read_excel,

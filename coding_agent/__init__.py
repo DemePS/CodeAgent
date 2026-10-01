@@ -21,6 +21,10 @@ Tools:
                   download is blocked. `coding-agent --check-browser` tests it. localhost / private addresses and workspace files
                   open without asking; public sites always ask. AGENT_BROWSER_PATH picks a specific
                   Chromium/Chrome/Edge executable.
+  - web_open, web_click, web_type, web_back, web_page, web_look, web_close : browse a site step by step in a
+                  hidden browser that stays open -- the page's text and its links and fields with numbers; the
+                  user approves each new site and every form that sends data; never passwords or payments
+                  (same Playwright setup as screenshot_page)
   - view_image  : show Claude an image from the workspace (a mockup, a design export, a screenshot)
   - read_pdf    : give Claude a PDF's pages as a document it reads itself -- text, tables, layout and
                   scanned pages -- or just the extracted text for long documents
