@@ -1,6 +1,6 @@
 [project]
 name = "codeagent"
-version = "0.5.1"
+version = "0.6.0"
 description = "A coding and document agent on Claude (Azure / Microsoft Foundry): tools, safety rules, memory and context management, usable from the terminal or as a library"
 readme = "README.md"
 license = "MIT"
