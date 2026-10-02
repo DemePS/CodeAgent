@@ -8,7 +8,7 @@ from .common import ToolError
 from .config import (
     BUNDLED_SKILLS,
     HOME_DIR,
-    MEMORY_MODEL,
+    get_memory_model,
     MEMORY_UPDATES,
     PERSONAL_SKILLS,
 )
@@ -78,7 +78,7 @@ def locations_report(verbose: bool) -> str:
     lines = [f"Memory: {state.memory_dir}" + ("" if MEMORY_UPDATES else "  (updates off: AGENT_MEMORY=off)")]
     notes = sorted(p.name for p in state.memory_dir.glob("*") if p.is_file()) if state.memory_dir.is_dir() else []
     if verbose:
-        lines.append(f"  memory model: {MEMORY_MODEL}")
+        lines.append(f"  memory model: {get_memory_model()}")
         lines.append(f"  home folder used: {HOME_DIR}" + ("  (from $HOME)" if os.environ.get("HOME") else "  (your user folder)"))
         lines.append(f"  memory files: {', '.join(notes) or '(none yet)'}")
         lines.append(f"  saved conversation: {state.conversation_file}" + ("" if state.conversation_file.is_file() else "  (none yet)"))

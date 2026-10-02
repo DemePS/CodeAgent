@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from . import state
-from .config import MAX_TOOL_OUTPUT_CHARS
+from .config import HOME_DIR, MAX_TOOL_OUTPUT_CHARS
 
 
 class ToolError(Exception):
@@ -20,13 +20,50 @@ def resolve(path: str) -> Path:
 
 
 def resolve_readable(path: str) -> Path:
-    """Resolve a path the agent may read: inside the workspace, or inside a read-only folder the
-    person added (state.read_roots). Writing always goes through resolve(), workspace only."""
+    """Resolve a path the agent may read: inside the workspace, inside a read-only folder the person
+    added (state.read_roots), or -- in the terminal agent -- a folder the person agrees to when asked.
+    Writing always goes through resolve(), workspace only."""
     p = (state.cwd / path).resolve()  # an absolute path ignores the current directory
-    if in_workspace(p) or any(p == root or root in p.parents for root in state.read_roots):
+    if in_workspace(p):
         return p
+    if is_sensitive(p):
+        raise ToolError(f"'{path}' holds credentials or the agent's own settings: it is never read.")
+    if any(p == root or root in p.parents for root in state.read_roots):
+        return p
+    if state.ask_read_outside:
+        folder = p if p.is_dir() else p.parent
+        if folder in state.read_denied or not folder.is_dir():
+            raise ToolError(f"Path '{path}' is outside the workspace" + (" (the user did not allow reading it)." if folder in state.read_denied else " and does not exist."))
+        if state.ui.confirm(f"Allow the agent to read (never change) files in {folder}?") == "yes":
+            grant_read_folder(folder)
+            return p
+        state.read_denied.add(folder)
+        raise ToolError(f"The user did not allow reading {folder}. Ask them for the file's content or for another place.")
     where = "the workspace and the read-only folders" if state.read_roots else "the workspace"
     raise ToolError(f"Path '{path}' is outside {where}.")
+
+
+SENSITIVE_DIRS = (".ssh", ".aws", ".azure", ".gnupg", ".kube", ".docker", ".coding-agent", ".config/gcloud")
+SENSITIVE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "credentials", "credentials.json", ".netrc", ".npmrc", ".pypirc")
+
+
+def is_sensitive(p: Path) -> bool:
+    """Keys, tokens and the agent's own settings (its .env, history, memory): never read from outside the project."""
+    home = HOME_DIR
+    if any(p == home / d or home / d in p.parents for d in SENSITIVE_DIRS):
+        return True
+    name = p.name.lower()
+    return name in SENSITIVE_NAMES or name == ".env" or name.startswith(".env.") or p.suffix.lower() in (".pem", ".key", ".pfx", ".kdbx")
+
+
+def grant_read_folder(folder: Path) -> None:
+    """Make a folder readable (never writable) and tell Claude with the next instruction."""
+    if any(folder == root or root in folder.parents for root in state.read_roots):
+        return
+    state.read_roots = [r for r in state.read_roots if folder not in r.parents] + [folder]
+    state.read_roots_note = ("<read_only_folders>You may also read (never write) these folders; use "
+                             "absolute paths:\n" + "\n".join(f"- {r.as_posix()}" for r in state.read_roots)
+                             + "\n</read_only_folders>")
 
 
 def in_workspace(p: Path) -> bool:

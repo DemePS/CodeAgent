@@ -51,6 +51,10 @@ coding-agent --check                      # Claude not answering? test each step
 coding-agent --help
 ```
 
+In the interactive mode, the up arrow at the `You:` prompt recalls earlier questions, also from earlier
+runs (kept in `~/.coding-agent/history`; needs `readline`: Linux, macOS, WSL; the Windows console recalls
+the questions of the running session by itself).
+
 ## Use it as a library
 
 ```python
@@ -64,6 +68,9 @@ ok, message = session.check_connection()   # can Claude be reached?
 session.send("Fill costs.xlsx from invoice.pdf")
 session.close()
 ```
+
+`session.open_project(..., excel_first=True)` (for an application that fills workbooks) refuses `read_pdf`
+until `read_excel` has run, when the instruction mentions a spreadsheet; it is off by default.
 
 `session.stop()` stops the running instruction from another thread (e.g. a Stop button);
 `session.add_read_folder(path)` lets the agent read (never write) another folder. Every approval,
@@ -146,7 +153,7 @@ refused in applications that restrict edits (chosen sheets, protected formulas, 
 
 ## Safety
 
-- It writes only inside the project folder; extra folders you add are read-only.
+- It writes only inside the project folder. Reading elsewhere: in the terminal the agent asks you the first time it wants to read a folder outside the project (`Allow the agent to read (never change) files in ...?`), and remembers the answer for the session; folders given with `--read` need no question. Keys and settings (`~/.ssh`, `~/.aws`, `~/.azure`, `~/.coding-agent`, `.env` files, `*.pem`, `*.key`...) are never read. An application built on the package keeps reading limited to what it was given.
 - Every file or workbook change is shown (a diff, or a cell-by-cell table) and waits for your
   approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/` for 3 days,
   and `restore_backup` puts one back ("undo your changes to costs.xlsx"). Applications can list and

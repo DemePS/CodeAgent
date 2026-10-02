@@ -4,7 +4,7 @@ import os
 import re
 import shutil
 import sys
-from functools import lru_cache
+import threading
 from pathlib import Path
 
 from anthropic import Anthropic, AnthropicFoundry
@@ -17,20 +17,84 @@ load_dotenv(find_dotenv(usecwd=True))
 load_dotenv((Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") else Path.home()) / ".coding-agent" / ".env")
 
 
-def uses_anthropic_api() -> bool:
-    """Anthropic's own API: only when no Foundry endpoint is set and ANTHROPIC_API_KEY is.
+DEFAULT_MODEL = "claude-opus-5"
 
-    A Foundry setup always stays on Foundry, even with an ANTHROPIC_API_KEY set for other tools.
+# What a host application sets while it runs (a Settings screen), see configure(): it wins over the
+# environment. Kept in this process only, never in os.environ, so the programs the agent starts do not
+# inherit the key.
+_lock = threading.RLock()
+_overrides: dict[str, str] = {}
+_clients: dict[tuple, Anthropic] = {}
+
+
+def configure(api_key: str | None = None, model: str | None = None) -> None:
+    """Use this Anthropic API key and / or model from now on, in every later call (None leaves a setting as
+    it is, "" removes it). A key given here selects Anthropic's own API even when a Foundry endpoint is set in
+    the environment: the person typed it, so it wins. The model applies on Anthropic's API only (on Foundry a
+    model is a deployment name)."""
+    with _lock:
+        for name, value in (("api_key", api_key), ("model", model)):
+            if value is None:
+                continue
+            value = value.strip()
+            if value:
+                _overrides[name] = value
+            else:
+                _overrides.pop(name, None)
+
+
+def clear() -> None:
+    """Forget what configure() set, and the clients built so far."""
+    with _lock:
+        _overrides.clear()
+        _clients.clear()
+
+
+def current_api_key() -> str | None:
+    """The Anthropic API key in use: the one given to configure(), else ANTHROPIC_API_KEY."""
+    return _overrides.get("api_key") or os.environ.get("ANTHROPIC_API_KEY") or None
+
+
+def uses_anthropic_api() -> bool:
+    """Anthropic's own API: a key given to configure(), or ANTHROPIC_API_KEY when no Foundry endpoint is set.
+
+    A Foundry setup from the environment stays on Foundry, even with an ANTHROPIC_API_KEY set for other tools.
     """
+    if _overrides.get("api_key"):
+        return True
     return not os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") and bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
-@lru_cache(maxsize=1)
-def _get_client() -> Anthropic:
-    """Anthropic client (ANTHROPIC_API_KEY, no Foundry endpoint), otherwise AnthropicFoundry:
-    API key if ANTHROPIC_FOUNDRY_API_KEY is set, otherwise Azure AD."""
+def active_provider() -> str | None:
+    """"anthropic", "foundry", or None when neither is set up."""
     if uses_anthropic_api():
-        return Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"], max_retries=2)
+        return "anthropic"
+    return "foundry" if os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") else None
+
+
+def key_location() -> str:
+    """Where the key in use comes from, for messages: "the API key saved in Settings" or the variable."""
+    return "the API key saved in Settings" if _overrides.get("api_key") else "the API key (ANTHROPIC_API_KEY)"
+
+
+def model_setting() -> str:
+    return "the model chosen in Settings" if _overrides.get("model") else "ANTHROPIC_MODEL"
+
+
+def make_anthropic_client(api_key: str, **options) -> Anthropic:
+    """A client for this key, outside the cache: to test a key before it is saved."""
+    return Anthropic(api_key=api_key, **{"max_retries": 2, **options})
+
+
+def _client_key() -> tuple:
+    if uses_anthropic_api():
+        return ("anthropic", current_api_key())
+    return ("foundry", os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT"), os.environ.get("ANTHROPIC_FOUNDRY_API_KEY"))
+
+
+def _build_client() -> Anthropic:
+    if uses_anthropic_api():
+        return make_anthropic_client(current_api_key())
     api_key = os.environ.get("ANTHROPIC_FOUNDRY_API_KEY")
     if api_key:
         return AnthropicFoundry(
@@ -51,8 +115,51 @@ def _get_client() -> Anthropic:
     )
 
 
-# On Foundry this is your *deployment name*; on Anthropic's API, a model ID (ANTHROPIC_MODEL).
-MODEL = (os.environ.get("ANTHROPIC_MODEL") if uses_anthropic_api() else os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT")) or "claude-opus-5"
+def _get_client() -> Anthropic:
+    """The Claude client for the current settings: Anthropic's API (a key from configure() or ANTHROPIC_API_KEY,
+    no Foundry endpoint unless configure() gave the key), otherwise AnthropicFoundry: API key if
+    ANTHROPIC_FOUNDRY_API_KEY is set, otherwise Azure AD. Built once per distinct setting and reused; a new key or
+    endpoint gets a new client."""
+    with _lock:
+        key = _client_key()
+        client = _clients.get(key)
+        if client is None:
+            client = _build_client()
+            _clients.clear()
+            _clients[key] = client
+        return client
+
+
+_get_client.cache_clear = _clients.clear  # callers that want a fresh client (tests)
+
+
+# On Foundry this is your *deployment name*; on Anthropic's API, a model ID (configure(), else ANTHROPIC_MODEL).
+# Read when needed, never copied at import: configure() can change it while the program runs.
+def get_model() -> str:
+    if uses_anthropic_api():
+        return _overrides.get("model") or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
+    return os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT") or DEFAULT_MODEL
+
+
+def get_memory_model() -> str:
+    return os.environ.get("AGENT_MEMORY_MODEL") or get_model()
+
+
+def get_compact_model() -> str:
+    return os.environ.get("AGENT_COMPACT_MODEL") or get_model()
+
+
+_OLD_NAMES = {"MODEL": get_model, "MEMORY_MODEL": get_memory_model, "COMPACT_MODEL": get_compact_model}
+
+
+def __getattr__(name: str):
+    """The old constants, for programs that read config.MODEL: read when accessed. (`from coding_agent.config
+    import MODEL` still copies the value once: use get_model().)"""
+    if name in _OLD_NAMES:
+        return _OLD_NAMES[name]()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 MAX_TOKENS = 64000  # safe with streaming (no HTTP timeout risk)
 MAX_TOOL_OUTPUT_CHARS = 50_000
 RUN_TIMEOUT_SECONDS = 120
@@ -112,7 +219,6 @@ OWN_FILES = [PACKAGE_DIR, PACKAGE_DIR.parent / "agent.py"]  # the package and it
 
 # Memory is updated in the background by a separate model call after each instruction.
 MEMORY_UPDATES = (os.environ.get("AGENT_MEMORY") or "on").strip().lower() not in ("off", "0", "false", "no")
-MEMORY_MODEL = os.environ.get("AGENT_MEMORY_MODEL") or MODEL
 MEMORY_MAX_CHARS = 12_000  # the curator keeps notes.md under this size
 MEMORY_EXIT_WAIT_SECONDS = 60
 
@@ -121,7 +227,6 @@ DEFAULT_CONTEXT_WINDOW = int(os.environ.get("AGENT_CONTEXT_WINDOW") or 200_000) 
 CLEAR_AT = 0.50    # above this share of the window, old tool outputs are cleared
 COMPACT_AT = 0.70  # above this share, the earlier conversation is replaced by a summary
 KEEP_RECENT_RESULTS = 4  # tool-result messages that are never cleared (the latest ones)
-COMPACT_MODEL = os.environ.get("AGENT_COMPACT_MODEL") or MODEL
 CHARS_PER_TOKEN = 3.5  # rough, for estimating what was added since the last API call
 CLEARED_NOTE = "[output cleared to save context -- call the tool again if you need it]"
 

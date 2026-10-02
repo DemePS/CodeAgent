@@ -18,16 +18,16 @@ def env(monkeypatch):
     for name in ("ANTHROPIC_FOUNDRY_ENDPOINT", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_DEPLOYMENT",
                  "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"):
         monkeypatch.delenv(name, raising=False)
-    config._get_client.cache_clear()
+    config.clear()
     yield monkeypatch
-    config._get_client.cache_clear()
+    config.clear()
 
 
 def model_with(**settings) -> str:
     """MODEL as a fresh process reads it at import (empty values count as unset, and block any .env)."""
     names = ("ANTHROPIC_FOUNDRY_ENDPOINT", "ANTHROPIC_FOUNDRY_DEPLOYMENT", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL")
     environment = {**os.environ, **{name: settings.get(name, "") for name in names}}
-    return subprocess.run([sys.executable, "-c", "from coding_agent.config import MODEL; print(MODEL)"],
+    return subprocess.run([sys.executable, "-c", "from coding_agent.config import get_model; print(get_model())"],
                           env=environment, capture_output=True, text=True, check=True).stdout.strip()
 
 

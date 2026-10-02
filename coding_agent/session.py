@@ -18,7 +18,8 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from . import state
-from .config import MEMORY_HOME, MODEL, _get_client
+from .common import grant_read_folder
+from .config import MEMORY_HOME, _get_client, get_model
 from .conversation import load_conversation
 from .loop import send as _send
 from .loop import set_auto_mode
@@ -35,7 +36,8 @@ def project_id(workspace: Path) -> str:
 
 
 def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
-                 system_prompt: str | None = None, resume: bool = False, auto: bool = False) -> Path:
+                 system_prompt: str | None = None, resume: bool = False, auto: bool = False,
+                 excel_first: bool = False) -> Path:
     """Point the agent at a project folder. Returns the resolved workspace path."""
     workspace = Path(path).expanduser().resolve()
     if not workspace.is_dir():
@@ -45,6 +47,7 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
     state.reset_conversation()
     state.tool_names = set(tools) if tools is not None else None
     state.system_prompt = system_prompt
+    state.excel_first = excel_first
     state.skills = discover_skills()
     messages[:] = load_conversation() if resume else []
     if auto:
@@ -58,13 +61,8 @@ def add_read_folder(path: str | Path) -> Path:
     folder = Path(path).expanduser().resolve()
     if not folder.is_dir():
         raise NotADirectoryError(f"Not a directory: {folder}")
-    inside = folder == state.workspace or state.workspace in folder.parents or any(
-        folder == root or root in folder.parents for root in state.read_roots)
-    if not inside:
-        state.read_roots = [r for r in state.read_roots if folder not in r.parents] + [folder]
-        state.read_roots_note = ("<read_only_folders>You may also read (never write) these folders; use "
-                                 "absolute paths:\n" + "\n".join(f"- {r.as_posix()}" for r in state.read_roots)
-                                 + "\n</read_only_folders>")
+    if not (folder == state.workspace or state.workspace in folder.parents):
+        grant_read_folder(folder)
     return folder
 
 
@@ -77,7 +75,7 @@ def check_connection() -> tuple[bool, str]:
     """A tiny call to Claude: (True, summary) if it answers, else (False, why in plain words)."""
     from .errors import connection_summary, describe
     try:
-        _get_client().messages.create(model=MODEL, max_tokens=1, messages=[{"role": "user", "content": "ping"}])
+        _get_client().messages.create(model=get_model(), max_tokens=1, messages=[{"role": "user", "content": "ping"}])
         return True, connection_summary()
     except Exception as e:
         explanation = describe(e)

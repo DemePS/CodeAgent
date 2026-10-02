@@ -10,7 +10,7 @@ import os
 import time
 
 from . import state
-from .config import MODEL, _get_client
+from .config import _get_client, get_model, uses_anthropic_api
 from .errors import connection_summary, describe
 
 TIME_LIMIT_SECONDS = 90
@@ -21,7 +21,7 @@ def _explain(error: BaseException) -> str:
 
 
 def _sign_in() -> None:
-    if os.environ.get("ANTHROPIC_FOUNDRY_API_KEY"):
+    if uses_anthropic_api() or os.environ.get("ANTHROPIC_FOUNDRY_API_KEY"):
         return
     from .signin import SignIn
     SignIn().get_token(os.environ.get("TOKEN_SCOPE", "https://ai.azure.com/.default"))
@@ -33,11 +33,11 @@ def steps():
     hello = [{"role": "user", "content": "Say hello in three words."}]
 
     def plain():
-        client.messages.create(model=MODEL, max_tokens=50, messages=hello)
+        client.messages.create(model=get_model(), max_tokens=50, messages=hello)
 
     def streamed(**extra):
         def call():
-            with client.messages.stream(model=MODEL, max_tokens=2000, messages=hello, **extra) as stream:
+            with client.messages.stream(model=get_model(), max_tokens=2000, messages=hello, **extra) as stream:
                 stream.get_final_message()
         return call
 

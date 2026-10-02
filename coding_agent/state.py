@@ -25,6 +25,10 @@ conversation_file: Path | None = None  # the saved history, used by --resume
 skills: dict[str, Path] = {}  # skill name -> its SKILL.md
 read_roots: list[Path] = []  # extra folders the agent may read but never write (added by the person)
 read_roots_note: str | None = None  # tells Claude about newly added read-only folders
+# The terminal agent asks the person before it reads a folder outside the project (and remembers the
+# answer); an application built on the package leaves this off: it only reads what it was given.
+ask_read_outside = False
+read_denied: set[Path] = set()  # folders the person refused this session: not asked again
 
 # What this session exposes to Claude. None means everything (the coding agent); an application
 # built on the package (e.g. an Excel filler) narrows the tools and brings its own instructions.
@@ -41,6 +45,9 @@ excel_protect_formulas: bool = False
 # False: format_excel, add_chart, add_table and add_pivot_table are refused (for an application that fills existing workbooks,
 # whose layout must never change).
 excel_allow_format: bool = True
+# An application that fills workbooks from documents can require read_excel before read_pdf when the
+# instruction mentions a spreadsheet (session.open_project(excel_first=True)). Off for the coding agent.
+excel_first = False
 system_prompt: str | None = None  # replaces the coding agent's system prompt ({workspace} is filled in)
 
 
@@ -78,6 +85,7 @@ def set_workspace(path: Path, project_id: str, memory_home: Path) -> None:
     global workspace, cwd, memory_dir, conversation_file, protected_paths, read_roots, read_roots_note
     workspace = cwd = path
     read_roots, read_roots_note = [], None
+    read_denied.clear()
     memory_dir = memory_home / project_id / "memories"
     conversation_file = memory_home / project_id / "conversation.json"
     protected_paths = [*OWN_FILES, path / ".agent" / "skills"]

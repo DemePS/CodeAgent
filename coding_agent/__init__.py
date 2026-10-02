@@ -141,3 +141,12 @@ from .certificates import use_system_certificates as _use_system_certificates
 
 _use_system_certificates()  # HTTPS behind a company proxy: trust what the operating system trusts
 
+
+
+def __getattr__(name: str):
+    """configure, active_provider and make_anthropic_client (runtime settings for a host application),
+    loaded on first use so that importing the package does not read the configuration."""
+    if name in ("configure", "active_provider", "make_anthropic_client"):
+        from . import config
+        return getattr(config, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

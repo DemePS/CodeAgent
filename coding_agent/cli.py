@@ -6,7 +6,7 @@ from pathlib import Path
 
 import anthropic
 
-from . import session, state
+from . import history, session, state
 from .config import CLEAR_AT, COMPACT_AT, UV, WEB_SEARCH, _get_client
 from .errors import connection_summary
 from .context import compact_between_instructions, context_status, reset_usage
@@ -71,6 +71,7 @@ def main() -> None:
         print(f"Workspace: {workspace}")
         print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
         session.open_project(workspace, ui=TerminalUI(), resume=args.resume, auto=args.auto)
+        state.ask_read_outside = True  # reading outside the project: asks first, once per folder
         for folder in args.read:  # read-only folders, e.g. documents kept elsewhere
             print(f"Read-only: {session.add_read_folder(folder)}")
     except NotADirectoryError as e:
@@ -96,12 +97,15 @@ def interact(client: anthropic.Anthropic, messages: list, args: argparse.Namespa
     print("Interactive mode. Type 'exit' to quit. Multi-line pastes are sent as one message (or wrap "
           "text in \"\"\" lines).\nCommands: /auto (toggle autonomous mode), /mode, /skills (re-scan "
           "skills), /context, /compact, /clear.")
+    history.enable()  # up arrow recalls earlier questions
     while True:
         print_memory_status()
         try:
-            user_input = read_text("\n\033[1mYou:\033[0m ").strip()
+            print()
+            user_input = read_text(history.prompt("\033[1mYou:\033[0m ")).strip()
         except (EOFError, KeyboardInterrupt):
             break
+        history.remember(user_input)
         if user_input.lower() in ("exit", "quit"):
             break
         if user_input.lower() == "/auto":
