@@ -18,6 +18,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from . import state
+from .common import grant_read_folder
 from .config import MEMORY_HOME, _get_client, get_model
 from .conversation import load_conversation
 from .loop import send as _send
@@ -58,13 +59,8 @@ def add_read_folder(path: str | Path) -> Path:
     folder = Path(path).expanduser().resolve()
     if not folder.is_dir():
         raise NotADirectoryError(f"Not a directory: {folder}")
-    inside = folder == state.workspace or state.workspace in folder.parents or any(
-        folder == root or root in folder.parents for root in state.read_roots)
-    if not inside:
-        state.read_roots = [r for r in state.read_roots if folder not in r.parents] + [folder]
-        state.read_roots_note = ("<read_only_folders>You may also read (never write) these folders; use "
-                                 "absolute paths:\n" + "\n".join(f"- {r.as_posix()}" for r in state.read_roots)
-                                 + "\n</read_only_folders>")
+    if not (folder == state.workspace or state.workspace in folder.parents):
+        grant_read_folder(folder)
     return folder
 
 

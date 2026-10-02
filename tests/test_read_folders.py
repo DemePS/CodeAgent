@@ -66,3 +66,53 @@ def test_claude_is_told_and_a_new_project_starts_without_them(workspace, shared,
     other.mkdir()
     state.set_workspace(other.resolve(), "other", tmp_path / "mem")
     assert state.read_roots == [] and state.read_roots_note is None
+
+
+# --- the terminal agent asks before reading elsewhere
+
+def questions(ui):
+    return [e[1] for e in ui.events if e[0] == "confirm"]
+
+
+@pytest.fixture
+def asking(monkeypatch):
+    monkeypatch.setattr(state, "ask_read_outside", True)
+
+
+def test_asks_once_per_folder_and_remembers(workspace, shared, ui, asking):
+    ui.answers = ["yes"]
+    assert "642.00" in files.tool_read_file(str(shared / "notes.txt"))
+    assert "more.txt" in files.tool_list_directory(str(shared / "sub"))  # no second question
+    assert state.read_roots == [shared] and "read" in questions(ui)[0].lower()
+    assert len(questions(ui)) == 1
+
+
+def test_refusal_is_remembered_and_nothing_is_read(workspace, shared, ui, asking):
+    ui.answers = ["no"]
+    with pytest.raises(ToolError, match="did not allow"):
+        files.tool_read_file(str(shared / "notes.txt"))
+    with pytest.raises(ToolError, match="did not allow"):
+        files.tool_read_file(str(shared / "notes.txt"))
+    assert len(questions(ui)) == 1 and state.read_roots == []
+
+
+def test_writing_outside_is_still_refused(workspace, shared, ui, asking):
+    ui.answers = ["yes", "yes", "yes"]
+    files.tool_read_file(str(shared / "notes.txt"))
+    with pytest.raises(ToolError, match="outside the workspace"):
+        files.tool_write_file(str(shared / "evil.txt"), "x")
+
+
+def test_credentials_are_never_read_even_when_allowed(workspace, tmp_path, monkeypatch, ui, asking):
+    from coding_agent import common
+    home = tmp_path / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "id_rsa").write_text("PRIVATE")
+    (home / "project.env").write_text("x")
+    (home / ".env").write_text("KEY=1")
+    monkeypatch.setattr(common, "HOME_DIR", home.resolve())
+    ui.answers = ["yes"] * 4
+    for secret in (home / ".ssh" / "id_rsa", home / ".env"):
+        with pytest.raises(ToolError, match="never read"):
+            files.tool_read_file(str(secret))
+    assert questions(ui) == []

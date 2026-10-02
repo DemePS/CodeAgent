@@ -150,7 +150,7 @@ refused in applications that restrict edits (chosen sheets, protected formulas, 
 
 ## Safety
 
-- It writes only inside the project folder; extra folders you add are read-only.
+- It writes only inside the project folder. Reading elsewhere: in the terminal the agent asks you the first time it wants to read a folder outside the project (`Allow the agent to read (never change) files in ...?`), and remembers the answer for the session; folders given with `--read` need no question. Keys and settings (`~/.ssh`, `~/.aws`, `~/.azure`, `~/.coding-agent`, `.env` files, `*.pem`, `*.key`...) are never read. An application built on the package keeps reading limited to what it was given.
 - Every file or workbook change is shown (a diff, or a cell-by-cell table) and waits for your
   approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/` for 3 days,
   and `restore_backup` puts one back ("undo your changes to costs.xlsx"). Applications can list and

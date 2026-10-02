@@ -71,6 +71,7 @@ def main() -> None:
         print(f"Workspace: {workspace}")
         print(f"Python runner: {'uv run (' + UV + ')' if UV else sys.executable + ' (uv not found)'}")
         session.open_project(workspace, ui=TerminalUI(), resume=args.resume, auto=args.auto)
+        state.ask_read_outside = True  # reading outside the project: asks first, once per folder
         for folder in args.read:  # read-only folders, e.g. documents kept elsewhere
             print(f"Read-only: {session.add_read_folder(folder)}")
     except NotADirectoryError as e:
