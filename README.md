@@ -51,6 +51,10 @@ coding-agent --check                      # Claude not answering? test each step
 coding-agent --help
 ```
 
+In the interactive mode, the up arrow at the `You:` prompt recalls earlier questions, also from earlier
+runs (kept in `~/.coding-agent/history`; needs `readline`: Linux, macOS, WSL; the Windows console recalls
+the questions of the running session by itself).
+
 ## Use it as a library
 
 ```python
