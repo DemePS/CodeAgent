@@ -18,7 +18,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from . import state
-from .config import MEMORY_HOME, MODEL, _get_client
+from .config import MEMORY_HOME, _get_client, get_model
 from .conversation import load_conversation
 from .loop import send as _send
 from .loop import set_auto_mode
@@ -77,7 +77,7 @@ def check_connection() -> tuple[bool, str]:
     """A tiny call to Claude: (True, summary) if it answers, else (False, why in plain words)."""
     from .errors import connection_summary, describe
     try:
-        _get_client().messages.create(model=MODEL, max_tokens=1, messages=[{"role": "user", "content": "ping"}])
+        _get_client().messages.create(model=get_model(), max_tokens=1, messages=[{"role": "user", "content": "ping"}])
         return True, connection_summary()
     except Exception as e:
         explanation = describe(e)

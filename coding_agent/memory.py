@@ -13,7 +13,7 @@ from .common import truncate
 from .config import (
     MEMORY_EXIT_WAIT_SECONDS,
     MEMORY_MAX_CHARS,
-    MEMORY_MODEL,
+    get_memory_model,
     MEMORY_UPDATES,
 )
 
@@ -58,7 +58,7 @@ that changed, and stay under {MEMORY_MAX_CHARS} characters.
 If nothing durable was learned, answer exactly NO_CHANGE. Otherwise answer with the complete
 updated notes inside <notes>...</notes> and nothing else."""
 
-_memory_queue: "queue.Queue[str | None]" = queue.Queue()
+_memory_queue: "queue.Queue[tuple | None]" = queue.Queue()
 _memory_status: list[str] = []  # messages from the worker, printed before the next prompt
 _memory_status_lock = threading.Lock()
 _memory_thread: threading.Thread | None = None
@@ -135,7 +135,7 @@ def update_memory(client: anthropic.Anthropic, digest: str) -> str:
     notes_file = state.memory_dir / "notes.md"
     current = notes_file.read_text(encoding="utf-8") if notes_file.is_file() else ""
     response = client.messages.create(
-        model=MEMORY_MODEL,
+        model=get_memory_model(),
         max_tokens=8000,
         system=MEMORY_CURATOR_PROMPT,
         messages=[{"role": "user", "content":
@@ -164,12 +164,13 @@ def update_memory(client: anthropic.Anthropic, digest: str) -> str:
     return f"notes updated (+{added}/-{removed} lines): {notes_file}"
 
 
-def _memory_worker(client: anthropic.Anthropic) -> None:
+def _memory_worker() -> None:
     while True:
-        digest = _memory_queue.get()
+        item = _memory_queue.get()
         try:
-            if digest is None:
+            if item is None:
                 return
+            client, digest = item  # the client of the moment the turn finished: a key changed since is respected
             status = update_memory(client, digest)
             if status:
                 _memory_report(status)
@@ -185,9 +186,9 @@ def queue_memory_update(client: anthropic.Anthropic, new_messages: list) -> None
     if not MEMORY_UPDATES:
         return
     if _memory_thread is None:
-        _memory_thread = threading.Thread(target=_memory_worker, args=(client,), name="memory", daemon=True)
+        _memory_thread = threading.Thread(target=_memory_worker, name="memory", daemon=True)
         _memory_thread.start()
-    _memory_queue.put(turn_digest(new_messages))
+    _memory_queue.put((client, turn_digest(new_messages)))
 
 
 def finish_memory_updates() -> None:

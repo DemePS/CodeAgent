@@ -6,7 +6,7 @@ import threading
 import anthropic
 
 from . import state
-from .config import MAX_STEPS, MAX_TOKENS, MODEL
+from .config import MAX_STEPS, MAX_TOKENS, get_model
 from .context import (
     clear_old_tool_results,
     compact,
@@ -97,7 +97,7 @@ def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: 
     ui = state.ui
     with client.messages.stream(
         cache_control={"type": "ephemeral"},  # cache the growing prefix: each loop step re-reads it cheaply
-        model=MODEL,
+        model=get_model(),
         max_tokens=max_tokens,
         system=(state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace),
         tools=active_tools(),

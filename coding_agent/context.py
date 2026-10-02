@@ -11,7 +11,7 @@ from .config import (
     CLEAR_AT,
     CLEARED_NOTE,
     COMPACT_AT,
-    COMPACT_MODEL,
+    get_compact_model,
     IMAGE_TOKENS,
     KEEP_RECENT_RESULTS,
     PDF_PAGE_TOKENS,
@@ -122,7 +122,7 @@ def summarize_history(client: anthropic.Anthropic, head: list) -> str:
     else:
         transcript = "[the earliest part of the conversation was omitted]\n" + transcript[-budget:]
     response = client.messages.create(
-        model=COMPACT_MODEL,
+        model=get_compact_model(),
         max_tokens=8000,
         system=COMPACT_PROMPT,
         messages=[{"role": "user", "content": f"<transcript>\n{transcript}\n</transcript>"}],
