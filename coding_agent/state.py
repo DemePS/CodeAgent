@@ -41,6 +41,9 @@ excel_protect_formulas: bool = False
 # False: format_excel is refused (for an application that fills existing workbooks, whose layout must
 # never change).
 excel_allow_format: bool = True
+# An application that fills workbooks from documents can require read_excel before read_pdf when the
+# instruction mentions a spreadsheet (session.open_project(excel_first=True)). Off for the coding agent.
+excel_first = False
 system_prompt: str | None = None  # replaces the coding agent's system prompt ({workspace} is filled in)
 
 

@@ -68,6 +68,9 @@ session.send("Fill costs.xlsx from invoice.pdf")
 session.close()
 ```
 
+`session.open_project(..., excel_first=True)` (for an application that fills workbooks) refuses `read_pdf`
+until `read_excel` has run, when the instruction mentions a spreadsheet; it is off by default.
+
 `session.stop()` stops the running instruction from another thread (e.g. a Stop button);
 `session.add_read_folder(path)` lets the agent read (never write) another folder. Every approval,
 question and progress message goes through the UI object, so a web or desktop front end can show them.
