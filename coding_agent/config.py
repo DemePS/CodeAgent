@@ -209,6 +209,9 @@ FILE_REF = re.compile(r"((?:[A-Za-z]:[\\/])?[\w.\-/\\]+\.[A-Za-z0-9]+):(\d+)")
 WEB_SEARCH = (os.environ.get("AGENT_WEB_SEARCH") or "20250305").strip().lower()
 if WEB_SEARCH not in ("20250305", "20260209", "off"):
     raise SystemExit(f"AGENT_WEB_SEARCH must be 20250305, 20260209 or off (got {WEB_SEARCH!r})")
+# "off": the browsing tools open any public site without asking first (for unattended runs). A form that
+# sends data, and passwords or payment fields, still ask; local and metadata addresses stay blocked.
+WEB_APPROVE = (os.environ.get("AGENT_WEB_APPROVE") or "on").strip().lower() not in ("off", "0", "false", "no")
 WEB_SEARCH_MAX_USES = 5  # searches allowed per model response
 
 MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "100"))  # model calls per instruction

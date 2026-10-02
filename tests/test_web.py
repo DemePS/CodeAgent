@@ -246,6 +246,29 @@ def test_a_page_that_sends_you_to_another_site_stays_put(site, ui, public):
     assert "Not opened: http://127.0.0.3" in out         # and the listing says so too
 
 
+def test_answering_all_sites_stops_the_questions_for_the_session(site, ui, public, monkeypatch):
+    monkeypatch.setattr(web._B, "all_sites", False)
+    ui.answers = ["all sites for this session"]
+    web.tool_web_open(f"http://127.0.0.2:{site[1]}/")
+    assert web.ALL_SITES in ui.of("confirm")[-1][2]                              # offered as a third answer
+    asked = len(ui.of("confirm"))
+    assert "Page: 'About'" in web.tool_web_open(f"http://127.0.0.3:{site[1]}/about")
+    assert len(ui.of("confirm")) == asked                                       # no question for the other site
+    web.tool_web_close()
+    assert "Page: 'Home'" in web.tool_web_open(f"http://127.0.0.2:{site[1]}/")  # still allowed after a close
+    assert len(ui.of("confirm")) == asked
+
+
+def test_approve_off_opens_public_sites_without_asking(site, ui, public, monkeypatch):
+    monkeypatch.setattr(web, "WEB_APPROVE", False)
+    monkeypatch.setattr(web._B, "all_sites", False)
+    out = web.tool_web_open(f"http://127.0.0.2:{site[1]}/")                     # no answers scripted: a question would refuse
+    assert "Page: 'Home'" in out and ui.of("confirm") == []
+    assert "Page: 'About'" in web.tool_web_open(f"http://127.0.0.3:{site[1]}/about")
+    with pytest.raises(ToolError, match="link-local"):
+        web.tool_web_open("http://169.254.169.254/latest/meta-data/")           # metadata addresses stay refused
+
+
 def test_closing_forgets_the_approved_sites(site, ui, public):
     url = f"http://127.0.0.2:{site[1]}/"
     ui.answers = ["yes"]

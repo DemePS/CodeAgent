@@ -95,8 +95,9 @@ the page with `web_look` and ends with `web_close`. It needs Playwright and a br
 
 What keeps it safe (in the tools, not only in the prompt):
 
-- The first visit to a public site asks you, with the full URL; after that the agent can click and
-  type on that site. Links to other sites are refused until the agent opens them with `web_open`,
+- The first visit to a public site asks you, with the full URL (`[a]ll sites for this session` stops the
+  questions until the session ends; `AGENT_WEB_APPROVE=off` never asks, for unattended runs); after that
+  the agent can click and type on that site. Links to other sites are refused until the agent opens them with `web_open`,
   which asks you. localhost, private addresses and workspace HTML files need no question.
 - It never types into password, sign-in or payment fields; it asks you to do that.
 - A form that sends data (POST), by a button or by pressing Enter, shows what it sends and asks first.

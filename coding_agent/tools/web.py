@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 
 from .. import state
 from ..common import ToolError, resolve, truncate
-from ..config import MAX_IMAGE_BYTES, WEB_MAX_CONTROLS, WEB_PAGE_CHARS
+from ..config import MAX_IMAGE_BYTES, WEB_APPROVE, WEB_MAX_CONTROLS, WEB_PAGE_CHARS
 from .browser import NAVIGATED, file_url_path, launch_browser, request_allowed
 from .documents import image_block
 from .network import check_host, confirm_network
@@ -83,7 +83,12 @@ SENSITIVE = re.compile(r"\b(pass(word|wd|code)?|pwd|cvv|cvc|card ?(number|no)|ib
 TEXT_TYPES = {"", "text", "search", "email", "url", "tel", "number", "date", "datetime-local", "month", "week", "time"}
 
 
+ALL_SITES = "all sites for this session"
+
+
 def _approved(host: str, approved: set) -> bool:
+    if not WEB_APPROVE or _B.all_sites:  # AGENT_WEB_APPROVE=off, or the person answered "all sites"
+        return True
     return any(host == a or host.endswith("." + a) or a.endswith("." + host) for a in approved)   # www.x.com and x.com are one site
 
 
@@ -94,6 +99,7 @@ class _Browser:
         self._tasks: queue.Queue = queue.Queue()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self.all_sites = False  # the person allowed every public site for this session (kept when the browser closes)
         self._reset()
 
     def _reset(self):
@@ -354,10 +360,13 @@ def _target(url: str) -> str:
         host = parts.hostname or ""
         note = check_host(host)
         if not note and not _approved(host, _B.approved):    # a public site: the user decides, once per site
-            confirm_network("Browse a web site", [
+            answer = confirm_network("Browse a web site", [
                 f"url: {url}",
                 f"the agent opens it in a hidden browser, reads it, and can click links and fill in forms on {host}",
-                "never passwords or payment details; it asks you before it sends a form"])
+                "never passwords or payment details; it asks you before it sends a form",
+                f"answer 'a' to let it open any public site for the rest of this session"], ("yes", "no", ALL_SITES))
+            if answer == ALL_SITES:
+                _B.all_sites = True
         _B.approved.add(host)
         return url
     if parts.scheme in ("", "file"):
