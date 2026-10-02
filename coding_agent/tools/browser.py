@@ -52,8 +52,8 @@ BROWSER_ARGS = ["--disable-background-networking", "--disable-component-update",
                 "--no-first-run", "--no-default-browser-check", "--disable-domain-reliability"]
 
 
-def launch_browser(pw):
-    """Start a headless browser, trying each option in turn. Returns (browser, label).
+def launch_browser(pw, headless: bool = True):
+    """Start a headless browser (a visible window when headless is False), trying each option in turn. Returns (browser, label).
 
     Order: AGENT_BROWSER_PATH, Playwright's own Chromium (`playwright install chromium`), then
     the Microsoft Edge or Google Chrome already installed on the machine -- so screenshots work
@@ -70,7 +70,7 @@ def launch_browser(pw):
     errors = []
     for label, options in attempts:
         try:
-            return pw.chromium.launch(headless=True, args=BROWSER_ARGS, **options), label
+            return pw.chromium.launch(headless=headless, args=BROWSER_ARGS, **options), label
         except PlaywrightError as e:
             first = next((line.strip() for line in str(e).splitlines() if line.strip()), "failed")
             errors.append(f"{label}: {first[:300]}")
