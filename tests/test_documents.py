@@ -58,10 +58,23 @@ def test_pdf_text_and_page_subset(invoice):
 
 
 def test_spreadsheet_first_rule(invoice, workbook, monkeypatch):
+    monkeypatch.setattr(state, "excel_first", True)
     monkeypatch.setattr(state, "turn", {"instruction": "Fill costs.xlsx from invoice.pdf", "excel_read": False})
     with pytest.raises(ToolError, match="read_excel first"):
         documents.tool_read_pdf("invoice.pdf", mode="text")
     assert "D2==B2*C2" in documents.tool_read_excel("costs.xlsx")
+    assert "642.00" in documents.tool_read_pdf("invoice.pdf", mode="text")
+
+
+def test_no_spreadsheet_rule_by_default(invoice, workbook, monkeypatch):
+    monkeypatch.setattr(state, "turn", {"instruction": "Summarize invoice.pdf for my Excel report", "excel_read": False})
+    assert "642.00" in documents.tool_read_pdf("invoice.pdf", mode="text")
+
+
+def test_spreadsheet_rule_needs_read_excel_among_the_tools(invoice, workbook, monkeypatch):
+    monkeypatch.setattr(state, "excel_first", True)
+    monkeypatch.setattr(state, "tool_names", {"read_pdf"})
+    monkeypatch.setattr(state, "turn", {"instruction": "Fill costs.xlsx from invoice.pdf", "excel_read": False})
     assert "642.00" in documents.tool_read_pdf("invoice.pdf", mode="text")
 
 
