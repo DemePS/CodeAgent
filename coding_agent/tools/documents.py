@@ -60,8 +60,9 @@ SPREADSHEET_WORDS = re.compile(r"\.xls[xm]?\b|excel|spreadsheet|workbook|tableur
 
 
 def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> list | str:
-    # Spreadsheet first: know which fields are needed before reading documents.
-    if SPREADSHEET_WORDS.search(state.turn["instruction"]) and not state.turn["excel_read"]:
+    # Only when the application asked for it (open_project(excel_first=True)) and can read workbooks.
+    if (state.excel_first and state.tool_enabled("read_excel") and SPREADSHEET_WORDS.search(state.turn["instruction"])
+            and not state.turn["excel_read"]):
         raise ToolError("This task involves a spreadsheet: open it with read_excel first, work out which "
                         "cells/fields must be filled (headers, units, formats, formula cells), list them, and "
                         "only then read the PDF pages that contain those fields.")

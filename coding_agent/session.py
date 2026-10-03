@@ -35,7 +35,8 @@ def project_id(workspace: Path) -> str:
 
 
 def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
-                 system_prompt: str | None = None, resume: bool = False, auto: bool = False) -> Path:
+                 system_prompt: str | None = None, resume: bool = False, auto: bool = False,
+                 excel_first: bool = False) -> Path:
     """Point the agent at a project folder. Returns the resolved workspace path."""
     workspace = Path(path).expanduser().resolve()
     if not workspace.is_dir():
@@ -45,6 +46,7 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
     state.reset_conversation()
     state.tool_names = set(tools) if tools is not None else None
     state.system_prompt = system_prompt
+    state.excel_first = excel_first
     state.skills = discover_skills()
     messages[:] = load_conversation() if resume else []
     if auto:
