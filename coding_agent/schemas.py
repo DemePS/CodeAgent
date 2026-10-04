@@ -320,6 +320,21 @@ TOOLS = [
         },
     },
     {
+        "name": "web_sign_in",
+        "description": (
+            "When a site needs the user to be signed in (an account, a members' area): open a visible browser window on the "
+            "site's sign-in page, where the USER types their password and any code themselves; you never see or type it. "
+            "When they answer 'done', the session (cookies) is kept for that site, and web_open / web_click then work as the "
+            "signed-in user. Use it instead of asking for a password, and only when the task needs the signed-in pages. "
+            "The user is asked first and can cancel."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "The site's sign-in page (http or https)."}},
+            "required": ["url"],
+        },
+    },
+    {
         "name": "web_close",
         "description": "Close the browser (frees memory, forgets the sites the user approved). Call it when the browsing is done.",
         "input_schema": {"type": "object", "properties": {}},

@@ -35,6 +35,7 @@ from ..tools.web import (
     tool_web_look,
     tool_web_open,
     tool_web_page,
+    tool_web_sign_in,
     tool_web_type,
 )
 from ..tools.python_runner import tool_run_python
@@ -54,6 +55,7 @@ TOOL_HANDLERS = {
     "web_page": tool_web_page,
     "web_look": tool_web_look,
     "web_close": tool_web_close,
+    "web_sign_in": tool_web_sign_in,
     "view_image": tool_view_image,
     "read_pdf": tool_read_pdf,
     "read_excel": tool_read_excel,

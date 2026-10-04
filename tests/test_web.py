@@ -61,6 +61,10 @@ class Site(http.server.BaseHTTPRequestHandler):
             self.send("<html><head><title>Popup</title></head><body><h1>I am a popup</h1></body></html>")
         elif u.path == "/jump":
             self.send(f'<html><head><title>Jump</title></head><body>Going away<script>location.href="http://127.0.0.3:{port}/about"</script></body></html>')
+        elif u.path == "/login":
+            self.send("<html><head><title>Signed in</title></head><body>welcome</body></html>", headers=[("Set-Cookie", "sid=abc123; Path=/")])
+        elif u.path == "/me":
+            self.send(f"<html><head><title>Me</title></head><body>cookie: {self.headers.get('Cookie', 'none')}</body></html>")
         elif u.path == "/file.zip":
             self.send(b"PK-not-really-a-zip", "application/zip", [("Content-Disposition", 'attachment; filename="f.zip"')])
         else:
@@ -246,6 +250,29 @@ def test_a_page_that_sends_you_to_another_site_stays_put(site, ui, public):
     assert "Not opened: http://127.0.0.3" in out         # and the listing says so too
 
 
+def test_answering_all_sites_stops_the_questions_for_the_session(site, ui, public, monkeypatch):
+    monkeypatch.setattr(web._B, "all_sites", False)
+    ui.answers = ["all sites for this session"]
+    web.tool_web_open(f"http://127.0.0.2:{site[1]}/")
+    assert web.ALL_SITES in ui.of("confirm")[-1][2]                              # offered as a third answer
+    asked = len(ui.of("confirm"))
+    assert "Page: 'About'" in web.tool_web_open(f"http://127.0.0.3:{site[1]}/about")
+    assert len(ui.of("confirm")) == asked                                       # no question for the other site
+    web.tool_web_close()
+    assert "Page: 'Home'" in web.tool_web_open(f"http://127.0.0.2:{site[1]}/")  # still allowed after a close
+    assert len(ui.of("confirm")) == asked
+
+
+def test_approve_off_opens_public_sites_without_asking(site, ui, public, monkeypatch):
+    monkeypatch.setattr(web, "WEB_APPROVE", False)
+    monkeypatch.setattr(web._B, "all_sites", False)
+    out = web.tool_web_open(f"http://127.0.0.2:{site[1]}/")                     # no answers scripted: a question would refuse
+    assert "Page: 'Home'" in out and ui.of("confirm") == []
+    assert "Page: 'About'" in web.tool_web_open(f"http://127.0.0.3:{site[1]}/about")
+    with pytest.raises(ToolError, match="link-local"):
+        web.tool_web_open("http://169.254.169.254/latest/meta-data/")           # metadata addresses stay refused
+
+
 def test_closing_forgets_the_approved_sites(site, ui, public):
     url = f"http://127.0.0.2:{site[1]}/"
     ui.answers = ["yes"]
@@ -288,3 +315,63 @@ def test_without_playwright_the_tools_say_how_to_install_it(monkeypatch):
     for call in (lambda: web.tool_web_open("http://127.0.0.1:1/"), lambda: web.tool_web_click(1), lambda: web.tool_web_type(1, "x")):
         with pytest.raises(ToolError, match="Playwright is not installed"):
             call()
+
+
+# --- signing in: the person types the password in a window, the agent keeps only the session
+
+@pytest.fixture
+def sessions(tmp_path, monkeypatch):
+    from coding_agent import websessions
+    monkeypatch.setattr(websessions, "SESSIONS_DIR", tmp_path / "web-sessions")
+    monkeypatch.setenv("DISPLAY", ":0")                                # "there is a screen" (the browser itself is headless here)
+    real = web.launch_browser
+    monkeypatch.setattr(web, "launch_browser", lambda pw, headless=True: real(pw, headless=True))  # no screen in the tests
+    return websessions
+
+
+def test_sign_in_keeps_the_session_and_never_the_password(site, ui, sessions):
+    assert "cookie: none" in web.tool_web_open(site[0] + "/me")
+    ui.answers = ["yes", "done"]                                       # allow the window, then: I signed in
+    message = web.tool_web_sign_in(site[0] + "/login")
+    assert "never saw the password" in message and "web_open" in message
+    assert "sid=abc123" in web.tool_web_open(site[0] + "/me")          # the hidden browser is signed in at once
+    files = list(sessions.SESSIONS_DIR.glob("*.json"))
+    assert len(files) == 1 and "sid" in files[0].read_text()
+    import os
+    if os.name != "nt":
+        assert files[0].stat().st_mode & 0o777 == 0o600
+    web.tool_web_close()                                               # a later session loads it
+    assert "sid=abc123" in web.tool_web_open(site[0] + "/me")
+    assert sessions.forget() == [files[0].stem] and not files[0].exists()
+    web.tool_web_close()
+    assert "cookie: none" in web.tool_web_open(site[0] + "/me")
+
+
+def test_cancelling_the_sign_in_keeps_nothing(site, ui, sessions):
+    ui.answers = ["yes", "cancel"]
+    with pytest.raises(ToolError, match="cancelled"):
+        web.tool_web_sign_in(site[0] + "/login")
+    assert not sessions.SESSIONS_DIR.exists() or list(sessions.SESSIONS_DIR.glob("*.json")) == []
+
+
+def test_refusing_the_window_keeps_nothing(site, ui, sessions):
+    ui.answers = ["no", ""]
+    with pytest.raises(ToolError, match="refused"):
+        web.tool_web_sign_in(site[0] + "/login")
+
+
+def test_no_sign_in_window_without_a_screen(site, ui, sessions, monkeypatch):
+    monkeypatch.setattr(web.sys, "platform", "linux")
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    with pytest.raises(ToolError, match="no screen"):
+        web.tool_web_sign_in(site[0] + "/login")
+
+
+def test_saved_sessions_expire_and_site_names_cannot_escape(sessions, monkeypatch):
+    sessions.save("www.Example.com", {"cookies": [{"name": "a"}], "origins": []})
+    assert sessions.sites() == ["example.com"]
+    assert "/" not in sessions.site_name("../../evil") and "\\" not in sessions.site_name("..\\evil")
+    assert sessions.load_all()["cookies"] == [{"name": "a"}]
+    monkeypatch.setattr(sessions, "WEB_SESSION_DAYS", -1)               # everything is older than "negative days"
+    assert sessions.load_all() is None and sessions.sites() == []

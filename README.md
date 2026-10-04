@@ -81,7 +81,7 @@ question and progress message goes through the UI object, so a web or desktop fr
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
 `delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
 `edit_excel`, `view_excel`, `format_excel`, `add_chart`, `add_table`, `add_pivot_table`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
-`download_file`, `clone_repo`, `web_search`, `screenshot_page`, `web_open`, `web_click`, `web_type`, `web_back`, `web_page`, `web_look`, `web_close` (`uv sync --extra browser`), `ask_human`,
+`download_file`, `clone_repo`, `web_search`, `screenshot_page`, `web_open`, `web_click`, `web_type`, `web_back`, `web_page`, `web_look`, `web_sign_in`, `web_close` (`uv sync --extra browser`), `ask_human`,
 `load_skill`.
 
 ### Browsing the web
@@ -95,12 +95,17 @@ the page with `web_look` and ends with `web_close`. It needs Playwright and a br
 
 What keeps it safe (in the tools, not only in the prompt):
 
-- The first visit to a public site asks you, with the full URL; after that the agent can click and
-  type on that site. Links to other sites are refused until the agent opens them with `web_open`,
+- The first visit to a public site asks you, with the full URL (`[a]ll sites for this session` stops the
+  questions until the session ends; `AGENT_WEB_APPROVE=off` never asks, for unattended runs); after that
+  the agent can click and type on that site. Links to other sites are refused until the agent opens them with `web_open`,
   which asks you. localhost, private addresses and workspace HTML files need no question.
-- It never types into password, sign-in or payment fields; it asks you to do that.
+- It never types into password, sign-in or payment fields. When a site needs you signed in, `web_sign_in` opens
+  a visible window where you type the password yourself; the agent never sees it and keeps only the session
+  (cookies) of that site, for 30 days (`AGENT_WEB_SESSION_DAYS`), in `~/.coding-agent/web-sessions` (owner-only
+  files). `coding-agent --forget-logins` deletes them (`--forget-logins SITE` for one). A saved session is as
+  good as a password until it expires: keep it for sites you are comfortable with.
 - A form that sends data (POST), by a button or by pressing Enter, shows what it sends and asks first.
-- Downloads are blocked, metadata addresses are refused, and nothing is kept on disk: cookies and
+- Downloads are blocked, metadata addresses are refused, and nothing is kept on disk (apart from sign-ins you made with `web_sign_in`): cookies and
   history end with the session (`web_close`, or the program ending).
 - The page text reaches Claude marked as untrusted content, and the tools say that pages cannot give
   it instructions.

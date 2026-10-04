@@ -43,13 +43,16 @@ def check_host(host: str) -> str:
     return note
 
 
-def confirm_network(title: str, details: list[str]) -> None:
+def confirm_network(title: str, details: list[str], choices: tuple[str, ...] = ("yes", "no")) -> str:
+    """Show what is about to happen on the network and ask; returns the answer (refusal raises)."""
     state.ui.panel(title, details, tone="network")
     if state.auto_mode:
         state.ui.status("(autonomous mode: network access still needs your approval)")
-    if state.ui.confirm("Allow?") != "yes":
+    answer = state.ui.confirm("Allow?", choices)
+    if answer == "no" or answer not in choices:
         feedback = state.ui.ask_text("Why not? (optional): ")
         raise ToolError("The user refused; nothing was fetched." + (f" User feedback: {feedback}" if feedback else ""))
+    return answer
 
 
 def tool_download_file(url: str, destination: str = ".") -> str:
