@@ -42,3 +42,12 @@ def test_compaction_records_its_call():
                 return r
     context.summarize_history(Client, [{"role": "user", "content": "hello"}])
     assert usage.snapshot()["calls"]["compact"]["calls"] == 1
+
+
+def test_a_line_sums_the_calls_and_is_empty_when_nothing_was_used():
+    usage.reset()
+    mark = usage.snapshot()
+    assert usage.line(usage.since(mark)) == ""
+    usage.record(reply(10, 5, read=100, write=20), "agent")
+    usage.record(reply(1, 1), "compact")
+    assert usage.line(usage.since(mark)) == "tokens: 131 in (100 cached), 6 out, 2 call(s)"

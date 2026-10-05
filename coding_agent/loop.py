@@ -193,6 +193,7 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     """Run one user instruction through the agent loop. Returns False if it failed."""
     checkpoint = len(messages)
+    mark = usage.snapshot()
     state.compacted_this_turn = False
     state.turn.update(instruction=text, excel_read=False)
     state.stop_requested = False
@@ -219,6 +220,9 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         state.mode_note = state.skills_note = state.read_roots_note = None
         state.pending_blocks.clear()
         state.ui.status(f"[context] {context_status(messages)}")
+        if text_used := usage.line(usage.since(mark)):
+            usage.log.info("%s", text_used)
+            state.ui.status(f"[{text_used}]")
         return True
     except KeyboardInterrupt:
         state.ui.message("[interrupted]")

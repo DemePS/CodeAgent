@@ -13,10 +13,12 @@ tool adds to the conversation.
 from __future__ import annotations
 
 import copy
+import logging
 import threading
 
 from .config import CHARS_PER_TOKEN
 
+log = logging.getLogger("coding_agent.usage")
 _lock = threading.Lock()
 _FIELDS = ("input", "output", "cache_read", "cache_write", "calls")
 _calls: dict[str, dict[str, int]] = {}  # kind -> totals
@@ -62,6 +64,18 @@ def since(mark: dict) -> dict:
             if any(diff.values()):
                 out[part][key] = diff
     return out
+
+
+def line(used: dict) -> str:
+    """One line for what `since()` returned: "tokens: 1,234 in (800 cached), 56 out, 3 calls" (empty if nothing was used)."""
+    total = dict.fromkeys(_FIELDS, 0)
+    for values in used["calls"].values():
+        for key in _FIELDS:
+            total[key] += values[key]
+    if not total["calls"]:
+        return ""
+    return (f"tokens: {total['input'] + total['cache_read'] + total['cache_write']:,} in ({total['cache_read']:,} cached), "
+            f"{total['output']:,} out, {total['calls']} call(s)")
 
 
 def reset() -> None:
