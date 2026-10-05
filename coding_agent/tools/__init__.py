@@ -1,7 +1,11 @@
 """The tools Claude can call, by name."""
 
+import re
+from collections.abc import Callable
+
 from .. import state
 from ..common import ToolError
+from ..schemas import TOOLS
 from ..skills import tool_load_skill
 from ..tools.browser import tool_screenshot_page
 from ..tools.documents import (
@@ -77,6 +81,42 @@ TOOL_HANDLERS = {
     "run_python_excel": tool_run_python_excel,
     "load_skill": tool_load_skill,
 }
+
+
+BUILTIN_TOOLS = frozenset(TOOL_HANDLERS) | {t["name"] for t in TOOLS}
+_TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def register_tool(schema: dict, handler: Callable[..., str | list]) -> None:
+    """Add a tool of the application to the tools Claude can call.
+
+    `schema` is the tool definition sent to Claude: {"name", "description", "input_schema": {"type": "object", "properties": ...,
+    "required": [...]}}. `handler` is called as handler(**arguments), one keyword parameter per property, and returns a string or a list of
+    content blocks ({"type": "text", ...}, {"type": "image", ...}); to report a failure Claude should see, it raises
+    coding_agent.common.ToolError. It runs in the agent's thread and can use coding_agent.state (state.ui, state.workspace).
+    The application's code is responsible for what the handler does: CodeAgent's path checks and confirmations only guard its own tools.
+
+    Registering does not enable the tool: a session offers it only when it is in the `tools=[...]` of open_project (or `tools=None`, all).
+    A built-in tool cannot be replaced; registering the same handler again does nothing; another handler under a name already taken is an error."""
+    if not isinstance(schema, dict):
+        raise TypeError("The tool schema must be a dict.")
+    name = schema.get("name")
+    if not isinstance(name, str) or not _TOOL_NAME.fullmatch(name):
+        raise ValueError("A tool name is 1 to 64 letters, digits, '_' or '-'.")
+    if not isinstance(schema.get("description"), str) or not schema["description"].strip():
+        raise ValueError(f"Tool {name}: a description is needed: it is how Claude decides when to call it.")
+    if not isinstance(schema.get("input_schema"), dict) or schema["input_schema"].get("type") != "object":
+        raise ValueError(f"Tool {name}: input_schema must be a JSON schema of type 'object'.")
+    if not callable(handler):
+        raise TypeError(f"Tool {name}: the handler must be callable.")
+    if name in BUILTIN_TOOLS:
+        raise ValueError(f"{name} is a built-in tool and cannot be replaced.")
+    if TOOL_HANDLERS.get(name) is handler:
+        return
+    if name in TOOL_HANDLERS:
+        raise ValueError(f"A tool named {name} is already registered.")
+    TOOLS.append(schema)
+    TOOL_HANDLERS[name] = handler
 
 
 def run_tool(block) -> dict:

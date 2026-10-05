@@ -104,6 +104,7 @@ As a library (other front ends, e.g. a desktop app), see coding_agent.session:
     from coding_agent import session
     session.open_project(path, ui=MyUI(), tools=[...], system_prompt="...")
     session.send("instruction")
+    coding_agent.register_tool(schema, handler)  # the application's own tool (see the README)
 The package layout: config (settings), state (the session), ui (the UI interface and the
 terminal), loop (the agent loop), tools/ (one module per tool family), guard (the run_python
 sandbox), skills, memory, context (context window management), cli (the terminal front end).
@@ -149,4 +150,7 @@ def __getattr__(name: str):
     if name in ("configure", "active_provider", "make_anthropic_client"):
         from . import config
         return getattr(config, name)
+    if name == "register_tool":  # a host application's own tools (loads the tool modules on first use)
+        from .tools import register_tool
+        return register_tool
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

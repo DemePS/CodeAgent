@@ -26,6 +26,7 @@ from .loop import send as _send
 from .loop import set_auto_mode
 from .memory import finish_memory_updates
 from .skills import discover_skills
+from .tools import register_tool  # noqa: F401  (re-exported: session.register_tool)
 from .ui import UI
 
 messages: list = []  # the conversation of the open project

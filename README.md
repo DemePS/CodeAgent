@@ -76,6 +76,30 @@ until `read_excel` has run, when the instruction mentions a spreadsheet; it is o
 `session.add_read_folder(path)` lets the agent read (never write) another folder. Every approval,
 question and progress message goes through the UI object, so a web or desktop front end can show them.
 
+### Your own tools
+
+An application adds a tool of its own without changing the package:
+
+```python
+import coding_agent
+
+def say_hello(who: str, loud: bool = False) -> str:          # called as handler(**arguments)
+    return f"Hello {who}{'!' if loud else ''}"
+
+coding_agent.register_tool(
+    {"name": "say_hello", "description": "Greet someone.",
+     "input_schema": {"type": "object", "properties": {"who": {"type": "string"}, "loud": {"type": "boolean"}}, "required": ["who"]}},
+    say_hello)
+session.open_project(folder, ui=ui, tools=["read_file", "say_hello"])    # a tool is offered only when the session lists it
+```
+
+The handler gets one keyword argument per property of the `input_schema` and returns a string or a list of content blocks
+(`{"type": "text", ...}`, `{"type": "image", ...}`). To report a failure Claude should see, it raises `coding_agent.common.ToolError`; any other
+exception also reaches Claude as an error result and does not stop the agent. It runs in the agent's thread and can use `coding_agent.state`
+(`state.ui`, `state.workspace`). CodeAgent's path checks and confirmations guard only its own tools: what the handler does is the application's
+responsibility (to read a file the way the built-in tools do, `coding_agent.common.resolve_readable(path)` applies the same rules). A built-in
+tool cannot be replaced, registering the same handler twice does nothing, and a second handler under a taken name is an error.
+
 ## Tools
 
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
