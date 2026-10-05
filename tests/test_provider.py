@@ -64,7 +64,7 @@ def test_model_setting_follows_the_service():
                       ANTHROPIC_API_KEY="k", ANTHROPIC_MODEL="ignored-on-foundry") == "my-deployment"
     assert model_with(ANTHROPIC_API_KEY="k", ANTHROPIC_MODEL="claude-sonnet-5",
                       ANTHROPIC_FOUNDRY_DEPLOYMENT="ignored-without-foundry") == "claude-sonnet-5"
-    assert model_with(ANTHROPIC_API_KEY="k") == "claude-opus-5"
+    assert model_with(ANTHROPIC_API_KEY="k") == "claude-sonnet-5-5"
 
 
 def test_access_denied_names_the_right_key(env):

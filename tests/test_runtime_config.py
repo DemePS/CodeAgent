@@ -56,7 +56,7 @@ def test_new_key_new_client_same_key_same_client(env):
 
 
 def test_model_order(env):
-    assert config.get_model() == "claude-opus-5"
+    assert config.get_model() == "claude-sonnet-5-5"
     env.setenv("ANTHROPIC_API_KEY", "k")
     env.setenv("ANTHROPIC_MODEL", "claude-haiku-4-5")
     assert config.get_model() == "claude-haiku-4-5"
@@ -77,7 +77,7 @@ def test_foundry_ignores_the_model_override(env):
 def test_empty_removes_none_keeps(env):
     config.configure(api_key=KEY, model="claude-sonnet-5-5")
     config.configure(model="")
-    assert config.current_api_key() == KEY and config.get_model() == "claude-opus-5"
+    assert config.current_api_key() == KEY and config.get_model() == "claude-sonnet-5-5"
     config.configure()
     assert config.current_api_key() == KEY
     config.configure(api_key=" ")

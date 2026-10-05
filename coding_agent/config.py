@@ -17,7 +17,7 @@ load_dotenv(find_dotenv(usecwd=True))
 load_dotenv((Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") else Path.home()) / ".coding-agent" / ".env")
 
 
-DEFAULT_MODEL = "claude-opus-5"
+DEFAULT_MODEL = "claude-sonnet-5-5"
 
 # What a host application sets while it runs (a Settings screen), see configure(): it wins over the
 # environment. Kept in this process only, never in os.environ, so the programs the agent starts do not

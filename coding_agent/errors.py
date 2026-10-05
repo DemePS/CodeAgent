@@ -57,7 +57,7 @@ def describe(error: BaseException) -> str | None:
         if code == 404:
             if uses_anthropic_api():
                 return (f"Not found (HTTP 404): no model named '{get_model()}' on {endpoint()}. Check {model_setting()} "
-                        f"(a model ID such as claude-opus-5). Details: {detail}")
+                        f"(a model ID such as claude-sonnet-5-5). Details: {detail}")
             return (f"Not found (HTTP 404): no deployment named '{get_model()}' at {endpoint()}. Check "
                     "ANTHROPIC_FOUNDRY_DEPLOYMENT (the deployment name in Foundry) and that the endpoint "
                     f"ends with /anthropic. Details: {detail}")

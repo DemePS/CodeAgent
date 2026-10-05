@@ -35,7 +35,7 @@ Without an API key, the agent signs in with the account of your Windows session,
 | Variable | Meaning |
 |---|---|
 | `ANTHROPIC_API_KEY` | an API key from [console.anthropic.com](https://console.anthropic.com) |
-| `ANTHROPIC_MODEL` | a model ID (default `claude-opus-5`) |
+| `ANTHROPIC_MODEL` | a model ID (default `claude-sonnet-5-5`) |
 
 A Foundry endpoint always wins: with `ANTHROPIC_FOUNDRY_ENDPOINT` set, the agent uses Foundry even if
 `ANTHROPIC_API_KEY` is also set.
