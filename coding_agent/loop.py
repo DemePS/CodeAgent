@@ -5,7 +5,7 @@ import threading
 
 import anthropic
 
-from . import state
+from . import state, usage
 from .config import MAX_STEPS, MAX_TOKENS, get_model
 from .context import (
     clear_old_tool_results,
@@ -171,6 +171,7 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
         # Stored as plain dicts so the history can be saved to JSON and resumed later.
         messages.append({"role": "assistant", "content": [b.to_dict() for b in response.content]})
         record_usage(response, messages)
+        usage.record(response, "agent")
 
         if response.stop_reason == "tool_use":
             # Run every requested tool and return ALL results in one user message.

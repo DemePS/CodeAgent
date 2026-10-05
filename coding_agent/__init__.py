@@ -119,6 +119,9 @@ waits for your approval, even in autonomous mode. Workspace confinement,
 self-protection and the subprocess block still apply; Ctrl+C stops it. AGENT_MAX_STEPS (default
 100) caps the model calls per instruction in every mode.
 
+Token usage: coding_agent.usage adds up what the API reports for every model call (agent, compact, memory) and
+estimates what each tool's results added: mark = usage.snapshot(); session.send(...); usage.since(mark).
+
 Context management (long sessions): the agent tracks how much of the model's context window
 the conversation uses and prints it after each instruction ("[context] 84k / 200k tokens").
 Past 50% it replaces old tool outputs with a short note (Claude re-reads files when needed);

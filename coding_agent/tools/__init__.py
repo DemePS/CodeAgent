@@ -3,7 +3,7 @@
 import re
 from collections.abc import Callable
 
-from .. import state
+from .. import state, usage
 from ..common import ToolError
 from ..schemas import TOOLS
 from ..skills import tool_load_skill
@@ -123,6 +123,7 @@ def run_tool(block) -> dict:
     """Execute one tool_use block, report the outcome to the UI, and build its tool_result."""
     result = _run(block)
     content = result["content"]
+    usage.record_tool(block.name, content)
     if result.get("is_error"):
         summary = str(content).splitlines()[0][:300] if content else "error"
     elif isinstance(content, list):  # text, images, documents

@@ -8,7 +8,7 @@ import threading
 
 import anthropic
 
-from . import state
+from . import state, usage
 from .common import truncate
 from .config import (
     MEMORY_EXIT_WAIT_SECONDS,
@@ -142,6 +142,7 @@ def update_memory(client: anthropic.Anthropic, digest: str) -> str:
                    f"<current_notes>\n{current or '(empty)'}\n</current_notes>\n\n"
                    f"<session_turn>\n{digest}\n</session_turn>"}],
     )
+    usage.record(response, "memory")
     if response.stop_reason not in ("end_turn", "stop_sequence"):
         return f"update skipped (stop reason: {response.stop_reason})"
     text = "".join(b.text for b in response.content if b.type == "text").strip()

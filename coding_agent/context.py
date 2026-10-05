@@ -5,7 +5,7 @@ import re
 
 import anthropic
 
-from . import state
+from . import state, usage
 from .config import (
     CHARS_PER_TOKEN,
     CLEAR_AT,
@@ -127,6 +127,7 @@ def summarize_history(client: anthropic.Anthropic, head: list) -> str:
         system=COMPACT_PROMPT,
         messages=[{"role": "user", "content": f"<transcript>\n{transcript}\n</transcript>"}],
     )
+    usage.record(response, "compact")
     text = "".join(b.text for b in response.content if b.type == "text")
     match = re.search(r"<summary>\s*(.*?)\s*(?:</summary>|$)", text, re.DOTALL)
     summary = (match.group(1) if match else text).strip()
