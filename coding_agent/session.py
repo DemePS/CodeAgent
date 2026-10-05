@@ -14,10 +14,11 @@ agent's instructions ({workspace} in it is replaced by the project path).
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Iterable
 from pathlib import Path
 
-from . import state
+from . import cleanup, state
 from .common import grant_read_folder
 from .config import MEMORY_HOME, _get_client, get_model
 from .conversation import load_conversation
@@ -42,6 +43,8 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
     workspace = Path(path).expanduser().resolve()
     if not workspace.is_dir():
         raise NotADirectoryError(f"Not a directory: {workspace}")
+    if (cleaned := cleanup.run_once(memory=MEMORY_HOME)) and cleaned != "Clean-up: nothing to delete":
+        logging.getLogger("coding_agent.cleanup").info(cleaned)  # old backups, unused memories, old conversations (before resume)
     state.ui = ui
     state.set_workspace(workspace, project_id(workspace), MEMORY_HOME)
     state.reset_conversation()

@@ -168,8 +168,10 @@ refused in applications that restrict edits (chosen sheets, protected formulas, 
 
 ## What stays on your machine
 
-Everything is in `~/.coding-agent` (`$HOME`, or your user folder on Windows), cleaned at each start
-of `coding-agent` (`coding_agent/cleanup.py`; applications call `coding_agent.cleanup.run()`):
+Everything is in `~/.coding-agent` (`$HOME`, or your user folder on Windows), cleaned automatically
+(`coding_agent/cleanup.py`): once per process, at the start of `coding-agent` and the first time an application
+opens a project (`session.open_project`). `AGENT_CLEANUP=off` switches that off; an application that runs for
+weeks (a server) can call `coding_agent.cleanup.run()` itself, daily (a call counts as the run):
 
 | What | Where | Kept |
 |---|---|---|

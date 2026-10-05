@@ -1,7 +1,9 @@
 """Clean-up of what the agent keeps on the machine, so nothing grows forever.
 
-Run by the coding-agent command at each start; applications built on the agent call
-cleanup.run() at their own start.
+Runs by itself, once per process: at the start of the coding-agent command, and the first time an
+application opens a project (session.open_project). AGENT_CLEANUP=off switches this automatic run
+off; an application that prefers to decide when (a server running for weeks might call it daily)
+calls cleanup.run() itself.
 
 - Backups (BACKUP_HOME, ~/.coding-agent/backups): the copy of a workbook taken before each change
   is deleted after AGENT_BACKUP_DAYS days (default 3): long enough to undo a change noticed when
@@ -26,6 +28,7 @@ BACKUP_DAYS = 3
 CONVERSATION_DAYS = 30
 MEMORY_DAYS = 90
 DAY = 86_400
+_ran = False  # the clean-up has run in this process (by run(), automatically or by the application)
 
 
 def days(variable: str, default: int) -> int:
@@ -87,9 +90,23 @@ def clean_conversations(memory: Path, days_old: float, now: float) -> int:
     return deleted
 
 
+def enabled() -> bool:
+    """AGENT_CLEANUP=off (or 0, false, no) switches the automatic clean-up off."""
+    return (os.environ.get("AGENT_CLEANUP") or "on").strip().lower() not in ("off", "0", "false", "no")
+
+
+def run_once(backups: Path | None = None, memory: Path | None = None) -> str | None:
+    """The clean-up, unless it already ran in this process or AGENT_CLEANUP=off: the summary, or None when it did not run."""
+    if _ran or not enabled():
+        return None
+    return run(backups, memory)
+
+
 def run(backups: Path | None = None, memory: Path | None = None, now: float | None = None) -> str:
     """The whole clean-up; a one-line summary. Never raises. Given both folders, the agent's settings
     are not loaded (an application may configure them later, before its first call to Claude)."""
+    global _ran
+    _ran = True
     if backups is None or memory is None:
         from .config import BACKUP_HOME, MEMORY_HOME
 

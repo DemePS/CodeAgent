@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from coding_agent import state
 from coding_agent.config import OWN_FILES
 from coding_agent.ui import UI
+
+# The tests open projects all the time: the automatic clean-up must not touch the real ~/.coding-agent (tests of it switch it on).
+os.environ["AGENT_CLEANUP"] = "off"
 
 
 class ScriptedUI(UI):

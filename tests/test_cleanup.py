@@ -67,3 +67,33 @@ def test_given_its_folders_it_does_not_load_the_settings(tmp_path):
             f"cleanup.run(backups=pathlib.Path({str(tmp_path / 'b')!r}), memory=pathlib.Path({str(tmp_path / 'm')!r})); "
             "print('coding_agent.config' in sys.modules)")
     assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "False"
+
+
+def test_it_runs_by_itself_once_when_a_project_is_opened(tmp_path, monkeypatch):
+    from coding_agent import session
+    from tests.conftest import ScriptedUI
+    memory = tmp_path / "memory"
+    old = file(memory / "gone-11111111" / "notes.md", 120)
+    file(memory / "gone-11111111" / "conversation.json", 120)
+    kept = file(memory / "kept-22222222" / "notes.md", 1)
+    monkeypatch.setenv("AGENT_CLEANUP", "on")
+    monkeypatch.setattr(session, "MEMORY_HOME", memory)
+    monkeypatch.setattr(cleanup, "_ran", False)
+    project = tmp_path / "project"
+    project.mkdir()
+    session.open_project(project, ui=ScriptedUI())
+    assert not old.exists() and kept.exists()                     # the application did nothing: the memory of an unused project is gone
+    gone_again = file(memory / "again-33333333" / "notes.md", 120)
+    session.open_project(project, ui=ScriptedUI())
+    assert gone_again.exists()                                    # once per process: the second open does not clean again
+
+
+def test_it_can_be_switched_off_and_an_explicit_run_counts_as_the_run(tmp_path, monkeypatch):
+    memory = tmp_path / "memory"
+    old = file(memory / "gone-11111111" / "notes.md", 120)
+    monkeypatch.setenv("AGENT_CLEANUP", "off")
+    monkeypatch.setattr(cleanup, "_ran", False)
+    assert cleanup.run_once(tmp_path / "backups", memory) is None and old.exists()
+    monkeypatch.setenv("AGENT_CLEANUP", "on")
+    cleanup.run(tmp_path / "backups", memory)                     # an application that calls run() itself ...
+    assert cleanup.run_once(tmp_path / "backups", memory) is None  # ... is not cleaned a second time automatically
