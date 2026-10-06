@@ -18,7 +18,7 @@ import logging
 from collections.abc import Iterable
 from pathlib import Path
 
-from . import cleanup, state
+from . import cleanup, logs, state
 from .common import grant_read_folder
 from .config import MEMORY_HOME, _get_client, get_model
 from .conversation import load_conversation
@@ -27,6 +27,7 @@ from .loop import set_auto_mode
 from .memory import finish_memory_updates
 from .skills import discover_skills
 from .tools import register_tool  # noqa: F401  (re-exported: session.register_tool)
+from .logs import LoggedUI
 from .ui import UI
 
 messages: list = []  # the conversation of the open project
@@ -46,8 +47,9 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
         raise NotADirectoryError(f"Not a directory: {workspace}")
     if (cleaned := cleanup.run_once(memory=MEMORY_HOME)) and cleaned != "Clean-up: nothing to delete":
         logging.getLogger("coding_agent.cleanup").info(cleaned)  # old backups, unused memories, old conversations (before resume)
-    state.ui = ui
+    state.ui = LoggedUI(ui)
     state.set_workspace(workspace, project_id(workspace), MEMORY_HOME)
+    logs.attach(state.conversation_file.parent / "agent.log")
     state.reset_conversation()
     state.tool_names = set(tools) if tools is not None else None
     state.system_prompt = system_prompt
