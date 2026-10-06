@@ -64,7 +64,7 @@ class Site(http.server.BaseHTTPRequestHandler):
         elif u.path == "/login":
             self.send("<html><head><title>Signed in</title></head><body>welcome</body></html>", headers=[("Set-Cookie", "sid=abc123; Path=/")])
         elif u.path == "/me":
-            self.send(f"<html><head><title>Me</title></head><body>cookie: {self.headers.get('Cookie', 'none')}</body></html>")
+            self.send(f"<html><head><title>Me</title></head><body>cookie: {self.headers.get('Cookie', 'none')} key: {self.headers.get('X-Api-Key', 'none')}</body></html>")
         elif u.path == "/file.zip":
             self.send(b"PK-not-really-a-zip", "application/zip", [("Content-Disposition", 'attachment; filename="f.zip"')])
         else:
@@ -375,3 +375,41 @@ def test_saved_sessions_expire_and_site_names_cannot_escape(sessions, monkeypatc
     assert sessions.load_all()["cookies"] == [{"name": "a"}]
     monkeypatch.setattr(sessions, "WEB_SESSION_DAYS", -1)               # everything is older than "negative days"
     assert sessions.load_all() is None and sessions.sites() == []
+
+
+# --- a token instead of a sign-in page: the person types a header name and the token
+
+def test_a_token_is_sent_to_that_site_only_kept_and_forgotten(site, ui, sessions):
+    assert "key: none" in web.tool_web_open(site[0] + "/me")
+    ui.answers = ["yes", "X-Api-Key", "s3cret-token"]                  # allow, header name, token
+    message = web.tool_web_set_token(site[0])
+    assert "you never saw" in message and "s3cret" not in message
+    assert "key: s3cret-token" in web.tool_web_open(site[0] + "/me")   # sent at once, to that site
+    other = f"http://127.0.0.2:{site[1]}/me"                           # another host: never
+    ui.answers = ["yes"]
+    assert "key: none" in web.tool_web_open(other)
+    file = next(sessions.SESSIONS_DIR.glob("*.token"))
+    assert "s3cret-token" in file.read_text()
+    import os
+    if os.name != "nt":
+        assert file.stat().st_mode & 0o777 == 0o600
+    web.tool_web_close()                                               # a later session loads it
+    assert "key: s3cret-token" in web.tool_web_open(site[0] + "/me")
+    assert sessions.forget() == [file.stem] and not file.exists()
+    web.tool_web_close()
+    assert "key: none" in web.tool_web_open(site[0] + "/me")
+
+
+def test_a_bad_header_name_or_a_refusal_or_plain_http_keeps_nothing(site, ui, sessions):
+    ui.answers = ["yes", "Bad Header", "tok"]
+    with pytest.raises(ToolError, match="not a usable header"):
+        web.tool_web_set_token(site[0])
+    ui.answers = ["yes", "X-Api-Key", ""]
+    with pytest.raises(ToolError, match="No usable token"):
+        web.tool_web_set_token(site[0])
+    ui.answers = ["no", ""]
+    with pytest.raises(ToolError, match="refused"):
+        web.tool_web_set_token(site[0])
+    with pytest.raises(ToolError, match="https"):
+        web.tool_web_set_token("http://example.com/")
+    assert not sessions.SESSIONS_DIR.exists() or list(sessions.SESSIONS_DIR.iterdir()) == []

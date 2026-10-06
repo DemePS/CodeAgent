@@ -255,6 +255,12 @@ class TerminalUI(UI):
         discard_pending_input()
         return (read_text(prompt) if multiline else input(prompt)).strip()
 
+    def ask_secret(self, prompt: str) -> str:
+        """Ask for a secret (a token): typed without echo. An application's UI without this method is asked with ask_text."""
+        import getpass
+        discard_pending_input()
+        return getpass.getpass(prompt).strip()
+
     # --- streaming
     def assistant_start(self) -> None:
         self._out = LinkedPrinter()

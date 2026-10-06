@@ -335,6 +335,20 @@ TOOLS = [
         },
     },
     {
+        "name": "web_set_token",
+        "description": (
+            "When a site is used with a token instead of a sign-in page (an API key, a bearer token): the USER types a header "
+            "name and the token themselves; you never see them. The header is then sent to that site only (https) by web_open "
+            "and web_click. Use it instead of asking for a token, and only when the task needs it. The user is asked first and "
+            "can cancel."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "The site's https address."}},
+            "required": ["url"],
+        },
+    },
+    {
         "name": "web_close",
         "description": "Close the browser (frees memory, forgets the sites the user approved). Call it when the browsing is done.",
         "input_schema": {"type": "object", "properties": {}},

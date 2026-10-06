@@ -39,6 +39,7 @@ from ..tools.web import (
     tool_web_look,
     tool_web_open,
     tool_web_page,
+    tool_web_set_token,
     tool_web_sign_in,
     tool_web_type,
 )
@@ -60,6 +61,7 @@ TOOL_HANDLERS = {
     "web_look": tool_web_look,
     "web_close": tool_web_close,
     "web_sign_in": tool_web_sign_in,
+    "web_set_token": tool_web_set_token,
     "view_image": tool_view_image,
     "read_pdf": tool_read_pdf,
     "read_excel": tool_read_excel,

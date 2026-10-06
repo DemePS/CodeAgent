@@ -113,6 +113,7 @@ class _Browser:
         self.host_ok: dict[str, bool] = {}
         self.private: dict[str, bool] = {}
         self.signin_browser = self.signin_context = None  # the visible window of web_sign_in
+        self.tokens: dict[str, tuple[str, str]] = {}  # site -> (header, token) the person gave with web_set_token
 
     # --- the thread -------------------------------------------------------------------------------
     def call(self, fn, timeout: int = 120):
@@ -169,6 +170,7 @@ class _Browser:
                 self.pw = None
                 raise
             saved = websessions.load_all()  # sites the person signed in to themselves earlier
+            self.tokens = websessions.load_tokens()
             self.context = self.browser.new_context(viewport={"width": 1280, "height": 800}, accept_downloads=False,
                                                     service_workers="block", **({"storage_state": saved} if saved else {}))
             self.context.route("**/*", self._route)
@@ -212,7 +214,11 @@ class _Browser:
         except Exception:
             ok = False
         if ok:
-            route.continue_()
+            token = self.tokens.get(websessions.site_name(urlsplit(req.url).hostname or ""))
+            if token and _token_transport_ok(req.url):   # only to that site, and never in clear
+                route.continue_(headers={**req.headers, token[0]: token[1]})
+            else:
+                route.continue_()
         else:
             if navigation:
                 self.blocked.append(req.url)
@@ -549,6 +555,43 @@ def tool_web_sign_in(url: str) -> str:
     websessions.save(host, storage)
     return (f"The user signed in to {host}. The session is kept for {websessions.WEB_SESSION_DAYS} days; you never "
             f"saw the password. Now call web_open on a page of {host} to use it.")
+
+
+def _token_transport_ok(url: str) -> bool:
+    """A token goes over https; plain http only to this very computer (a program being developed)."""
+    u = urlsplit(url)
+    return u.scheme == "https" or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1", "::1"))
+
+
+HEADER_NAME = re.compile(r"[A-Za-z0-9-]{1,64}")
+NOT_A_TOKEN_HEADER = {"host", "content-length", "content-type", "connection", "transfer-encoding", "origin", "referer"}
+
+
+def tool_web_set_token(url: str) -> str:
+    """The PERSON types a header name and a token for a site; the agent keeps only that, and never sees it."""
+    if "://" in (url or "") and not _token_transport_ok(url.strip()):
+        raise ToolError("web_set_token needs the https address of the site: a token is never sent in clear.")
+    target = _target(url)
+    host = urlsplit(target).hostname or ""
+    if not _token_transport_ok(target):
+        raise ToolError("web_set_token needs the https address of the site: a token is never sent in clear.")
+    confirm_network("Give a token to a site", [
+        f"site: {websessions.site_name(host)}",
+        "you type a header name and a token next; the agent never sees them",
+        f"the header is sent to {websessions.site_name(host)} only (https), for {websessions.WEB_SESSION_DAYS} days, "
+        f"kept in {websessions.SESSIONS_DIR}",
+        "remove it any time with: coding-agent --forget-logins"])
+    header = state.ui.ask_text("Header name (e.g. Authorization or X-Api-Key): ").strip()
+    if not HEADER_NAME.fullmatch(header) or header.lower() in NOT_A_TOKEN_HEADER:
+        raise ToolError("That is not a usable header name; nothing was kept.")
+    ask = getattr(state.ui, "ask_secret", None)
+    value = (ask("Token (typed without echo): ") if ask else state.ui.ask_text("Token: ")).strip()
+    if not value or any(c in value for c in "\r\n\0"):
+        raise ToolError("No usable token was given; nothing was kept.")
+    websessions.save_token(host, header, value)
+    _B.call(lambda b: b.tokens.__setitem__(websessions.site_name(host), (header, value)))
+    return (f"The user gave {host} a token: header {header}, kept for {websessions.WEB_SESSION_DAYS} days; you never saw "
+            f"the token. Now call web_open on a page of {host} to use it.")
 
 
 def tool_web_close() -> str:
