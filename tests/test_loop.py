@@ -203,3 +203,63 @@ def test_a_slow_first_answer_is_reported(tmp_path, claude, monkeypatch):
     session.open_project(project, ui=ui)
     assert session.send("hello") is True
     assert [n for n in notes if "still waiting" in n] == ["[still waiting for Claude: 1 s]", "[still waiting for Claude: 2 s]"]
+
+
+def _one_turn(tmp_path, claude, monkeypatch):
+    """One instruction answered with plain text; returns the request the agent sent."""
+    project = tmp_path / "docs"
+    project.mkdir()
+    monkeypatch.setattr(config, "MEMORY_HOME", tmp_path / "mem")
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    fake = claude([([("text", "ok")], "end_turn")])
+    session.open_project(project, ui=HeadlessUI())
+    assert session.send("hello")
+    return fake.requests[0]
+
+
+def test_without_an_effort_setting_the_request_is_as_it_always_was(tmp_path, claude, monkeypatch):
+    monkeypatch.delenv("CODEAGENT_EFFORT", raising=False)
+    request = _one_turn(tmp_path, claude, monkeypatch)
+    assert "output_config" not in request
+    assert request["thinking"] == {"type": "adaptive"}
+
+
+@pytest.mark.parametrize("level", ["low", "medium", "high"])
+def test_codeagent_effort_is_sent_as_output_config(tmp_path, claude, monkeypatch, level):
+    monkeypatch.setenv("CODEAGENT_EFFORT", level.upper())  # case does not matter
+    request = _one_turn(tmp_path, claude, monkeypatch)
+    assert request["output_config"] == {"effort": level}
+    assert request["thinking"] == {"type": "adaptive"}  # the thinking stays adaptive: effort only says how much
+
+
+def test_configure_wins_over_the_environment_and_clear_forgets_it(monkeypatch):
+    monkeypatch.setenv("CODEAGENT_EFFORT", "high")
+    assert config.get_effort() == "high"
+    config.configure(effort="low")
+    try:
+        assert config.get_effort() == "low"
+    finally:
+        config.clear()
+    assert config.get_effort() == "high"
+    monkeypatch.delenv("CODEAGENT_EFFORT")
+    assert config.get_effort() is None
+
+
+def test_an_unknown_effort_is_an_error_not_ignored(monkeypatch):
+    monkeypatch.setenv("CODEAGENT_EFFORT", "xhigh")  # a real level of the API, but not one this setting offers
+    with pytest.raises(ValueError, match="low, medium, high"):
+        config.get_effort()
+
+
+def test_the_check_tries_the_effort_by_itself_before_the_agents_request(monkeypatch):
+    from coding_agent import diagnose
+    monkeypatch.setattr(diagnose, "_get_client", lambda: AnthropicFoundry(
+        api_key="k", base_url="https://x.services.ai.azure.com/anthropic"))
+    monkeypatch.delenv("CODEAGENT_EFFORT", raising=False)
+    names = [name for name, _ in diagnose.steps()]
+    assert not any("effort" in name for name in names)
+    monkeypatch.setenv("CODEAGENT_EFFORT", "medium")
+    names = [name for name, _ in diagnose.steps()]
+    assert "Streamed answer with thinking and effort medium (CODEAGENT_EFFORT)" in names
+    assert names[-1].endswith("effort medium)") and names.index(
+        "Streamed answer with thinking and effort medium (CODEAGENT_EFFORT)") == len(names) - 2

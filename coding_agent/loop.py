@@ -6,7 +6,7 @@ import threading
 import anthropic
 
 from . import state, usage
-from .config import MAX_STEPS, MAX_TOKENS, get_model
+from .config import MAX_STEPS, MAX_TOKENS, get_effort, get_model
 from .context import (
     clear_old_tool_results,
     compact,
@@ -95,6 +95,8 @@ def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int
 
 def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: _Call):
     ui = state.ui
+    effort = get_effort()  # CODEAGENT_EFFORT: low | medium | high; not set: nothing is sent, the request is as it always was
+    options = {"output_config": {"effort": effort}} if effort else {}
     with client.messages.stream(
         cache_control={"type": "ephemeral"},  # cache the growing prefix: each loop step re-reads it cheaply
         model=get_model(),
@@ -103,6 +105,7 @@ def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: 
         tools=active_tools(),
         thinking={"type": "adaptive"},
         messages=messages,
+        **options,
     ) as stream:
         call.stream = stream
         for event in stream:

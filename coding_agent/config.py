@@ -27,13 +27,13 @@ _overrides: dict[str, str] = {}
 _clients: dict[tuple, Anthropic] = {}
 
 
-def configure(api_key: str | None = None, model: str | None = None) -> None:
-    """Use this Anthropic API key and / or model from now on, in every later call (None leaves a setting as
-    it is, "" removes it). A key given here selects Anthropic's own API even when a Foundry endpoint is set in
-    the environment: the person typed it, so it wins. The model applies on Anthropic's API only (on Foundry a
-    model is a deployment name)."""
+def configure(api_key: str | None = None, model: str | None = None, effort: str | None = None) -> None:
+    """Use this Anthropic API key, model and / or thinking effort from now on, in every later call (None leaves a
+    setting as it is, "" removes it). A key given here selects Anthropic's own API even when a Foundry endpoint is
+    set in the environment: the person typed it, so it wins. The model applies on Anthropic's API only (on Foundry a
+    model is a deployment name). The effort is low, medium or high, see get_effort()."""
     with _lock:
-        for name, value in (("api_key", api_key), ("model", model)):
+        for name, value in (("api_key", api_key), ("model", model), ("effort", effort)):
             if value is None:
                 continue
             value = value.strip()
@@ -139,6 +139,21 @@ def get_model() -> str:
     if uses_anthropic_api():
         return _overrides.get("model") or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
     return os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT") or DEFAULT_MODEL
+
+
+EFFORT_LEVELS = ("low", "medium", "high")
+
+
+def get_effort() -> str | None:
+    """The thinking effort sent with every request as output_config.effort (configure(), else CODEAGENT_EFFORT):
+    low, medium or high. Not set: None, and the request carries no effort at all, so the model uses its own default.
+    A value that is not one of the three is an error, not ignored."""
+    value = (_overrides.get("effort") or os.environ.get("CODEAGENT_EFFORT") or "").strip().lower()
+    if not value:
+        return None
+    if value not in EFFORT_LEVELS:
+        raise ValueError(f"CODEAGENT_EFFORT must be one of {', '.join(EFFORT_LEVELS)} (got {value!r}).")
+    return value
 
 
 def get_memory_model() -> str:

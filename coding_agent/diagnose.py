@@ -10,7 +10,7 @@ import os
 import time
 
 from . import state
-from .config import _get_client, get_model, uses_anthropic_api
+from .config import _get_client, get_effort, get_model, uses_anthropic_api
 from .errors import connection_summary, describe
 
 TIME_LIMIT_SECONDS = 90
@@ -41,20 +41,27 @@ def steps():
                 stream.get_final_message()
         return call
 
+    effort = get_effort()  # raises when CODEAGENT_EFFORT is not low, medium or high: the check says so
+    options = {"output_config": {"effort": effort}} if effort else {}
+
     def as_the_agent():
         from .loop import active_tools
         from .prompts import SYSTEM_PROMPT
         streamed(cache_control={"type": "ephemeral"}, thinking={"type": "adaptive"},
                  system=(state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace),
-                 tools=active_tools())()
+                 tools=active_tools(), **options)()
 
-    return [
+    checks = [
         ("Microsoft sign-in (token)", _sign_in),
         ("A short request", plain),
         ("Streamed answer", streamed()),
         ("Streamed answer with thinking", streamed(thinking={"type": "adaptive"})),
-        ("The agent's request (instructions, tools, caching, thinking)", as_the_agent),
     ]
+    if effort:  # a model that rejects the effort fails here, by itself, and not inside the agent's request
+        checks.append((f"Streamed answer with thinking and effort {effort} (CODEAGENT_EFFORT)",
+                       streamed(thinking={"type": "adaptive"}, **options)))
+    checks.append(("The agent's request (instructions, tools, caching, thinking" + (f", effort {effort}" if effort else "") + ")", as_the_agent))
+    return checks
 
 
 def run_check(print=print) -> bool:  # noqa: A002 -- replaceable for tests
