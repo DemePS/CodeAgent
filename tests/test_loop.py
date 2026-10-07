@@ -203,3 +203,27 @@ def test_a_slow_first_answer_is_reported(tmp_path, claude, monkeypatch):
     session.open_project(project, ui=ui)
     assert session.send("hello") is True
     assert [n for n in notes if "still waiting" in n] == ["[still waiting for Claude: 1 s]", "[still waiting for Claude: 2 s]"]
+
+
+def test_the_request_carries_thinking_and_effort(tmp_path, ui, claude, monkeypatch):
+    """Defaults: thinking off (disabled on claude-sonnet-5) and effort medium; the settings change the request, nothing else does."""
+    monkeypatch.setattr(config, "MEMORY_HOME", tmp_path / "mem")
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    (tmp_path / "p").mkdir()
+
+    def sent(**settings):
+        for name in ("CODEAGENT_THINKING", "CODEAGENT_EFFORT"):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in settings.items():
+            monkeypatch.setenv(name, value)
+        fake = claude([([("text", "ok")], "end_turn")])
+        session.open_project(tmp_path / "p", ui=ui)
+        session.send("hello")
+        return next(r for r in fake.requests if r.get("stream"))
+
+    body = sent()
+    assert body["thinking"] == {"type": "disabled"} and body["output_config"] == {"effort": "medium"}
+    body = sent(CODEAGENT_THINKING="adaptive", CODEAGENT_EFFORT="default")
+    assert body["thinking"] == {"type": "adaptive"} and "output_config" not in body
+    body = sent(CODEAGENT_EFFORT="low")
+    assert body["output_config"] == {"effort": "low"}
