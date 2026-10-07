@@ -35,7 +35,24 @@ Without an API key, the agent signs in with the account of your Windows session,
 | Variable | Meaning |
 |---|---|
 | `ANTHROPIC_API_KEY` | an API key from [console.anthropic.com](https://console.anthropic.com) |
-| `ANTHROPIC_MODEL` | a model ID (default `claude-sonnet-5-5`) |
+| `ANTHROPIC_MODEL` | a model ID (default `claude-sonnet-5`) |
+
+Models: `claude-sonnet-5` (the default, $2/$10 per million input/output tokens), `claude-sonnet-5-5` (same price), `claude-haiku-4-5`
+($1/$5, the cheapest; no effort setting, weaker with tools; good for the two background models `AGENT_MEMORY_MODEL` and
+`AGENT_COMPACT_MODEL`), `claude-opus-5-5` ($4/$20), `claude-opus-5` ($5/$25) and `claude-fable-5-1` ($10/$50, its thinking cannot be turned off).
+
+**Thinking and effort** (cost and speed), for the agent's own requests:
+
+| Variable | Meaning |
+|---|---|
+| `CODEAGENT_THINKING` | thinking before the answer: `off` (the default), `adaptive`, `between_tools` or `disabled` |
+| `CODEAGENT_EFFORT` | how much the model thinks and writes: `medium` (the default), `low`, `high`, `xhigh`, `max`, or `default` (nothing is sent: the model's own default applies) |
+
+`off` means the lowest setting the model accepts: `disabled`, or `between_tools` on `claude-sonnet-5-5` (it answers 400 to `disabled`), and
+no thinking field at all on `claude-fable-*` (its thinking cannot be turned off). On Foundry the model is a deployment name, so `off` may guess
+wrong: name `between_tools` or `disabled` yourself. `between_tools` does not work with effort `xhigh` or `max`, and `claude-haiku-*` has no effort
+setting (none is sent). A value that is not allowed is explained, never replaced. An application can also call `configure(effort=...)`.
+`coding-agent --check` shows the thinking and effort it sends. `example.env` lists every variable the agent reads: copy it to `.env`.
 
 A Foundry endpoint always wins: with `ANTHROPIC_FOUNDRY_ENDPOINT` set, the agent uses Foundry even if
 `ANTHROPIC_API_KEY` is also set.

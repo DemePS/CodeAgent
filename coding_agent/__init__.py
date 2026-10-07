@@ -88,7 +88,9 @@ Configuration (environment variables or a .env file):
 
     Or, without Azure: Anthropic's own API (used only when ANTHROPIC_FOUNDRY_ENDPOINT is not set)
     ANTHROPIC_API_KEY              an API key from console.anthropic.com
-    ANTHROPIC_MODEL                a model ID (default claude-sonnet-5-5)
+    ANTHROPIC_MODEL                a model ID (default claude-sonnet-5)
+    CODEAGENT_THINKING             off (default), adaptive, between_tools or disabled
+    CODEAGENT_EFFORT               medium (default), low, high, xhigh, max or default (see example.env)
 
 Usage:
     uv sync                                   # once, in the agent's folder (add --extra browser for screenshots)
