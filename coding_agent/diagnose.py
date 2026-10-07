@@ -10,7 +10,7 @@ import os
 import time
 
 from . import state
-from .config import _get_client, get_model, uses_anthropic_api
+from .config import SettingError, _get_client, get_model, thinking_options, uses_anthropic_api
 from .errors import connection_summary, describe
 
 TIME_LIMIT_SECONDS = 90
@@ -25,6 +25,16 @@ def _sign_in() -> None:
         return
     from .signin import SignIn
     SignIn().get_token(os.environ.get("TOKEN_SCOPE", "https://ai.azure.com/.default"))
+
+
+def _settings() -> str:
+    """The thinking and effort a request carries, for the step labels (a bad setting is reported by the step itself)."""
+    try:
+        options = thinking_options()
+    except SettingError:
+        return "the thinking and effort settings"
+    thinking = options.get("thinking", {}).get("type", "no thinking field")
+    return f"thinking {thinking}, effort {options['output_config']['effort'] if 'output_config' in options else 'not sent'}"
 
 
 def steps():
@@ -44,7 +54,7 @@ def steps():
     def as_the_agent():
         from .loop import active_tools
         from .prompts import SYSTEM_PROMPT
-        streamed(cache_control={"type": "ephemeral"}, thinking={"type": "adaptive"},
+        streamed(cache_control={"type": "ephemeral"}, **thinking_options(),
                  system=(state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace),
                  tools=active_tools())()
 
@@ -52,8 +62,8 @@ def steps():
         ("Microsoft sign-in (token)", _sign_in),
         ("A short request", plain),
         ("Streamed answer", streamed()),
-        ("Streamed answer with thinking", streamed(thinking={"type": "adaptive"})),
-        ("The agent's request (instructions, tools, caching, thinking)", as_the_agent),
+        (f"Streamed answer with {_settings()}", lambda: streamed(**thinking_options())()),  # read inside the step: a bad setting is reported as FAILED
+        (f"The agent's request (instructions, tools, caching, {_settings()})", as_the_agent),
     ]
 
 
