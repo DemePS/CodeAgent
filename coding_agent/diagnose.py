@@ -67,6 +67,11 @@ def steps():
 def run_check(print=print) -> bool:  # noqa: A002 -- replaceable for tests
     """Run the steps, printing each result; stops at the first failure. True if all pass."""
     print(f"Claude: {connection_summary()}")
+    try:
+        get_effort()
+    except ValueError as error:  # CODEAGENT_EFFORT is not low, medium or high: say so, no traceback
+        print(f"- CODEAGENT_EFFORT: FAILED\n  {error}")
+        return False
     for name, step in steps():
         print(f"- {name}: ", end="", flush=True)
         started = time.monotonic()

@@ -263,3 +263,11 @@ def test_the_check_tries_the_effort_by_itself_before_the_agents_request(monkeypa
     assert "Streamed answer with thinking and effort medium (CODEAGENT_EFFORT)" in names
     assert names[-1].endswith("effort medium)") and names.index(
         "Streamed answer with thinking and effort medium (CODEAGENT_EFFORT)") == len(names) - 2
+
+
+def test_the_check_names_a_bad_effort_instead_of_a_traceback(monkeypatch):
+    from coding_agent import diagnose
+    monkeypatch.setenv("CODEAGENT_EFFORT", "bogus")
+    lines = []
+    assert diagnose.run_check(print=lambda *a, **k: lines.append(" ".join(map(str, a)))) is False
+    assert any("CODEAGENT_EFFORT must be one of low, medium, high" in line for line in lines)
