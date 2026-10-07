@@ -44,9 +44,12 @@ SNAPSHOT_JS = """
     const s = getComputedStyle(el); return s.visibility !== 'hidden' && s.display !== 'none' && s.opacity !== '0'; };
   const sel = 'a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=link], ' +
               '[role=tab], [role=menuitem], [role=checkbox], [role=switch], [onclick], [contenteditable=""], [contenteditable=true]';
+  // A custom checkbox or radio: the real input is hidden by the page's style and its visible label is what a person clicks.
+  const labelOf = el => (el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null) || el.closest('label');
+  const checkable = el => el.tagName === 'INPUT' && ['checkbox', 'radio'].includes((el.getAttribute('type') || '').toLowerCase());
   const items = []; let extra = 0;
   for (const el of document.querySelectorAll(sel)) {
-    if (!shown(el)) continue;
+    if (!shown(el) && !(checkable(el) && labelOf(el) && shown(labelOf(el)))) continue;
     if (items.length >= max) { extra++; continue; }
     const n = items.length + 1; el.setAttribute('data-agent-ref', String(n));
     const tag = el.tagName.toLowerCase(), type = (el.getAttribute('type') || '').toLowerCase(), field = tag === 'input' || tag === 'textarea' || tag === 'select';
@@ -62,6 +65,12 @@ SNAPSHOT_JS = """
   }
   return { title: document.title, url: location.href, text: document.body ? document.body.innerText.slice(0, 200000) : '', items, extra };
 }
+"""
+
+# Run in the page: click a checkbox or radio whose input is hidden by the page's style, through its visible label.
+CLICK_LABEL_JS = """
+(el) => { const lab = (el.id ? document.querySelector('label[for="' + CSS.escape(el.id) + '"]') : null) || el.closest('label');
+  (lab || el).click(); return !!el.checked; }
 """
 
 # Run in the page: what a control is, and the form it belongs to (to check it before it is used).
@@ -414,7 +423,11 @@ def tool_web_click(ref: int) -> str:
         page = b.ensure_page()
         b.blocked.clear()
         try:
-            page.locator(f'[data-agent-ref="{int(ref)}"]').first.click(timeout=8000)
+            loc = page.locator(f'[data-agent-ref="{int(ref)}"]').first
+            if info["type"] in ("checkbox", "radio") and not loc.is_visible():
+                loc.evaluate(CLICK_LABEL_JS)      # a custom checkbox: its input is hidden, the label is what is clicked
+            else:
+                loc.click(timeout=8000)
         except PlaywrightError as e:
             first = next((line.strip() for line in str(e).splitlines() if line.strip()), "failed")[:240]
             if "intercepts pointer events" in str(e):
