@@ -221,8 +221,7 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         state.pending_blocks.clear()
         state.ui.status(f"[context] {context_status(messages)}")
         if text_used := usage.line(usage.since(mark)):
-            usage.log.info("%s", text_used)
-            state.ui.status(f"[{text_used}]")
+            state.ui.status(f"[{text_used}]")  # also in the log, through the UI
         return True
     except KeyboardInterrupt:
         state.ui.message("[interrupted]")

@@ -121,7 +121,11 @@ self-protection and the subprocess block still apply; Ctrl+C stops it. AGENT_MAX
 
 Token usage: coding_agent.usage adds up what the API reports for every model call (agent, compact, memory) and
 estimates what each tool's results added: mark = usage.snapshot(); session.send(...); usage.since(mark).
-After each instruction the agent shows "[tokens: ... in, ... out]" and logs it (logger coding_agent.usage).
+After each instruction the agent shows "[tokens: ... in, ... out]".
+
+Logs: everything the agent shows (tool calls and results, changes, warnings, errors, questions, token usage) is also written to
+MEMORY_HOME/<project>/agent.log (about 2 MB at most) through the logger coding_agent.ui. AGENT_LOG_LEVEL=DEBUG adds the model's text;
+AGENT_LOG=off writes no file. File contents and typed answers are never logged.
 
 Context management (long sessions): the agent tracks how much of the model's context window
 the conversation uses and prints it after each instruction ("[context] 84k / 200k tokens").

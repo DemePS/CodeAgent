@@ -13,12 +13,10 @@ tool adds to the conversation.
 from __future__ import annotations
 
 import copy
-import logging
 import threading
 
 from .config import CHARS_PER_TOKEN
 
-log = logging.getLogger("coding_agent.usage")
 _lock = threading.Lock()
 _FIELDS = ("input", "output", "cache_read", "cache_write", "calls")
 _calls: dict[str, dict[str, int]] = {}  # kind -> totals
