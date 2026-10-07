@@ -70,6 +70,7 @@ def test_the_model_text_is_only_logged_at_debug_and_the_file_can_be_switched_off
     open_in(tmp_path, monkeypatch, AGENT_LOG_LEVEL="DEBUG")
     state.ui.assistant_start(); state.ui.assistant_text("hello "); state.ui.assistant_text("there"); state.ui.assistant_end()
     assert "assistant: hello there" in log_file().read_text(encoding="utf-8")
+    logs.attach(None)                                                                 # close the file: Windows cannot delete an open one
     log_file().unlink()
     open_in(tmp_path, monkeypatch, AGENT_LOG="off")
     state.ui.status("x")
