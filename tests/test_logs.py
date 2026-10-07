@@ -31,14 +31,14 @@ class Recorder(UI):
         self.calls.append(("tool_result", name))
 
 
-def open_in(tmp_path, monkeypatch, **env):
+def open_in(tmp_path, monkeypatch, project="proj", **env):
     for k, v in env.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "memory")
     monkeypatch.setenv("AGENT_CLEANUP", "off")
     ui = Recorder()
-    (tmp_path / "proj").mkdir(exist_ok=True)
-    session.open_project(tmp_path / "proj", ui=ui)
+    (tmp_path / project).mkdir(exist_ok=True)
+    session.open_project(tmp_path / project, ui=ui)
     return ui
 
 
@@ -70,8 +70,6 @@ def test_the_model_text_is_only_logged_at_debug_and_the_file_can_be_switched_off
     open_in(tmp_path, monkeypatch, AGENT_LOG_LEVEL="DEBUG")
     state.ui.assistant_start(); state.ui.assistant_text("hello "); state.ui.assistant_text("there"); state.ui.assistant_end()
     assert "assistant: hello there" in log_file().read_text(encoding="utf-8")
-    logs.attach(None)                                                                 # close the file: Windows cannot delete an open one
-    log_file().unlink()
-    open_in(tmp_path, monkeypatch, AGENT_LOG="off")
-    state.ui.status("x")
-    assert not log_file().exists()
+    open_in(tmp_path, monkeypatch, project="quiet", AGENT_LOG="off")                  # another project, so no file is deleted (Windows cannot
+    state.ui.status("x")                                                              # delete one that is open)
+    assert not log_file().exists() and log_file().parent.name.startswith("quiet-")
