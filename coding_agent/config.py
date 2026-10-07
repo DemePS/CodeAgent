@@ -17,7 +17,11 @@ load_dotenv(find_dotenv(usecwd=True))
 load_dotenv((Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") else Path.home()) / ".coding-agent" / ".env")
 
 
-DEFAULT_MODEL = "claude-sonnet-5-5"
+DEFAULT_MODEL = "claude-sonnet-5"
+DEFAULT_EFFORT = "medium"   # how much the model thinks and writes (CODEAGENT_EFFORT)
+DEFAULT_THINKING = "off"    # thinking before the answer (CODEAGENT_THINKING)
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+THINKING_MODES = ("adaptive", "between_tools", "disabled")
 
 # What a host application sets while it runs (a Settings screen), see configure(): it wins over the
 # environment. Kept in this process only, never in os.environ, so the programs the agent starts do not
@@ -27,13 +31,13 @@ _overrides: dict[str, str] = {}
 _clients: dict[tuple, Anthropic] = {}
 
 
-def configure(api_key: str | None = None, model: str | None = None) -> None:
+def configure(api_key: str | None = None, model: str | None = None, effort: str | None = None) -> None:
     """Use this Anthropic API key and / or model from now on, in every later call (None leaves a setting as
     it is, "" removes it). A key given here selects Anthropic's own API even when a Foundry endpoint is set in
     the environment: the person typed it, so it wins. The model applies on Anthropic's API only (on Foundry a
-    model is a deployment name)."""
+    model is a deployment name). `effort` is the thinking effort (see get_effort(); "default" sends none)."""
     with _lock:
-        for name, value in (("api_key", api_key), ("model", model)):
+        for name, value in (("api_key", api_key), ("model", model), ("effort", effort)):
             if value is None:
                 continue
             value = value.strip()
@@ -139,6 +143,56 @@ def get_model() -> str:
     if uses_anthropic_api():
         return _overrides.get("model") or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
     return os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT") or DEFAULT_MODEL
+
+
+class SettingError(ValueError):
+    """A thinking or effort setting that cannot be used: the message says what is allowed, and is meant for the person."""
+
+
+def get_effort() -> str | None:
+    """How much the model thinks and writes: configure(effort=...), else CODEAGENT_EFFORT, else DEFAULT_EFFORT. One of
+    EFFORT_LEVELS, or None for "default" (nothing is sent: the API's own default applies). Case and spaces are ignored.
+    Read when needed, never at import."""
+    value = (_overrides.get("effort") or os.environ.get("CODEAGENT_EFFORT") or DEFAULT_EFFORT).strip().lower()
+    if value == "default":
+        return None
+    if value not in EFFORT_LEVELS:
+        raise SettingError(f"CODEAGENT_EFFORT must be one of {', '.join(EFFORT_LEVELS)} or default (got {value!r}).")
+    return value
+
+
+def get_thinking() -> str | None:
+    """Thinking before the answer: CODEAGENT_THINKING, else DEFAULT_THINKING. One of THINKING_MODES, or None when no
+    thinking field must be sent. "off" is the lowest setting the model accepts, decided from get_model(): none for
+    claude-fable-* (its thinking cannot be turned off), "between_tools" for claude-sonnet-5-5 (it answers 400 to
+    disabled), else "disabled". On Foundry get_model() is a deployment name, so "off" may guess wrong: name
+    between_tools or disabled yourself then."""
+    value = (os.environ.get("CODEAGENT_THINKING") or DEFAULT_THINKING).strip().lower()
+    if value == "off":
+        model = get_model().lower()
+        if "fable" in model:
+            return None
+        return "between_tools" if "sonnet-5-5" in model else "disabled"
+    if value not in THINKING_MODES:
+        raise SettingError(f"CODEAGENT_THINKING must be one of off, {', '.join(THINKING_MODES)} (got {value!r}).")
+    return value
+
+
+def thinking_options() -> dict:
+    """The request fields for the agent's calls: {"thinking": {"type": mode}} and {"output_config": {"effort": level}}, each
+    left out when it is None. claude-haiku-* has no effort parameter, so none is sent for it."""
+    mode, effort = get_thinking(), get_effort()
+    if "haiku" in get_model().lower():
+        effort = None
+    if mode == "between_tools" and effort in ("xhigh", "max"):
+        raise SettingError(f"Thinking between_tools does not work with effort {effort} (the API answers 400): "
+                           "set CODEAGENT_EFFORT to high or lower, or CODEAGENT_THINKING to adaptive.")
+    options: dict = {}
+    if mode is not None:
+        options["thinking"] = {"type": mode}
+    if effort is not None:
+        options["output_config"] = {"effort": effort}
+    return options
 
 
 def get_memory_model() -> str:

@@ -7,7 +7,7 @@ import re
 
 import anthropic
 
-from .config import current_api_key, get_model, key_location, model_setting, uses_anthropic_api
+from .config import SettingError, current_api_key, get_model, key_location, model_setting, uses_anthropic_api
 
 _KEY_PATTERN = re.compile(r"sk-ant-[A-Za-z0-9_\-]{6,}")
 
@@ -44,6 +44,8 @@ def root_cause(error: BaseException) -> str:
 
 def describe(error: BaseException) -> str | None:
     """Explain a failed call to Claude; None if the error is not about reaching Claude."""
+    if isinstance(error, SettingError):  # CODEAGENT_THINKING / CODEAGENT_EFFORT: the message is already meant for the person
+        return str(error)
     if isinstance(error, anthropic.APIStatusError):
         code, detail = error.status_code, redact(str(error.message))[:300]
         if code in (401, 403):
@@ -57,7 +59,7 @@ def describe(error: BaseException) -> str | None:
         if code == 404:
             if uses_anthropic_api():
                 return (f"Not found (HTTP 404): no model named '{get_model()}' on {endpoint()}. Check {model_setting()} "
-                        f"(a model ID such as claude-sonnet-5-5). Details: {detail}")
+                        f"(a model ID such as claude-sonnet-5). Details: {detail}")
             return (f"Not found (HTTP 404): no deployment named '{get_model()}' at {endpoint()}. Check "
                     "ANTHROPIC_FOUNDRY_DEPLOYMENT (the deployment name in Foundry) and that the endpoint "
                     f"ends with /anthropic. Details: {detail}")

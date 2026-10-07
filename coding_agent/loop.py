@@ -6,7 +6,7 @@ import threading
 import anthropic
 
 from . import state, usage
-from .config import MAX_STEPS, MAX_TOKENS, get_model
+from .config import MAX_STEPS, MAX_TOKENS, get_model, thinking_options
 from .context import (
     clear_old_tool_results,
     compact,
@@ -101,8 +101,8 @@ def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: 
         max_tokens=max_tokens,
         system=(state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace),
         tools=active_tools(),
-        thinking={"type": "adaptive"},
         messages=messages,
+        **thinking_options(),
     ) as stream:
         call.stream = stream
         for event in stream:
