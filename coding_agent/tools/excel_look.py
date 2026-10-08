@@ -18,7 +18,7 @@ from pathlib import Path
 
 from .. import backups, state
 from ..common import ToolError, display, is_protected, rel_name
-from ..config import EXCEL_VIEW_MAX_CELLS, MAX_IMAGE_BYTES, PDF_MAX_VISUAL_PAGES
+from ..config import EXCEL_VIEW_MAX_CELLS, MAX_IMAGE_BYTES, PDF_MAX_VISUAL_PAGES, uses_deepseek
 from .documents import (
     excel_backend,
     excel_path,
@@ -82,6 +82,8 @@ def pdf_block(data: bytes, title: str) -> dict:
 
     from pypdf import PdfReader, PdfWriter
 
+    if uses_deepseek():
+        raise ToolError("The sheet could not be shown: DeepSeek does not accept PDF pages as documents.")
     reader = PdfReader(io.BytesIO(data))
     if len(reader.pages) > PDF_MAX_VISUAL_PAGES:  # the first pages only
         writer = PdfWriter()

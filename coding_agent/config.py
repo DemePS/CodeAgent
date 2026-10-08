@@ -18,6 +18,9 @@ load_dotenv((Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") els
 
 
 DEFAULT_MODEL = "claude-sonnet-5"
+# DeepSeek's Anthropic-compatible API (DEEPSEEK_API_KEY): same client, another base URL and model.
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
+DEEPSEEK_MODEL = "deepseek-flash"
 DEFAULT_EFFORT = "medium"   # how much the model thinks and writes (CODEAGENT_EFFORT)
 DEFAULT_THINKING = "off"    # thinking before the answer (CODEAGENT_THINKING)
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
@@ -54,23 +57,47 @@ def clear() -> None:
         _clients.clear()
 
 
+def _deepseek_key() -> str | None:
+    """DEEPSEEK_API_KEY, when DeepSeek is the service in use: CODEAGENT_PROVIDER=deepseek, or no other service is set up
+    (no key given to configure(), no Foundry endpoint, no ANTHROPIC_API_KEY: those keep their priority)."""
+    key = os.environ.get("DEEPSEEK_API_KEY") or None
+    if not key or _overrides.get("api_key"):
+        return None
+    if (os.environ.get("CODEAGENT_PROVIDER") or "").strip().lower() == "deepseek":
+        return key
+    if os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") or os.environ.get("ANTHROPIC_API_KEY"):
+        return None
+    return key
+
+
 def current_api_key() -> str | None:
-    """The Anthropic API key in use: the one given to configure(), else ANTHROPIC_API_KEY."""
-    return _overrides.get("api_key") or os.environ.get("ANTHROPIC_API_KEY") or None
+    """The API key in use: the one given to configure(), else DEEPSEEK_API_KEY (when DeepSeek is in use), else ANTHROPIC_API_KEY."""
+    return _overrides.get("api_key") or _deepseek_key() or os.environ.get("ANTHROPIC_API_KEY") or None
 
 
 def uses_anthropic_api() -> bool:
-    """Anthropic's own API: a key given to configure(), or ANTHROPIC_API_KEY when no Foundry endpoint is set.
+    """A service reached with an API key through the Anthropic client: Anthropic's own API (a key given to configure(), or
+    ANTHROPIC_API_KEY when no Foundry endpoint is set) or DeepSeek's (see uses_deepseek()).
 
     A Foundry setup from the environment stays on Foundry, even with an ANTHROPIC_API_KEY set for other tools.
     """
-    if _overrides.get("api_key"):
+    if _overrides.get("api_key") or _deepseek_key():
         return True
     return not os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") and bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
+def uses_deepseek() -> bool:
+    """DeepSeek's Anthropic-compatible API: DEEPSEEK_API_KEY in use, or an ANTHROPIC_BASE_URL on deepseek.com. It does not
+    take the web_search tool, cache_control or PDF `document` blocks (see active_tools, the loop and read_pdf)."""
+    if _deepseek_key():
+        return True
+    return uses_anthropic_api() and "deepseek.com" in (os.environ.get("ANTHROPIC_BASE_URL") or "").lower()
+
+
 def active_provider() -> str | None:
-    """"anthropic", "foundry", or None when neither is set up."""
+    """"anthropic", "deepseek", "foundry", or None when none is set up."""
+    if uses_deepseek():
+        return "deepseek"
     if uses_anthropic_api():
         return "anthropic"
     return "foundry" if os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") else None
@@ -78,7 +105,9 @@ def active_provider() -> str | None:
 
 def key_location() -> str:
     """Where the key in use comes from, for messages: "the API key saved in Settings" or the variable."""
-    return "the API key saved in Settings" if _overrides.get("api_key") else "the API key (ANTHROPIC_API_KEY)"
+    if _overrides.get("api_key"):
+        return "the API key saved in Settings"
+    return "the API key (DEEPSEEK_API_KEY)" if _deepseek_key() else "the API key (ANTHROPIC_API_KEY)"
 
 
 def model_setting() -> str:
@@ -92,13 +121,13 @@ def make_anthropic_client(api_key: str, **options) -> Anthropic:
 
 def _client_key() -> tuple:
     if uses_anthropic_api():
-        return ("anthropic", current_api_key())
+        return ("anthropic", current_api_key(), bool(_deepseek_key()))
     return ("foundry", os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT"), os.environ.get("ANTHROPIC_FOUNDRY_API_KEY"))
 
 
 def _build_client() -> Anthropic:
     if uses_anthropic_api():
-        return make_anthropic_client(current_api_key())
+        return make_anthropic_client(current_api_key(), **({"base_url": DEEPSEEK_BASE_URL} if _deepseek_key() else {}))
     api_key = os.environ.get("ANTHROPIC_FOUNDRY_API_KEY")
     if api_key:
         return AnthropicFoundry(
@@ -141,7 +170,7 @@ _get_client.cache_clear = _clients.clear  # callers that want a fresh client (te
 # Read when needed, never copied at import: configure() can change it while the program runs.
 def get_model() -> str:
     if uses_anthropic_api():
-        return _overrides.get("model") or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
+        return _overrides.get("model") or os.environ.get("ANTHROPIC_MODEL") or (DEEPSEEK_MODEL if _deepseek_key() else DEFAULT_MODEL)
     return os.environ.get("ANTHROPIC_FOUNDRY_DEPLOYMENT") or DEFAULT_MODEL
 
 

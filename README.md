@@ -57,6 +57,18 @@ setting (none is sent). A value that is not allowed is explained, never replaced
 A Foundry endpoint always wins: with `ANTHROPIC_FOUNDRY_ENDPOINT` set, the agent uses Foundry even if
 `ANTHROPIC_API_KEY` is also set.
 
+### DeepSeek instead of Claude
+
+DeepSeek offers an Anthropic-compatible API (`https://api.deepseek.com/anthropic`), so the same client and the same tools work with a
+DeepSeek model. Set `DEEPSEEK_API_KEY` (and nothing else: no `ANTHROPIC_API_KEY`, no Foundry endpoint), or `CODEAGENT_PROVIDER=deepseek` to
+choose it over them. The model is `deepseek-flash` by default; `ANTHROPIC_MODEL=deepseek-v4-pro` selects the larger one. Setting
+`ANTHROPIC_API_KEY` to a DeepSeek key with `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` also works and is recognised.
+`coding-agent --check` tests the connection.
+
+What DeepSeek does not take, and what the agent does about it: no `web_search` tool (it is left out, `Web search: off`); no `cache_control`
+(DeepSeek caches by itself); no PDF `document` blocks, so `read_pdf` works in `text` mode only (a scan cannot be read); thinking is sent as
+`disabled` for `CODEAGENT_THINKING=off`. Set `AGENT_CONTEXT_WINDOW` to the model's real window (the default is 200,000 tokens).
+
 ## Use it in the terminal
 
 ```bash
@@ -120,7 +132,7 @@ tool cannot be replaced, registering the same handler twice does nothing, and a 
 ## Tools
 
 Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
-`delete_folder`, `change_directory`), documents (`read_pdf`, `view_image`, `read_excel`,
+`delete_folder`, `change_directory`), documents (`read_pdf`, `search_pdf`, `view_image`, `read_excel`,
 `edit_excel`, `view_excel`, `format_excel`, `add_chart`, `add_table`, `add_pivot_table`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
 `download_file`, `clone_repo`, `web_search`, `screenshot_page`, `web_open`, `web_click`, `web_type`, `web_back`, `web_page`, `web_look`, `web_sign_in`, `web_close` (`uv sync --extra browser`), `ask_human`,
 `load_skill`.

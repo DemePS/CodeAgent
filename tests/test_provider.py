@@ -73,3 +73,64 @@ def test_access_denied_names_the_right_key(env):
     response = httpx.Response(401, request=request)
     error = anthropic.AuthenticationError("invalid x-api-key", response=response, body=None)
     assert "ANTHROPIC_API_KEY" in errors.describe(error)
+
+
+# --- DeepSeek: the Anthropic client on DeepSeek's base URL -------------------------------------------------------------------
+
+@pytest.fixture
+def deepseek_env(env):
+    for name in ("DEEPSEEK_API_KEY", "CODEAGENT_PROVIDER", "ANTHROPIC_BASE_URL"):
+        env.delenv(name, raising=False)
+    return env
+
+
+def test_a_deepseek_key_alone_selects_deepseek(deepseek_env):
+    deepseek_env.setenv("DEEPSEEK_API_KEY", "ds-key")
+    assert config.uses_deepseek() and config.uses_anthropic_api() and config.active_provider() == "deepseek"
+    client = config._get_client()
+    assert type(client) is anthropic.Anthropic and client.api_key == "ds-key"
+    assert str(client.base_url).startswith(config.DEEPSEEK_BASE_URL)
+    assert config.get_model() == "deepseek-flash"
+    assert "DeepSeek" in errors.connection_summary() and "DEEPSEEK_API_KEY" in config.key_location()
+
+
+def test_other_services_keep_their_priority_over_a_deepseek_key(deepseek_env):
+    deepseek_env.setenv("DEEPSEEK_API_KEY", "ds-key")
+    deepseek_env.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+    assert config.active_provider() == "anthropic" and not config.uses_deepseek()
+    assert config._get_client().api_key == "anthropic-key" and config.get_model() == "claude-sonnet-5"
+    config.clear()
+    deepseek_env.delenv("ANTHROPIC_API_KEY")
+    deepseek_env.setenv("ANTHROPIC_FOUNDRY_ENDPOINT", FOUNDRY)
+    assert config.active_provider() == "foundry"
+
+
+def test_the_provider_setting_chooses_deepseek_over_the_others(deepseek_env):
+    deepseek_env.setenv("DEEPSEEK_API_KEY", "ds-key")
+    deepseek_env.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+    deepseek_env.setenv("ANTHROPIC_FOUNDRY_ENDPOINT", FOUNDRY)
+    deepseek_env.setenv("CODEAGENT_PROVIDER", "deepseek")
+    assert config.active_provider() == "deepseek" and config.current_api_key() == "ds-key"
+
+
+def test_a_key_given_to_configure_wins_over_deepseek(deepseek_env):
+    deepseek_env.setenv("DEEPSEEK_API_KEY", "ds-key")
+    config.configure(api_key="typed-key")
+    assert config.active_provider() == "anthropic" and config.current_api_key() == "typed-key"
+
+
+def test_a_base_url_on_deepseek_com_counts_as_deepseek(deepseek_env):
+    deepseek_env.setenv("ANTHROPIC_API_KEY", "ds-key")
+    deepseek_env.setenv("ANTHROPIC_BASE_URL", config.DEEPSEEK_BASE_URL)
+    assert config.uses_deepseek() and config.active_provider() == "deepseek"
+    assert str(config._get_client().base_url).startswith(config.DEEPSEEK_BASE_URL)
+    assert config.get_model() == "claude-sonnet-5"                  # DeepSeek maps the name itself (to deepseek-flash)
+
+
+def test_deepseek_gets_no_web_search_tool_and_no_cache_control(deepseek_env):
+    from coding_agent import loop, state
+    state.tool_names = None
+    assert any(t["name"] == "web_search" for t in loop.active_tools()) or config.WEB_SEARCH == "off"
+    assert loop.caching_options() == {"cache_control": {"type": "ephemeral"}}
+    deepseek_env.setenv("DEEPSEEK_API_KEY", "ds-key")
+    assert all(t["name"] != "web_search" for t in loop.active_tools()) and loop.caching_options() == {}

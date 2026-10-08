@@ -4,6 +4,7 @@ import base64
 import io
 import os
 import re
+import unicodedata
 from pathlib import Path
 
 from openpyxl.utils import column_index_from_string, get_column_letter
@@ -27,6 +28,7 @@ from ..config import (
     MAX_IMAGE_BYTES,
     MAX_TOOL_OUTPUT_CHARS,
     PDF_MAX_VISUAL_PAGES,
+    uses_deepseek,
 )
 
 # --- Seeing pages and images --------------------------------------------------------------------------
@@ -92,6 +94,9 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
             parts.append(f"--- page {n} ---\n{text or '(no text layer: a scan or an image -- use mode visual)'}")
         return truncate(label + "\n" + "\n".join(parts))
 
+    if uses_deepseek():
+        raise ToolError("Visual mode needs PDF pages sent as documents, which DeepSeek does not accept: use mode='text'. "
+                        "A page without a text layer (a scan) cannot be read with this model.")
     if len(selected) > PDF_MAX_VISUAL_PAGES:
         raise ToolError(f"{path} has {count} pages; read at most {PDF_MAX_VISUAL_PAGES} at a time in visual mode "
                         f"(e.g. pages='1-{PDF_MAX_VISUAL_PAGES}'), or use mode='text' to skim all of it first.")
@@ -114,6 +119,108 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
          "source": {"type": "base64", "media_type": "application/pdf",
                     "data": base64.b64encode(data).decode("ascii")}},
     ]
+
+
+# The text of PDFs searched recently, kept while their file does not change: extracting a long book takes seconds, and the agent
+# searches the same PDF many times (one term after another).
+_PDF_TEXT_CACHE: dict[Path, tuple[tuple[int, int], list[str]]] = {}
+_PDF_TEXT_CACHE_SIZE = 4
+SEARCH_PDF_DEFAULT_RESULTS = 20
+SEARCH_PDF_MAX_RESULTS = 100
+SEARCH_PDF_SNIPPET_CHARS = 100  # characters kept on each side of a match
+
+
+def pdf_page_texts(p: Path) -> list[str]:
+    """The extracted text of every page of a PDF (empty for a page without a text layer), cached while the file is unchanged."""
+    stat = p.stat()
+    signature = (stat.st_mtime_ns, stat.st_size)
+    cached = _PDF_TEXT_CACHE.get(p)
+    if cached and cached[0] == signature:
+        return cached[1]
+    try:
+        from pypdf import PdfReader
+        from pypdf.errors import PdfReadError
+    except ImportError:
+        raise ToolError("pypdf is not installed in the agent's environment (uv sync).")
+    try:
+        reader = PdfReader(str(p))
+        if reader.is_encrypted and not reader.decrypt(""):
+            raise ToolError(f"{display(p)} is password-protected.")
+        texts = []
+        for page in reader.pages:
+            try:
+                texts.append(" ".join((page.extract_text() or "").split()))
+            except Exception:  # one unreadable page must not stop the search
+                texts.append("")
+    except PdfReadError as e:
+        raise ToolError(f"{display(p)} is not a readable PDF: {e}")
+    while len(_PDF_TEXT_CACHE) >= _PDF_TEXT_CACHE_SIZE:
+        _PDF_TEXT_CACHE.pop(next(iter(_PDF_TEXT_CACHE)))
+    _PDF_TEXT_CACHE[p] = (signature, texts)
+    return texts
+
+
+def _fold(text: str) -> str:
+    """Lower case without accents, character for character (so a match position in the folded text is the same in the original)."""
+    out = []
+    for ch in text:
+        base = "".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c))
+        out.append(base.lower() if len(base) == 1 else ch.lower())
+    return "".join(out)
+
+
+def tool_search_pdf(path: str, query: str, regex: bool = False, pages: str | None = None,
+                    max_results: int = SEARCH_PDF_DEFAULT_RESULTS) -> str:
+    """Page numbers and a short snippet for every place a PDF's text matches: the agent then opens only those pages with read_pdf."""
+    if not query or not query.strip():
+        raise ToolError("query is empty.")
+    p = resolve_readable(path)
+    if not p.is_file():
+        raise ToolError(f"File not found: {path}")
+    texts = pdf_page_texts(p)
+    selected = parse_pages(pages, len(texts))
+    max_results = max(1, min(int(max_results or SEARCH_PDF_DEFAULT_RESULTS), SEARCH_PDF_MAX_RESULTS))
+    if regex:
+        try:
+            pattern = re.compile(query, re.IGNORECASE)
+        except re.error as e:
+            raise ToolError(f"Invalid regular expression {query!r}: {e}")
+        prepare = lambda text: text  # noqa: E731 -- the pattern sees the text as it is (case ignored)
+    else:
+        pattern = re.compile(re.escape(_fold(" ".join(query.split()))))
+        prepare = _fold
+    hits: list[tuple[int, str]] = []
+    pages_with_hits: set[int] = set()
+    total = 0
+    without_text = [n for n in selected if not texts[n - 1]]
+    for n in selected:
+        text = texts[n - 1]
+        if not text:
+            continue
+        shown = prepare(text)
+        for match in pattern.finditer(shown):
+            if match.end() == match.start():
+                continue
+            total += 1
+            pages_with_hits.add(n)
+            if len(hits) < max_results:
+                start, end = max(0, match.start() - SEARCH_PDF_SNIPPET_CHARS), min(len(text), match.end() + SEARCH_PDF_SNIPPET_CHARS)
+                snippet = text[start:end]  # from the original text: the folded one has the same length
+                hits.append((n, ("..." if start else "") + snippet + ("..." if end < len(text) else "")))
+    state.ui.status(f"[pdf] {rel_name(p)} search {query!r}: {total} match(es)")
+    scope = f"pages {pages}" if pages else f"{len(texts)} page(s)"
+    lines = [f"{display(p)}: {len(texts)} page(s); {total} match(es) for {query!r} on {len(pages_with_hits)} page(s) ({scope} searched)"]
+    lines += [f"page {n}: {snippet}" for n, snippet in hits]
+    if total > len(hits):
+        lines.append(f"... {total - len(hits)} more match(es) not shown: narrow the query or the pages, or raise max_results (at most {SEARCH_PDF_MAX_RESULTS}).")
+    if without_text:
+        shown_pages = ", ".join(map(str, without_text[:20])) + (" ..." if len(without_text) > 20 else "")
+        lines.append(f"{len(without_text)} page(s) have no text layer (scans or images) and were not searched: {shown_pages}.")
+    if total:
+        lines.append("Open the pages that matter with read_pdf (pages='N').")
+    elif not without_text:
+        lines.append("No match: the text may be split by line breaks or hyphens, so try a shorter or different word.")
+    return truncate("\n".join(lines))
 
 
 def excel_path(path: str, must_exist: bool = True, readable: bool = False) -> Path:

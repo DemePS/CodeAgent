@@ -12,6 +12,7 @@ from ..tools.documents import (
     tool_edit_excel,
     tool_read_excel,
     tool_read_pdf,
+    tool_search_pdf,
     tool_restore_backup,
     tool_view_image,
 )
@@ -64,6 +65,7 @@ TOOL_HANDLERS = {
     "web_set_token": tool_web_set_token,
     "view_image": tool_view_image,
     "read_pdf": tool_read_pdf,
+    "search_pdf": tool_search_pdf,
     "read_excel": tool_read_excel,
     "edit_excel": tool_edit_excel,
     "view_excel": tool_view_excel,

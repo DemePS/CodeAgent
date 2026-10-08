@@ -52,9 +52,9 @@ def steps():
         return call
 
     def as_the_agent():
-        from .loop import active_tools
+        from .loop import active_tools, caching_options
         from .prompts import SYSTEM_PROMPT
-        streamed(cache_control={"type": "ephemeral"}, **thinking_options(),
+        streamed(**caching_options(), **thinking_options(),
                  system=(state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace),
                  tools=active_tools())()
 

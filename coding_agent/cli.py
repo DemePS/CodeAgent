@@ -7,7 +7,7 @@ from pathlib import Path
 import anthropic
 
 from . import history, session, state
-from .config import CLEAR_AT, COMPACT_AT, UV, WEB_SEARCH, _get_client
+from .config import CLEAR_AT, COMPACT_AT, UV, WEB_SEARCH, _get_client, uses_deepseek
 from .errors import connection_summary
 from .context import compact_between_instructions, context_status, reset_usage
 from .conversation import save_conversation
@@ -85,7 +85,7 @@ def main() -> None:
         raise SystemExit(str(e))
     print(f"Claude: {connection_summary()}")
     print(locations_report(verbose=False))
-    print(f"Web search: {'off' if WEB_SEARCH == 'off' else 'web_search_' + WEB_SEARCH}")
+    print(f"Web search: {'off' if WEB_SEARCH == 'off' or uses_deepseek() else 'web_search_' + WEB_SEARCH}")
 
     try:
         interact(client, session.messages, args)

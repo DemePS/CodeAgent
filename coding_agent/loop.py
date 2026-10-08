@@ -6,7 +6,7 @@ import threading
 import anthropic
 
 from . import state, usage
-from .config import MAX_STEPS, MAX_TOKENS, get_model, thinking_options
+from .config import MAX_STEPS, MAX_TOKENS, get_model, thinking_options, uses_deepseek
 from .context import (
     clear_old_tool_results,
     compact,
@@ -34,11 +34,18 @@ def check_stop() -> None:
         raise KeyboardInterrupt
 
 
+def caching_options() -> dict:
+    """cache_control on the request: the growing prefix is cached, so each loop step re-reads it cheaply. DeepSeek caches by itself."""
+    return {} if uses_deepseek() else {"cache_control": {"type": "ephemeral"}}
+
+
 def active_tools() -> list[dict]:
-    """The tool definitions sent to Claude: all of them, or the subset the front end enabled."""
-    if state.tool_names is None:
-        return TOOLS
-    return [t for t in TOOLS if t["name"] in state.tool_names]
+    """The tool definitions sent to Claude: all of them, or the subset the front end enabled. DeepSeek has no server-side
+    web_search: it is left out there."""
+    tools = TOOLS if state.tool_names is None else [t for t in TOOLS if t["name"] in state.tool_names]
+    if uses_deepseek():
+        tools = [t for t in tools if t["name"] != "web_search"]
+    return tools
 
 
 WAIT_NOTICE_SECONDS = 30  # say so while Claude has not started answering (the SDK retries timeouts quietly)
@@ -96,7 +103,7 @@ def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int
 def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: _Call):
     ui = state.ui
     with client.messages.stream(
-        cache_control={"type": "ephemeral"},  # cache the growing prefix: each loop step re-reads it cheaply
+        **caching_options(),
         model=get_model(),
         max_tokens=max_tokens,
         system=(state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace),

@@ -258,3 +258,60 @@ def test_applications_can_protect_formulas_and_the_columns(workspace, ui, tmp_pa
     ui.answers = ["yes"]
     documents.tool_edit_excel("q.xlsx", [{"sheet": "Q", "cell": "C2", "value": "Yes"}])  # a value in its column
     assert openpyxl.load_workbook(workspace / "q.xlsx")["Q"]["C2"].value == "Yes"
+
+
+def test_visual_pdf_reading_is_refused_on_deepseek_but_text_mode_works(invoice, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-key")
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_FOUNDRY_ENDPOINT", "CODEAGENT_PROVIDER"):
+        monkeypatch.delenv(name, raising=False)
+    with pytest.raises(ToolError, match="mode='text'"):
+        documents.tool_read_pdf("invoice.pdf", mode="visual")
+    assert "Total 642.00 EUR" in documents.tool_read_pdf("invoice.pdf", mode="text")
+
+
+def test_search_pdf_gives_the_pages_and_a_snippet_of_every_match(invoice):
+    out = documents.tool_search_pdf("invoice.pdf", "total")
+    assert "1 match(es)" in out and "page 2:" in out and "Total 642.00 EUR" in out
+    assert "page 1:" not in out and "read_pdf" in out
+
+
+def test_search_pdf_ignores_case_and_line_breaks(workspace):
+    make_pdf(workspace / "fr.pdf", ["Le contrat de Renassur", "assurance   habitation"])
+    assert "page 1:" in documents.tool_search_pdf("fr.pdf", "RENASSUR")
+    assert "page 2:" in documents.tool_search_pdf("fr.pdf", "assurance habitation")      # the spaces count as one
+
+
+def test_the_search_folds_accents_without_changing_the_length():
+    folded = documents._fold("Sénégalaise ÉTÉ œuvre ﬁn")
+    assert folded.startswith("senegalaise ete ") and len(folded) == len("Sénégalaise ÉTÉ œuvre ﬁn")
+
+
+def test_search_pdf_regex_pages_and_limits(workspace):
+    make_pdf(workspace / "n.pdf", [f"Article {n} text" for n in range(1, 31)])
+    out = documents.tool_search_pdf("n.pdf", r"Article \d+", regex=True)
+    assert "30 match(es)" in out and "page 20:" in out and "page 21:" not in out and "10 more match(es)" in out
+    assert "2 match(es)" in documents.tool_search_pdf("n.pdf", "article", pages="5-6")
+    assert "page 5:" in documents.tool_search_pdf("n.pdf", "Article 5 ")
+    with pytest.raises(ToolError, match="Invalid regular expression"):
+        documents.tool_search_pdf("n.pdf", "(", regex=True)
+    with pytest.raises(ToolError, match="empty"):
+        documents.tool_search_pdf("n.pdf", "  ")
+
+
+def test_search_pdf_says_when_nothing_matches_and_reads_the_text_once(invoice, monkeypatch):
+    assert "0 match(es)" in documents.tool_search_pdf("invoice.pdf", "zebra") and "No match" in documents.tool_search_pdf("invoice.pdf", "zebra")
+    documents._PDF_TEXT_CACHE.clear()
+    reads = []
+    real = documents.pdf_page_texts.__wrapped__ if hasattr(documents.pdf_page_texts, "__wrapped__") else None
+    from pypdf import PdfReader
+    original = PdfReader.__init__
+    monkeypatch.setattr(PdfReader, "__init__", lambda self, *a, **k: (reads.append(1), original(self, *a, **k))[1])
+    documents.tool_search_pdf("invoice.pdf", "invoice")
+    documents.tool_search_pdf("invoice.pdf", "terms")
+    assert len(reads) == 1
+
+
+def test_search_pdf_lists_the_pages_without_a_text_layer(workspace):
+    make_pdf(workspace / "mixed.pdf", ["Some words", ""])
+    out = documents.tool_search_pdf("mixed.pdf", "words")
+    assert "page 1:" in out and "1 page(s) have no text layer" in out and "2" in out

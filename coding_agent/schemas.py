@@ -374,6 +374,27 @@ TOOLS = [
         },
     },
     {
+        "name": "search_pdf",
+        "description": (
+            "Search the text of a PDF for a word or phrase and get, for every match, its page number and a short snippet around it. "
+            "Use it to find where something is in a long PDF, then open only those pages with read_pdf (pages='N'): this is much "
+            "cheaper than reading the table of contents and many pages. The search ignores case and accents and treats line breaks "
+            "as spaces. It covers the text layer only: pages that are scans or images are listed as not searched (read them with "
+            "read_pdf in visual mode). A word split by a hyphen at the end of a line may be missed: search for part of the word."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "PDF path relative to the current directory."},
+                "query": {"type": "string", "description": "The word or phrase to find (or a regular expression with regex=true)."},
+                "regex": {"type": "boolean", "description": "Treat query as a regular expression (case ignored). Default false."},
+                "pages": {"type": "string", "description": "Only search these pages, e.g. '1-50' or '2,4,10-12' (default: all)."},
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Matches to list (default 20)."},
+            },
+            "required": ["path", "query"],
+        },
+    },
+    {
         "name": "read_excel",
         "description": (
             "Read an Excel workbook (.xlsx/.xlsm) from the workspace. Without sheet (and range), a "

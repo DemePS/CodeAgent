@@ -7,7 +7,7 @@ import re
 
 import anthropic
 
-from .config import SettingError, current_api_key, get_model, key_location, model_setting, uses_anthropic_api
+from .config import SettingError, current_api_key, get_model, key_location, model_setting, uses_anthropic_api, uses_deepseek
 
 _KEY_PATTERN = re.compile(r"sk-ant-[A-Za-z0-9_\-]{6,}")
 
@@ -21,6 +21,8 @@ def redact(text: str) -> str:
 
 
 def endpoint() -> str:
+    if uses_deepseek():
+        return "the DeepSeek API"
     if uses_anthropic_api():
         return "the Anthropic API"
     return os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") or "(ANTHROPIC_FOUNDRY_ENDPOINT is not set)"
