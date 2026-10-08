@@ -9,6 +9,7 @@ from . import state, usage
 from .config import (
     CHARS_PER_TOKEN,
     CLEAR_AT,
+    CLEAR_MIN_FREE,
     CLEARED_NOTE,
     COMPACT_AT,
     get_compact_model,
@@ -79,10 +80,10 @@ def is_tool_results(message: dict) -> bool:
             and any(b.get("type") == "tool_result" for b in message["content"]))
 
 
-def clear_old_tool_results(messages: list) -> int:
-    """Replace the output of older tool calls with a short note. Returns how many were cleared."""
+def _clearable(messages: list) -> list[dict]:
+    """The tool_result blocks clear_old_tool_results would replace: large or with an image, not among the latest ones."""
     result_messages = [m for m in messages if is_tool_results(m)]
-    cleared = 0
+    blocks = []
     for m in result_messages[:-KEEP_RECENT_RESULTS]:
         for b in m["content"]:
             content = b.get("content")
@@ -90,8 +91,21 @@ def clear_old_tool_results(messages: list) -> int:
                 continue
             has_image = isinstance(content, list) and any(c.get("type") in ("image", "document") for c in content)
             if has_image or (isinstance(content, str) and len(content) > 300):
-                b["content"] = CLEARED_NOTE
-                cleared += 1
+                blocks.append(b)
+    return blocks
+
+
+def clearable_tokens(messages: list) -> int:
+    """About how many tokens clear_old_tool_results would free now."""
+    return int(sum(history_chars([b]) for b in _clearable(messages)) / CHARS_PER_TOKEN)
+
+
+def clear_old_tool_results(messages: list) -> int:
+    """Replace the output of older tool calls with a short note. Returns how many were cleared."""
+    cleared = 0
+    for b in _clearable(messages):
+        b["content"] = CLEARED_NOTE
+        cleared += 1
     state.context["cleared"] += cleared
     return cleared
 
@@ -197,8 +211,13 @@ def compact_between_instructions(client: anthropic.Anthropic, messages: list) ->
 
 
 def manage_context(client: anthropic.Anthropic, messages: list) -> None:
-    """Before a model call: clear old tool outputs, then compact, when the history gets large."""
-    if estimate_tokens(messages) > CLEAR_AT * state.context_window:
+    """Before a model call: clear old tool outputs, then compact, when the history gets large.
+
+    Clearing edits earlier messages, so the API's cache of the conversation is lost from the first cleared output on and
+    the next call pays for the whole history again. So it happens only when it frees a good share of the window
+    (CLEAR_MIN_FREE), all at once: then the history stays well under the threshold for many calls, each one a cache hit."""
+    if (estimate_tokens(messages) > CLEAR_AT * state.context_window
+            and clearable_tokens(messages) >= CLEAR_MIN_FREE * state.context_window):
         cleared = clear_old_tool_results(messages)
         if cleared:
             state.ui.status(f"[context] cleared {cleared} old tool output(s) -> about "

@@ -6,7 +6,7 @@ import threading
 import anthropic
 
 from . import state, usage
-from .config import MAX_STEPS, MAX_TOKENS, get_model, thinking_options, uses_deepseek
+from .config import MAX_STEPS, MAX_TOKENS, get_cache_ttl, get_model, thinking_options, uses_deepseek
 from .context import (
     clear_old_tool_results,
     compact,
@@ -36,7 +36,18 @@ def check_stop() -> None:
 
 def caching_options() -> dict:
     """cache_control on the request: the growing prefix is cached, so each loop step re-reads it cheaply. DeepSeek caches by itself."""
-    return {} if uses_deepseek() else {"cache_control": {"type": "ephemeral"}}
+    if uses_deepseek():
+        return {}
+    ttl = get_cache_ttl()
+    return {"cache_control": {"type": "ephemeral", **({"ttl": ttl} if ttl != "5m" else {})}}
+
+
+def system_param() -> str | list[dict]:
+    """The system prompt, with its own cache point when caching is on: the tools and the system prompt stay cached even
+    when the conversation after them changes (a clearing, a compaction)."""
+    text = (state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace)
+    options = caching_options()
+    return [{"type": "text", "text": text, **options}] if options else text
 
 
 def active_tools() -> list[dict]:
@@ -106,7 +117,7 @@ def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: 
         **caching_options(),
         model=get_model(),
         max_tokens=max_tokens,
-        system=(state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace),
+        system=system_param(),
         tools=active_tools(),
         messages=messages,
         **thinking_options(),

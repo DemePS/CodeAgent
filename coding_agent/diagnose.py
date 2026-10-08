@@ -9,7 +9,6 @@ from __future__ import annotations
 import os
 import time
 
-from . import state
 from .config import SettingError, _get_client, get_model, thinking_options, uses_anthropic_api
 from .errors import connection_summary, describe
 
@@ -52,10 +51,8 @@ def steps():
         return call
 
     def as_the_agent():
-        from .loop import active_tools, caching_options
-        from .prompts import SYSTEM_PROMPT
-        streamed(**caching_options(), **thinking_options(),
-                 system=(state.system_prompt or SYSTEM_PROMPT).format(workspace=state.workspace),
+        from .loop import active_tools, caching_options, system_param
+        streamed(**caching_options(), **thinking_options(), system=system_param(),
                  tools=active_tools())()
 
     return [

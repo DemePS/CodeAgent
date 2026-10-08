@@ -224,6 +224,15 @@ def thinking_options() -> dict:
     return options
 
 
+def get_cache_ttl() -> str:
+    """How long the API keeps the cached conversation: "5m" (default) or "1h" (AGENT_CACHE_TTL). One hour costs more to write
+    (2x the input price instead of 1.25x) but survives the pauses between instructions that are longer than 5 minutes."""
+    value = (os.environ.get("AGENT_CACHE_TTL") or "5m").strip().lower()
+    if value not in ("5m", "1h"):
+        raise SettingError(f"AGENT_CACHE_TTL must be 5m or 1h (got {value!r}).")
+    return value
+
+
 def get_memory_model() -> str:
     return os.environ.get("AGENT_MEMORY_MODEL") or get_model()
 
@@ -310,7 +319,9 @@ MEMORY_EXIT_WAIT_SECONDS = 60
 
 # Context window management; see the "Context management" section below.
 DEFAULT_CONTEXT_WINDOW = int(os.environ.get("AGENT_CONTEXT_WINDOW") or 200_000)  # tokens, per deployment
-CLEAR_AT = 0.50    # above this share of the window, old tool outputs are cleared
+CLEAR_AT = 0.50    # above this share of the window, old tool outputs are cleared...
+CLEAR_MIN_FREE = 0.10  # ...but only when that frees at least this share of the window: each clearing edits the history,
+                       # so the cached conversation is lost from there; clearing a lot at once keeps it rare
 COMPACT_AT = 0.70  # above this share, the earlier conversation is replaced by a summary
 KEEP_RECENT_RESULTS = 4  # tool-result messages that are never cleared (the latest ones)
 CHARS_PER_TOKEN = 3.5  # rough, for estimating what was added since the last API call

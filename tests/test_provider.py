@@ -134,3 +134,14 @@ def test_deepseek_gets_no_web_search_tool_and_no_cache_control(deepseek_env):
     assert loop.caching_options() == {"cache_control": {"type": "ephemeral"}}
     deepseek_env.setenv("DEEPSEEK_API_KEY", "ds-key")
     assert all(t["name"] != "web_search" for t in loop.active_tools()) and loop.caching_options() == {}
+
+
+def test_the_cache_lifetime_setting(deepseek_env):
+    from coding_agent import loop
+    deepseek_env.delenv("AGENT_CACHE_TTL", raising=False)
+    assert loop.caching_options() == {"cache_control": {"type": "ephemeral"}}
+    deepseek_env.setenv("AGENT_CACHE_TTL", "1h")
+    assert loop.caching_options() == {"cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    deepseek_env.setenv("AGENT_CACHE_TTL", "2h")
+    with pytest.raises(config.SettingError, match="5m or 1h"):
+        loop.caching_options()

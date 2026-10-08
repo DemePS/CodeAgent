@@ -77,7 +77,7 @@ def test_session_with_tool_subset_and_custom_prompt(tmp_path, ui, claude, monkey
 
     first = fake.requests[0]
     assert {t["name"] for t in first["tools"]} == {"read_file", "ask_human"}
-    assert first["system"] == f"You fill spreadsheets in {project.resolve()}."
+    assert first["system"][0]["text"] == f"You fill spreadsheets in {project.resolve()}."  # with its own cache point
     first_message = [b["text"] for b in first["messages"][0]["content"]]
     assert first_message[0].startswith("<memory>") and not any(b.startswith("<skills>") for b in first_message)
     results = {r["tool_use_id"]: r for r in fake.requests[1]["messages"][-1]["content"]}
@@ -227,3 +227,44 @@ def test_the_request_carries_thinking_and_effort(tmp_path, ui, claude, monkeypat
     assert body["thinking"] == {"type": "adaptive"} and "output_config" not in body
     body = sent(CODEAGENT_EFFORT="low")
     assert body["output_config"] == {"effort": "low"}
+
+
+def test_old_tool_outputs_are_cleared_only_when_that_frees_a_good_share_of_the_window(workspace, monkeypatch):
+    """Each clearing loses the cached conversation from there on: it must be rare and large, not one output per call."""
+    from coding_agent import state
+    monkeypatch.setattr(context, "KEEP_RECENT_RESULTS", 1)
+    monkeypatch.setattr(state, "context_window", 10_000)
+    monkeypatch.setitem(state.context, "tokens", 6_000)          # above CLEAR_AT (50%)
+    monkeypatch.setitem(state.context, "chars", 0)
+
+    def history(size):
+        messages = [{"role": "user", "content": "go"}]
+        for i in range(3):
+            messages.append({"role": "assistant", "content": [{"type": "tool_use", "id": f"t{i}", "name": "read_file", "input": {}}]})
+            messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": f"t{i}", "content": "x" * size}]})
+        return messages
+
+    small = history(400)                                           # 2 old outputs, ~230 tokens: under 10% of the window
+    monkeypatch.setitem(state.context, "chars", context.history_chars(small))
+    context.manage_context(None, small)
+    assert small[2]["content"][0]["content"] == "x" * 400          # left alone: not worth losing the cache
+    big = history(4000)                                            # ~2,300 tokens to free: over 10%
+    monkeypatch.setitem(state.context, "chars", context.history_chars(big))
+    context.manage_context(None, big)
+    assert big[2]["content"][0]["content"] == config.CLEARED_NOTE and big[4]["content"][0]["content"] == config.CLEARED_NOTE
+    assert big[-1]["content"][0]["content"] == "x" * 4000          # the latest output stays
+
+
+def test_the_system_prompt_has_its_own_cache_point(workspace, monkeypatch):
+    from coding_agent import loop, state
+    monkeypatch.setattr(state, "system_prompt", "You help. Workspace: {workspace}")
+    for name in ("DEEPSEEK_API_KEY", "AGENT_CACHE_TTL", "ANTHROPIC_BASE_URL", "CODEAGENT_PROVIDER"):
+        monkeypatch.delenv(name, raising=False)
+    block = loop.system_param()
+    assert block == [{"type": "text", "text": f"You help. Workspace: {state.workspace}", "cache_control": {"type": "ephemeral"}}]
+    monkeypatch.setenv("AGENT_CACHE_TTL", "1h")
+    assert loop.system_param()[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_FOUNDRY_ENDPOINT", raising=False)
+    assert loop.system_param() == f"You help. Workspace: {state.workspace}"   # DeepSeek: no cache_control
