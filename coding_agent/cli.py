@@ -35,6 +35,7 @@ def parse_args() -> argparse.Namespace:
                         help="Delete a project's memory (NAME, 'all', or '.' for the -d project), after confirmation, then exit.")
     parser.add_argument("--forget-logins", nargs="?", const="all", metavar="SITE",
                         help="Delete the sign-ins kept for the browsing tools (a site, or all), then exit.")
+    parser.add_argument("--forget-secrets", action="store_true", help="Delete the mail and SMS logins saved in ~/.coding-agent/secrets, then exit.")
     parser.add_argument("--check-browser", action="store_true", help="Test the browser used by screenshot_page, then exit.")
     return parser.parse_args()
 
@@ -56,6 +57,11 @@ def main() -> None:
         from . import websessions
         removed = websessions.forget(args.forget_logins)
         print("Removed: " + ", ".join(removed) if removed else "No saved sign-in" + ("" if args.forget_logins == "all" else f" for {args.forget_logins}") + ".")
+        return
+    if args.forget_secrets:
+        from . import credentials
+        removed = credentials.forget()
+        print("Removed: " + ", ".join(removed) if removed else "No saved login.")
         return
     if args.check_browser:
         print(check_browser())

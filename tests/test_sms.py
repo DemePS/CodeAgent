@@ -20,7 +20,8 @@ class FakeResponse(io.BytesIO):
 
 
 @pytest.fixture(autouse=True)
-def twilio(monkeypatch):
+def twilio(monkeypatch, tmp_path):
+    monkeypatch.setenv("AGENT_SECRETS_DIR", str(tmp_path / "secrets"))
     for k in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM"):
         monkeypatch.delenv(k, raising=False)
     sms._session.clear()

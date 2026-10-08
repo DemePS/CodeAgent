@@ -44,8 +44,9 @@ class FakeSMTP:
 
 
 @pytest.fixture(autouse=True)
-def smtp(monkeypatch):
+def smtp(monkeypatch, tmp_path):
     FakeSMTP.sent, FakeSMTP.hosts, FakeSMTP.logins, FakeSMTP.refuse = [], [], [], False
+    monkeypatch.setenv("AGENT_SECRETS_DIR", str(tmp_path / "secrets"))
     monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
     for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM", "SMTP_PORT"):
         monkeypatch.delenv(k, raising=False)

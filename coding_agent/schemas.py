@@ -91,11 +91,14 @@ TOOLS = [
         "name": "mail_login",
         "description": (
             "Log in to the user's mailbox so that send_mail can be used. The user is asked for their email address and password directly "
-            "(you never see the password); the SMTP server is derived from the address and the login is checked without sending anything. "
+            "(you never see the password) and the login is saved on their computer, so later sessions do not ask again; the SMTP server is derived from the address and the login is checked without sending anything. "
             "Call it before the first send_mail, and again if the login was refused. Gmail and Outlook need an app password. "
             "This is the only way to log in to a mailbox: never use web_sign_in or the web tools for Gmail/Outlook, they are blocked."
         ),
-        "input_schema": {"type": "object", "properties": {}},
+        "input_schema": {
+            "type": "object",
+            "properties": {"new_login": {"type": "boolean", "description": "True to ignore the saved login and ask the user for another address / password (default false)."}},
+        },
     },
     {
         "name": "send_mail",

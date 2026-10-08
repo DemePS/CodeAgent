@@ -8,7 +8,7 @@ import urllib.parse
 import webbrowser
 from email.message import EmailMessage
 
-from .. import state
+from .. import credentials, state
 from ..common import ToolError
 
 # mail_login asks the person for their address and password through the UI (or takes SMTP_USER / SMTP_PASSWORD) and derives the SMTP
@@ -93,17 +93,23 @@ def _incorrect_credentials(host: str, user: str, code: int, reason: bytes | str 
                      "or call send_mail without a login: it opens the written message as a draft in the user's browser.")
 
 
-def tool_mail_login() -> str:
-    """Ask the person for their address and password, check them against their SMTP server, and keep them for send_mail."""
+def tool_mail_login(new_login: bool = False) -> str:
+    """Log in with the saved login, else ask the person for their address and password; check them against their SMTP server and keep them."""
     _session.clear()
-    user = os.environ.get("SMTP_USER") or _ask("Your email address (the mail is sent from it): ")
-    if not _ADDRESS.fullmatch(user):
-        raise ToolError("A valid email address is needed to log in.")
     global _last_address
+    saved = {} if new_login or os.environ.get("SMTP_USER") else credentials.load("mail")
+    from_saved = bool(saved.get("user") and saved.get("password"))
+    if from_saved:
+        user, password = saved["user"], saved["password"]
+        state.ui.status(f"[mail] using the saved login for {user} (coding-agent --forget-secrets deletes it)")
+    else:
+        user = os.environ.get("SMTP_USER") or _ask("Your email address (the mail is sent from it): ")
+        if not _ADDRESS.fullmatch(user):
+            raise ToolError("A valid email address is needed to log in.")
+        password = os.environ.get("SMTP_PASSWORD") or _ask(f"Password for {user} (an app password for Gmail/Outlook; not shown): ", secret=True)
+        if not password:
+            raise ToolError("No password given; not logged in.")
     _last_address = user
-    password = os.environ.get("SMTP_PASSWORD") or _ask(f"Password for {user} (an app password for Gmail/Outlook; not shown): ", secret=True)
-    if not password:
-        raise ToolError("No password given; not logged in.")
     host = os.environ.get("SMTP_HOST") or smtp_host_for(user)
     ports = _ports()
     for attempt, port in enumerate(ports):
@@ -111,6 +117,8 @@ def tool_mail_login() -> str:
             _open(host, port, user, password).quit()
             break
         except smtplib.SMTPAuthenticationError as e:
+            if from_saved:
+                credentials.forget("mail")  # it no longer works: the person is asked again at the next mail_login
             raise _incorrect_credentials(host, user, e.smtp_code, e.smtp_error)
         except (smtplib.SMTPException, OSError) as e:
             state.ui.warning(f"[mail] {host}:{port} failed: {type(e).__name__}: {e}")
@@ -121,6 +129,8 @@ def tool_mail_login() -> str:
                             "(SMTP_HOST overrides it) and that the network allows SMTP.")
     _session.update(user=user, password=password, host=host, port=port)
     state.ui.success(f"Logged in as {user} ({host}:{port}).")
+    if not from_saved and not (os.environ.get("SMTP_USER") and os.environ.get("SMTP_PASSWORD")):
+        state.ui.status(f"[mail] login saved in {credentials.save('mail', {'user': user, 'password': password})}")
     return f"Logged in as {user} through {host}:{port}. send_mail can now be used."
 
 

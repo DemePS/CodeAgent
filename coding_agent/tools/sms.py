@@ -8,11 +8,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from .. import state
+from .. import credentials, state
 from ..common import ToolError
 
 # Twilio account: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM (a Twilio number, E.164) from the environment (or .env);
-# whatever is missing is asked through the UI, once per run, and kept in memory only.
+# whatever is missing is taken from the saved login (~/.coding-agent/secrets), else asked through the UI and then saved.
 _FIELDS = (("TWILIO_ACCOUNT_SID", "Twilio Account SID (starts with AC): ", False),
            ("TWILIO_AUTH_TOKEN", "Twilio Auth Token (not shown): ", True),
            ("TWILIO_FROM", "Your Twilio phone number (international format, e.g. +15551234567): ", False))
@@ -23,9 +23,10 @@ SMS_MAX_CHARACTERS = 1600
 
 
 def _credentials() -> tuple[str, str, str]:
+    saved = credentials.load("twilio")
     values = []
     for key, prompt, secret in _FIELDS:
-        value = os.environ.get(key) or _session.get(key)
+        value = os.environ.get(key) or _session.get(key) or saved.get(key)
         if not value:
             ask = getattr(state.ui, "ask_secret", None) if secret else None
             value = (ask or state.ui.ask_text)(prompt).strip()
@@ -35,6 +36,8 @@ def _credentials() -> tuple[str, str, str]:
     if not _PHONE.fullmatch(values[2]):
         raise ToolError("TWILIO_FROM must be a phone number in international format, e.g. +15551234567.")
     _session.update(zip((k for k, _, _ in _FIELDS), values))
+    if any(not (os.environ.get(k) or saved.get(k)) for k, _, _ in _FIELDS):
+        state.ui.status(f"[sms] login saved in {credentials.save('twilio', dict(zip((k for k, _, _ in _FIELDS), values)))}")
     return tuple(values)
 
 
@@ -72,6 +75,7 @@ def tool_send_sms(to: str, body: str) -> str:
         if e.code == 401:
             for key in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"):
                 _session.pop(key, None)  # asked again at the next try
+            credentials.forget("twilio")
             state.ui.failure("Incorrect credentials: Twilio refused the Account SID / Auth Token.")
             raise ToolError("Incorrect credentials: Twilio refused the Account SID / Auth Token. Tell the user; do not retry with the same ones. Nothing was sent.")
         raise ToolError(f"The SMS could not be sent: {detail}")
