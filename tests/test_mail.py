@@ -63,11 +63,44 @@ def test_login_asks_the_person_derives_the_host_and_checks_the_credentials():
     assert FakeSMTP.auth_offered == "PLAIN"  # a refused PLAIN is not hidden behind a dropped AUTH LOGIN
 
 
-def test_send_mail_needs_a_login_and_never_asks_for_one():
-    state.ui = ScriptedUI([])
-    with pytest.raises(ToolError, match="mail_login"):
+def test_without_a_login_send_mail_opens_a_gmail_draft_in_the_browser_and_says_it_was_not_sent(monkeypatch):
+    opened = []
+    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(mail, "_last_address", "me@gmail.com")
+    state.ui = ScriptedUI(["yes"])
+    out = mail.tool_send_mail("a@b.com", "Visite & plus", "Bonjour\nà bientôt", cc="c@d.fr")
+    url = opened[0]
+    assert url.startswith("https://mail.google.com/mail/?view=cm&fs=1&") and "to=a%40b.com" in url and "cc=c%40d.fr" in url
+    assert "su=Visite%20%26%20plus" in url and "body=Bonjour%0A" in url
+    assert "NOT sent" in out and not FakeSMTP.sent and not FakeSMTP.hosts
+
+
+def test_the_draft_uses_mailto_for_other_providers_and_needs_approval(monkeypatch):
+    opened = []
+    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(mail, "_last_address", "me@orange.fr")
+    state.ui = ScriptedUI(["no", ""])
+    with pytest.raises(ToolError):
         mail.tool_send_mail("a@b.com", "Hi", "x")
-    assert state.ui.answers == [] and not state.ui.events
+    assert not opened
+    state.ui = ScriptedUI(["yes"])
+    mail.tool_send_mail("a@b.com", "Hi", "x")
+    assert opened[0].startswith("mailto:a%40b.com?subject=Hi&body=x")
+
+
+def test_a_message_too_long_for_a_link_is_refused(monkeypatch):
+    monkeypatch.setattr(mail.webbrowser, "open", lambda url: True)
+    state.ui = ScriptedUI(["yes"])
+    with pytest.raises(ToolError, match="too long"):
+        mail.tool_send_mail("a@b.com", "Hi", "x" * 8000)
+
+
+def test_a_refused_login_points_to_the_draft_fallback():
+    FakeSMTP.refuse = True
+    state.ui = ScriptedUI(["me@gmail.com", "wrong"])
+    with pytest.raises(ToolError, match="draft"):
+        mail.tool_mail_login()
+    assert mail._last_address == "me@gmail.com"
 
 
 def test_sends_after_login_and_approval_without_asking_the_credentials_again():

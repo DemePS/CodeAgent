@@ -100,6 +100,9 @@ TOOLS = [
         "name": "send_mail",
         "description": (
             "Send a plain-text email from the user's mailbox. Call mail_login first (once per session); this tool never asks for a password. "
+            "Without a successful login it does not fail: it opens the written message as a draft in the user's browser (Gmail or mail program), "
+            "and the user signs in and presses Send themselves -- then tell the user it is NOT sent yet. "
+            "Write short emails: a greeting, two or three sentences at most, a closing line; no filler, no repeating the subject in the body. "
             "The user sees the full message and must approve every email, in every mode including autonomous mode. "
             "Use it e.g. to contact a landlord or an agency about a listing."
         ),
@@ -108,7 +111,7 @@ TOOLS = [
             "properties": {
                 "to": {"type": "string", "description": "Recipient address(es), comma-separated."},
                 "subject": {"type": "string", "description": "Single-line subject."},
-                "body": {"type": "string", "description": "Plain-text body."},
+                "body": {"type": "string", "description": "Plain-text body, concise (a few sentences)."},
                 "cc": {"type": "string", "description": "Optional cc address(es), comma-separated."},
                 "bcc": {"type": "string", "description": "Optional bcc address(es), comma-separated."},
             },
