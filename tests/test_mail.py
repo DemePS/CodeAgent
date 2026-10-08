@@ -1,4 +1,4 @@
-"""send_mail asks first, validates addresses, and sends over SMTP."""
+"""mail_login asks the person and checks the login; send_mail needs it, asks for approval, and sends over SMTP."""
 
 import pytest
 
@@ -9,12 +9,11 @@ from tests.conftest import ScriptedUI
 
 
 class FakeSMTP:
-    sent = []
-    hosts = []
+    sent, hosts, logins, auth_offered, refuse = [], [], [], None, False
+    esmtp_features = {"auth": "LOGIN PLAIN XOAUTH2"}
 
     def __init__(self, host, port, timeout=None):
-        self.host, self.port = host, port
-        FakeSMTP.hosts.append(host)
+        FakeSMTP.hosts.append((host, port))
 
     def __enter__(self):
         return self
@@ -22,11 +21,23 @@ class FakeSMTP:
     def __exit__(self, *a):
         return False
 
+    def close(self):
+        pass
+
+    def quit(self):
+        pass
+
+    def ehlo_or_helo_if_needed(self):
+        pass
+
     def starttls(self, context=None):
         pass
 
     def login(self, user, password):
-        pass
+        FakeSMTP.auth_offered = self.esmtp_features["auth"]
+        if FakeSMTP.refuse:
+            raise mail.smtplib.SMTPAuthenticationError(535, b"bad credentials")
+        FakeSMTP.logins.append((user, password))
 
     def send_message(self, message, to_addrs):
         FakeSMTP.sent.append((message, to_addrs))
@@ -34,19 +45,46 @@ class FakeSMTP:
 
 @pytest.fixture(autouse=True)
 def smtp(monkeypatch):
-    FakeSMTP.sent, FakeSMTP.hosts = [], []
+    FakeSMTP.sent, FakeSMTP.hosts, FakeSMTP.logins, FakeSMTP.refuse = [], [], [], False
     monkeypatch.setattr(mail.smtplib, "SMTP", FakeSMTP)
     for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM", "SMTP_PORT"):
         monkeypatch.delenv(k, raising=False)
     mail._session.clear()
 
 
-def test_sends_after_approval():
-    state.ui = ScriptedUI(["me@gmail.com", "pw", "yes"])
+def login(*extra):
+    state.ui = ScriptedUI(["me@gmail.com", "pw", *extra])
+    return mail.tool_mail_login()
+
+
+def test_login_asks_the_person_derives_the_host_and_checks_the_credentials():
+    assert "me@gmail.com" in login()
+    assert FakeSMTP.hosts == [("smtp.gmail.com", 587)] and FakeSMTP.logins == [("me@gmail.com", "pw")] and not FakeSMTP.sent
+    assert FakeSMTP.auth_offered == "PLAIN"  # a refused PLAIN is not hidden behind a dropped AUTH LOGIN
+
+
+def test_send_mail_needs_a_login_and_never_asks_for_one():
+    state.ui = ScriptedUI([])
+    with pytest.raises(ToolError, match="mail_login"):
+        mail.tool_send_mail("a@b.com", "Hi", "x")
+    assert state.ui.answers == [] and not state.ui.events
+
+
+def test_sends_after_login_and_approval_without_asking_the_credentials_again():
+    login()
+    state.ui = ScriptedUI(["yes"])
     out = mail.tool_send_mail("a@b.com, c@d.fr", "Visite", "Bonjour", bcc="e@f.com")
     message, to_addrs = FakeSMTP.sent[0]
     assert to_addrs == ["a@b.com", "c@d.fr", "e@f.com"] and message["Subject"] == "Visite" and "Bcc" not in message
-    assert "a@b.com" in out and FakeSMTP.hosts == ["smtp.gmail.com"]
+    assert "a@b.com" in out
+
+
+def test_refusal_sends_nothing():
+    login()
+    state.ui = ScriptedUI(["no", ""])
+    with pytest.raises(ToolError):
+        mail.tool_send_mail("a@b.com", "Hi", "x")
+    assert not FakeSMTP.sent
 
 
 def test_unknown_domain_builds_smtp_host_from_the_address():
@@ -54,56 +92,48 @@ def test_unknown_domain_builds_smtp_host_from_the_address():
     assert mail.smtp_host_for("x@hotmail.fr") == "smtp-mail.outlook.com"
 
 
-def test_address_and_password_are_asked_only_once_per_run():
-    state.ui = ScriptedUI(["me@gmail.com", "pw", "yes", "yes"])
-    mail.tool_send_mail("a@b.com", "One", "x")
-    mail.tool_send_mail("a@b.com", "Two", "x")
-    assert len(FakeSMTP.sent) == 2
-
-
-def test_refusal_sends_nothing():
-    state.ui = ScriptedUI(["me@gmail.com", "pw", "no", ""])
-    with pytest.raises(ToolError):
-        mail.tool_send_mail("a@b.com", "Hi", "x")
-    assert not FakeSMTP.sent
-
-
-def test_bad_recipient_and_bad_own_address():
+def test_bad_address_and_empty_password_are_refused():
     state.ui = ScriptedUI(["nope"])
     with pytest.raises(ToolError):
-        mail.tool_send_mail("not-an-address", "Hi", "x")
+        mail.tool_mail_login()
+    state.ui = ScriptedUI(["me@gmail.com", ""])
     with pytest.raises(ToolError):
-        mail.tool_send_mail("a@b.com", "Hi", "x")
+        mail.tool_mail_login()
+    assert not mail._session
 
 
-def test_falls_back_to_port_465_when_587_drops_the_connection(monkeypatch):
+def test_bad_recipient():
+    login()
+    state.ui = ScriptedUI(["yes"])
+    with pytest.raises(ToolError):
+        mail.tool_send_mail("not-an-address", "Hi", "x")
+
+
+def test_refused_credentials_tell_the_user_and_leave_the_session_logged_out():
+    FakeSMTP.refuse = True
+    state.ui = ScriptedUI(["me@gmail.com", "wrong"])
+    with pytest.raises(ToolError, match="Incorrect credentials"):
+        mail.tool_mail_login()
+    assert any(e[0] == "failure" and "Incorrect credentials" in e[1] for e in state.ui.events)
+    assert not mail._session and len(FakeSMTP.hosts) == 1  # no pointless retry on the other port
+
+
+def test_login_falls_back_to_port_465_when_587_drops_the_connection(monkeypatch):
     ports = []
 
-    def deliver(host, port, *args):
+    def open_(host, port, user, password):
         ports.append(port)
         if port == 587:
             raise mail.smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+        return FakeSMTP(host, port)
 
-    monkeypatch.setattr(mail, "_deliver", deliver)
-    state.ui = ScriptedUI(["me@gmail.com", "pw", "yes"])
-    mail.tool_send_mail("a@b.com", "Hi", "x")
-    assert ports == [587, 465]
-
-
-def test_a_refused_login_forgets_the_password_and_says_why(monkeypatch):
-    def deliver(*args):
-        raise mail.smtplib.SMTPAuthenticationError(535, b"bad credentials")
-
-    monkeypatch.setattr(mail, "_deliver", deliver)
-    state.ui = ScriptedUI(["me@gmail.com", "wrong", "yes"])
-    with pytest.raises(ToolError, match="app password"):
-        mail.tool_send_mail("a@b.com", "Hi", "x")
-    assert "password" not in mail._session
+    monkeypatch.setattr(mail, "_open", open_)
+    login()
+    assert ports == [587, 465] and mail._session["port"] == 465
 
 
 def test_every_step_is_logged_in_the_ui_without_the_password():
-    state.ui = ScriptedUI(["me@gmail.com", "s3cret-pw", "yes"])
-    mail.tool_send_mail("a@b.com", "Hi", "x")
+    login()
     logs = [e[1] for e in state.ui.events if e[0] == "status" and e[1].startswith("[mail]")]
     assert any("connecting to smtp.gmail.com:587" in l for l in logs) and any("logged in as me@gmail.com" in l for l in logs)
-    assert not any("s3cret-pw" in str(e) for e in state.ui.events)
+    assert not any("pw" == w for e in state.ui.events for w in e[1:] if isinstance(w, str))

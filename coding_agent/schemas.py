@@ -88,9 +88,18 @@ TOOLS = [
         },
     },
     {
+        "name": "mail_login",
+        "description": (
+            "Log in to the user's mailbox so that send_mail can be used. The user is asked for their email address and password directly "
+            "(you never see the password); the SMTP server is derived from the address and the login is checked without sending anything. "
+            "Call it before the first send_mail, and again if the login was refused. Gmail and Outlook need an app password."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "send_mail",
         "description": (
-            "Send a plain-text email over SMTP (configured with SMTP_HOST, SMTP_USER, SMTP_PASSWORD in the environment). "
+            "Send a plain-text email from the user's mailbox. Call mail_login first (once per session); this tool never asks for a password. "
             "The user sees the full message and must approve every email, in every mode including autonomous mode. "
             "Use it e.g. to contact a landlord or an agency about a listing."
         ),

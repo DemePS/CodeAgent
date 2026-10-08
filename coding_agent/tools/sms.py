@@ -69,6 +69,11 @@ def tool_send_sms(to: str, body: str) -> str:
         except Exception:
             detail = e.reason
         state.ui.warning(f"[sms] Twilio answered HTTP {e.code}: {detail}")
+        if e.code == 401:
+            for key in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"):
+                _session.pop(key, None)  # asked again at the next try
+            state.ui.failure("Incorrect credentials: Twilio refused the Account SID / Auth Token.")
+            raise ToolError("Incorrect credentials: Twilio refused the Account SID / Auth Token. Tell the user; do not retry with the same ones. Nothing was sent.")
         raise ToolError(f"The SMS could not be sent: {detail}")
     except OSError as e:
         state.ui.warning(f"[sms] request failed: {type(e).__name__}: {e}")

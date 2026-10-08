@@ -70,3 +70,15 @@ def test_bad_recipient_and_empty_answer():
     state.ui = ScriptedUI([""])
     with pytest.raises(ToolError):
         sms.tool_send_sms("+33612345678", "Hi")
+
+
+def test_refused_twilio_credentials_are_reported_to_the_user(monkeypatch):
+    def urlopen(request, timeout=None):
+        raise sms.urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, io.BytesIO(b'{"message": "Authenticate"}'))
+
+    monkeypatch.setattr(sms.urllib.request, "urlopen", urlopen)
+    state.ui = ScriptedUI(["AC123", "bad", "+15551234567", "yes"])
+    with pytest.raises(ToolError, match="Incorrect credentials"):
+        sms.tool_send_sms("+33612345678", "Hi")
+    assert any(e[0] == "failure" and "Incorrect credentials" in e[1] for e in state.ui.events)
+    assert "TWILIO_AUTH_TOKEN" not in sms._session
