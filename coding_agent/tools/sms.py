@@ -55,6 +55,7 @@ def tool_send_sms(to: str, body: str) -> str:
         feedback = state.ui.ask_text("Why not? (optional): ")
         raise ToolError("The user refused; nothing was sent." + (f" User feedback: {feedback}" if feedback else ""))
 
+    state.ui.status(f"[sms] sending to {to} through Twilio...")
     request = urllib.request.Request(
         f"https://api.twilio.com/2010-04-01/Accounts/{urllib.parse.quote(sid)}/Messages.json",
         data=urllib.parse.urlencode({"To": to, "From": sender, "Body": body}).encode(),
@@ -67,7 +68,10 @@ def tool_send_sms(to: str, body: str) -> str:
             detail = json.load(e).get("message", e.reason)
         except Exception:
             detail = e.reason
+        state.ui.warning(f"[sms] Twilio answered HTTP {e.code}: {detail}")
         raise ToolError(f"The SMS could not be sent: {detail}")
     except OSError as e:
+        state.ui.warning(f"[sms] request failed: {type(e).__name__}: {e}")
         raise ToolError(f"The SMS could not be sent: {e}")
+    state.ui.status(f"[sms] accepted by Twilio: {sent.get('sid', '?')} ({sent.get('status', '?')})")
     return f"SMS sent to {to} (id {sent.get('sid', '?')}, status {sent.get('status', '?')})."

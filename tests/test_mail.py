@@ -74,3 +74,36 @@ def test_bad_recipient_and_bad_own_address():
         mail.tool_send_mail("not-an-address", "Hi", "x")
     with pytest.raises(ToolError):
         mail.tool_send_mail("a@b.com", "Hi", "x")
+
+
+def test_falls_back_to_port_465_when_587_drops_the_connection(monkeypatch):
+    ports = []
+
+    def deliver(host, port, *args):
+        ports.append(port)
+        if port == 587:
+            raise mail.smtplib.SMTPServerDisconnected("Connection unexpectedly closed")
+
+    monkeypatch.setattr(mail, "_deliver", deliver)
+    state.ui = ScriptedUI(["me@gmail.com", "pw", "yes"])
+    mail.tool_send_mail("a@b.com", "Hi", "x")
+    assert ports == [587, 465]
+
+
+def test_a_refused_login_forgets_the_password_and_says_why(monkeypatch):
+    def deliver(*args):
+        raise mail.smtplib.SMTPAuthenticationError(535, b"bad credentials")
+
+    monkeypatch.setattr(mail, "_deliver", deliver)
+    state.ui = ScriptedUI(["me@gmail.com", "wrong", "yes"])
+    with pytest.raises(ToolError, match="app password"):
+        mail.tool_send_mail("a@b.com", "Hi", "x")
+    assert "password" not in mail._session
+
+
+def test_every_step_is_logged_in_the_ui_without_the_password():
+    state.ui = ScriptedUI(["me@gmail.com", "s3cret-pw", "yes"])
+    mail.tool_send_mail("a@b.com", "Hi", "x")
+    logs = [e[1] for e in state.ui.events if e[0] == "status" and e[1].startswith("[mail]")]
+    assert any("connecting to smtp.gmail.com:587" in l for l in logs) and any("logged in as me@gmail.com" in l for l in logs)
+    assert not any("s3cret-pw" in str(e) for e in state.ui.events)

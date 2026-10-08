@@ -60,6 +60,26 @@ def _credentials() -> tuple[str, str, str]:
     return user, password, os.environ.get("SMTP_HOST") or smtp_host_for(user)
 
 
+def _deliver(host: str, port: int, user: str, password: str, message: EmailMessage, to_addrs: list[str]) -> None:
+    """One delivery attempt; every step is shown in the UI (never the password)."""
+    log = state.ui.status
+    context = ssl.create_default_context()
+    log(f"[mail] connecting to {host}:{port} ({'TLS' if port == 465 else 'STARTTLS'})...")
+    server = smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT_SECONDS, context=context) if port == 465 \
+        else smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
+    with server:
+        log(f"[mail] connected: {host}:{port}")
+        if port != 465:
+            server.starttls(context=context)
+            log("[mail] connection encrypted (STARTTLS)")
+        if user and password:
+            server.login(user, password)
+            log(f"[mail] logged in as {user}")
+        log(f"[mail] sending to {len(to_addrs)} recipient(s)...")
+        server.send_message(message, to_addrs=to_addrs)
+        log("[mail] accepted by the server")
+
+
 def tool_send_mail(to: str | list, subject: str, body: str, cc: str | list = "", bcc: str | list = "") -> str:
     try:
         port = int(os.environ.get("SMTP_PORT") or 587)
@@ -90,17 +110,20 @@ def tool_send_mail(to: str | list, subject: str, body: str, cc: str | list = "",
     if copies:
         message["Cc"] = ", ".join(copies)
     message.set_content(body)
-    try:
-        if port == 465:
-            server = smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT_SECONDS, context=ssl.create_default_context())
-        else:
-            server = smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT_SECONDS)
-        with server:
-            if port != 465:
-                server.starttls(context=ssl.create_default_context())
-            if user and password:
-                server.login(user, password)
-            server.send_message(message, to_addrs=recipients + copies + hidden)
-    except (smtplib.SMTPException, OSError) as e:
-        raise ToolError(f"The email could not be sent: {e}")
+    ports = [port] if os.environ.get("SMTP_PORT") or port == 465 else [587, 465]  # no port chosen: 587 (STARTTLS), then 465 (TLS)
+    for attempt, port in enumerate(ports):
+        try:
+            _deliver(host, port, user, password, message, recipients + copies + hidden)
+            break
+        except smtplib.SMTPAuthenticationError as e:
+            state.ui.warning(f"[mail] login refused by {host}: {e.smtp_code} {e.smtp_error!r}")
+            _session.pop("password", None)  # asked again at the next try
+            raise ToolError(f"{host} refused the login for {user} ({e.smtp_code}). Gmail/Outlook need an app password, not the usual one; nothing was sent.")
+        except (smtplib.SMTPException, OSError) as e:
+            state.ui.warning(f"[mail] {host}:{port} failed: {type(e).__name__}: {e}")
+            if attempt + 1 < len(ports):
+                state.ui.status(f"[mail] trying port {ports[attempt + 1]} instead.")
+                continue
+            raise ToolError(f"The email could not be sent through {host}:{port}: {e}. Check that {host} is the right outgoing server for {user} "
+                            "(SMTP_HOST overrides it) and that the network allows SMTP.")
     return f"Email sent to {', '.join(recipients + copies + hidden)} (subject: {subject})."
