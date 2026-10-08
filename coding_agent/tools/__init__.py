@@ -32,6 +32,8 @@ from ..tools.files import (
 )
 from ..tools.git import tool_git
 from ..tools.interaction import tool_ask_human
+from ..tools.mail import tool_send_mail
+from ..tools.sms import tool_send_sms
 from ..tools.network import tool_clone_repo, tool_download_file
 from ..tools.web import (
     tool_web_back,
@@ -80,6 +82,8 @@ TOOL_HANDLERS = {
     "ask_human": tool_ask_human,
     "git": tool_git,
     "download_file": tool_download_file,
+    "send_mail": tool_send_mail,
+    "send_sms": tool_send_sms,
     "clone_repo": tool_clone_repo,
     "run_python": tool_run_python,
     "run_python_excel": tool_run_python_excel,

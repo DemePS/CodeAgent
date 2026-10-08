@@ -88,6 +88,40 @@ TOOLS = [
         },
     },
     {
+        "name": "send_mail",
+        "description": (
+            "Send a plain-text email over SMTP (configured with SMTP_HOST, SMTP_USER, SMTP_PASSWORD in the environment). "
+            "The user sees the full message and must approve every email, in every mode including autonomous mode. "
+            "Use it e.g. to contact a landlord or an agency about a listing."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient address(es), comma-separated."},
+                "subject": {"type": "string", "description": "Single-line subject."},
+                "body": {"type": "string", "description": "Plain-text body."},
+                "cc": {"type": "string", "description": "Optional cc address(es), comma-separated."},
+                "bcc": {"type": "string", "description": "Optional bcc address(es), comma-separated."},
+            },
+            "required": ["to", "subject", "body"],
+        },
+    },
+    {
+        "name": "send_sms",
+        "description": (
+            "Send an SMS through Twilio (configured with TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM). "
+            "The user sees the message and must approve every SMS, in every mode including autonomous mode."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Phone number in international format, e.g. +33612345678."},
+                "body": {"type": "string", "description": "Text of the message."},
+            },
+            "required": ["to", "body"],
+        },
+    },
+    {
         "name": "download_file",
         "description": (
             "Download a file from an http(s) URL into the workspace. The user must approve every "
