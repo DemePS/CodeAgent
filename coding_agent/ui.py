@@ -263,6 +263,8 @@ class TerminalUI(UI):
 
     # --- streaming
     def assistant_start(self) -> None:
+        if self._out is not None:  # another text block of the same answer (web search citations split it): keep the words still buffered, no new label
+            return
         self._out = LinkedPrinter()
         print("\n\033[1;34mClaude:\033[0m ", end="", flush=True)
 
@@ -272,8 +274,10 @@ class TerminalUI(UI):
         self._out.write(text)
 
     def _flush(self) -> None:
+        """Print what is still buffered and end the current answer: the next text block starts a new "Claude:" line."""
         if self._out:
             self._out.flush()
+        self._out = None
 
     def thinking(self) -> None:
         self._flush()
@@ -288,7 +292,6 @@ class TerminalUI(UI):
 
     def assistant_end(self) -> None:
         self._flush()
-        self._out = None
         print()
 
     def tool_result(self, name: str, arguments: str, ok: bool, summary: str) -> None:

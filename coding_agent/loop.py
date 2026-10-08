@@ -123,37 +123,50 @@ def _stream(client: anthropic.Anthropic, messages: list, max_tokens: int, call: 
         **thinking_options(),
     ) as stream:
         call.stream = stream
-        for event in stream:
-            call.started = True
-            if call.cancelled:  # stopped: the waiting thread has moved on
-                return None
-            if event.type == "content_block_start":
-                block = event.content_block
-                if block.type == "text":
-                    ui.assistant_start()
-                elif block.type == "thinking":
-                    ui.thinking()
-                elif block.type in ("tool_use", "server_tool_use"):
-                    ui.tool_start(block.name)
-                elif block.type == "web_search_tool_result":
-                    results = block.content
-                    if isinstance(results, list):
-                        ui.tool_detail(f"\n   {len(results)} result(s)")
-                    else:  # an error object, e.g. max_uses_exceeded or unavailable
-                        ui.tool_detail(f"\n   web search error: {getattr(results, 'error_code', results)}")
-            elif event.type == "text":
-                ui.assistant_text(event.text)
-            elif event.type == "content_block_stop" and event.content_block.type in ("tool_use", "server_tool_use"):
-                # The full input is only known once the block ends -- show a short summary.
-                args = ", ".join(
-                    f"{k}={v!r}"[:80] for k, v in event.content_block.input.items()
-                    if k not in ("content", "old_string", "new_string", "file_text", "old_str", "new_str", "insert_text")
-                )
-                ui.tool_detail(f"({args})")
-        if call.cancelled:
+        return _show_events_guarded(stream, call, ui)
+
+
+def _show_events_guarded(stream, call: _Call, ui):
+    try:
+        return _show_events(stream, call, ui)
+    except BaseException:  # the connection dropped mid-answer: show the words still buffered, not a message cut in the middle of a word
+        if not call.cancelled:
+            ui.assistant_end()
+        raise
+
+
+def _show_events(stream, call: _Call, ui):
+    for event in stream:
+        call.started = True
+        if call.cancelled:  # stopped: the waiting thread has moved on
             return None
-        ui.assistant_end()
-        return stream.get_final_message()
+        if event.type == "content_block_start":
+            block = event.content_block
+            if block.type == "text":
+                ui.assistant_start()
+            elif block.type == "thinking":
+                ui.thinking()
+            elif block.type in ("tool_use", "server_tool_use"):
+                ui.tool_start(block.name)
+            elif block.type == "web_search_tool_result":
+                results = block.content
+                if isinstance(results, list):
+                    ui.tool_detail(f"\n   {len(results)} result(s)")
+                else:  # an error object, e.g. max_uses_exceeded or unavailable
+                    ui.tool_detail(f"\n   web search error: {getattr(results, 'error_code', results)}")
+        elif event.type == "text":
+            ui.assistant_text(event.text)
+        elif event.type == "content_block_stop" and event.content_block.type in ("tool_use", "server_tool_use"):
+            # The full input is only known once the block ends -- show a short summary.
+            args = ", ".join(
+                f"{k}={v!r}"[:80] for k, v in event.content_block.input.items()
+                if k not in ("content", "old_string", "new_string", "file_text", "old_str", "new_str", "insert_text")
+            )
+            ui.tool_detail(f"({args})")
+    if call.cancelled:
+        return None
+    ui.assistant_end()
+    return stream.get_final_message()
 
 
 def call_model(client: anthropic.Anthropic, messages: list):
