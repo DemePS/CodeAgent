@@ -92,7 +92,8 @@ TOOLS = [
         "description": (
             "Log in to the user's mailbox so that send_mail can be used. The user is asked for their email address and password directly "
             "(you never see the password); the SMTP server is derived from the address and the login is checked without sending anything. "
-            "Call it before the first send_mail, and again if the login was refused. Gmail and Outlook need an app password."
+            "Call it before the first send_mail, and again if the login was refused. Gmail and Outlook need an app password. "
+            "This is the only way to log in to a mailbox: never use web_sign_in or the web tools for Gmail/Outlook, they are blocked."
         ),
         "input_schema": {"type": "object", "properties": {}},
     },
@@ -372,7 +373,9 @@ TOOLS = [
             "site's sign-in page, where the USER types their password and any code themselves; you never see or type it. "
             "When they answer 'done', the session (cookies) is kept for that site, and web_open / web_click then work as the "
             "signed-in user. Use it instead of asking for a password, and only when the task needs the signed-in pages. "
-            "The user is asked first and can cancel."
+            "The user is asked first and can cancel. "
+            "Never use it for a mailbox (Gmail, Outlook, Yahoo...): Google and Microsoft refuse sign-in from a browser driven by a program "
+            "(\"This browser or app may not be secure\"). To send an email use mail_login then send_mail."
         ),
         "input_schema": {
             "type": "object",
