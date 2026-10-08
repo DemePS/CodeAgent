@@ -90,7 +90,8 @@ TOOLS = [
     {
         "name": "mail_login",
         "description": (
-            "Log in to the user's mailbox so that send_mail can be used. The user is asked for their email address and password directly "
+            "ONLY when the user explicitly asks you to send mails by yourself, without opening Gmail (otherwise use mail_draft): "
+            "log in to the user's mailbox so that send_mail can be used. The user is asked for their email address and password directly "
             "(you never see the password) and the login is saved on their computer, so later sessions do not ask again; the SMTP server is derived from the address and the login is checked without sending anything. "
             "Call it before the first send_mail, and again if the login was refused. Gmail and Outlook need an app password. "
             "This is the only way to log in to a mailbox: never use web_sign_in or the web tools for Gmail/Outlook, they are blocked."
@@ -103,8 +104,8 @@ TOOLS = [
     {
         "name": "mail_draft",
         "description": (
-            "Open the written email in the user's OWN browser (Gmail, Outlook or their mail program): they sign in there themselves and press "
-            "Send. Use it when the user wants to sign in on the mail site, or when mail_login is refused. Nothing is sent by you: tell the user "
+            "THE DEFAULT WAY TO SEND AN EMAIL. Opens the written email in the user's OWN browser (Gmail by default): they sign in there themselves "
+            "and press Send. Call it directly, without mail_login and without asking for a password. Nothing is sent by you: tell the user "
             "it is not sent until they press Send. Never open Gmail/Outlook with web_sign_in or the web tools: Google and Microsoft block them. "
             "The user approves before the browser opens. Write short emails."
         ),
@@ -124,7 +125,8 @@ TOOLS = [
     {
         "name": "send_mail",
         "description": (
-            "Send a plain-text email from the user's mailbox. Call mail_login first (once per session); this tool never asks for a password. "
+            "Send a plain-text email by yourself from the user's mailbox (only when the user asked for automatic sending; otherwise use mail_draft). "
+            "Needs mail_login first (once per session); this tool never asks for a password. "
             "Without a successful login it does not fail: it opens the written message as a draft in the user's browser (Gmail or mail program), "
             "and the user signs in and presses Send themselves -- then tell the user it is NOT sent yet. "
             "Write short emails: a greeting, two or three sentences at most, a closing line; no filler, no repeating the subject in the body. "

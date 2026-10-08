@@ -2,8 +2,11 @@
 
 import os
 import re
+import shutil
 import smtplib
 import ssl
+import subprocess
+import sys
 import urllib.parse
 import webbrowser
 from email.message import EmailMessage
@@ -106,7 +109,7 @@ def _offer_app_password_page(address: str) -> None:
     if not url:
         return
     state.ui.status(f"[mail] {provider} refuses a browser driven by a program, so the page opens in your own browser: sign in there and create an app password.")
-    if state.ui.confirm(f"Open {url} in your default browser?", ("yes", "no")) == "yes" and not webbrowser.open(url):
+    if state.ui.confirm(f"Open {url} in your default browser?", ("yes", "no")) == "yes" and not _open_url(url):
         state.ui.message(f"No browser could be opened; open this link yourself:\n{url}")
 
 
@@ -153,6 +156,19 @@ def tool_mail_login(new_login: bool = False) -> str:
     return f"Logged in as {user} through {host}:{port}. send_mail can now be used."
 
 
+def _open_url(url: str) -> bool:
+    """Open a link in the person's default browser without tying it to the terminal: on Linux xdg-open runs detached with no
+    input or output, so the browser's own messages never land in the agent's prompt and nothing waits for it."""
+    opener = shutil.which("xdg-open") if sys.platform.startswith("linux") else None
+    if not opener:
+        return webbrowser.open(url)
+    try:
+        subprocess.Popen([opener, url], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return False
+    return True
+
+
 def _draft_url(webmail: str, to: list[str], cc: list[str], bcc: list[str], subject: str, body: str) -> str:
     """A link that opens the message, already written, in the person's webmail ("gmail", "outlook") or mail program ("mailto")."""
     quote = urllib.parse.quote
@@ -187,7 +203,7 @@ def _open_draft(recipients: list[str], copies: list[str], hidden: list[str], sub
     if state.ui.confirm("Open the draft?", ("yes", "no")) != "yes":
         feedback = state.ui.ask_text("Why not? (optional): ")
         raise ToolError("The user refused; nothing was opened or sent." + (f" User feedback: {feedback}" if feedback else ""))
-    if not webbrowser.open(url):
+    if not _open_url(url):
         state.ui.message(f"No browser could be opened; open this link yourself:\n{url}")
     return ("The draft was opened in the user's browser. It was NOT sent: the user signs in and presses Send themselves. "
             "Do not say the mail was sent.")

@@ -66,7 +66,7 @@ def test_login_asks_the_person_derives_the_host_and_checks_the_credentials():
 
 def test_without_a_login_send_mail_opens_a_gmail_draft_in_the_browser_and_says_it_was_not_sent(monkeypatch):
     opened = []
-    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(mail, "_open_url", lambda url: opened.append(url) or True)
     monkeypatch.setattr(mail, "_last_address", "me@gmail.com")
     state.ui = ScriptedUI(["yes"])
     out = mail.tool_send_mail("a@b.com", "Visite & plus", "Bonjour\nà bientôt", cc="c@d.fr")
@@ -78,7 +78,7 @@ def test_without_a_login_send_mail_opens_a_gmail_draft_in_the_browser_and_says_i
 
 def test_the_draft_uses_mailto_for_other_providers_and_needs_approval(monkeypatch):
     opened = []
-    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(mail, "_open_url", lambda url: opened.append(url) or True)
     monkeypatch.setattr(mail, "_last_address", "me@orange.fr")
     state.ui = ScriptedUI(["no", ""])
     with pytest.raises(ToolError):
@@ -90,7 +90,7 @@ def test_the_draft_uses_mailto_for_other_providers_and_needs_approval(monkeypatc
 
 
 def test_a_message_too_long_for_a_link_is_refused(monkeypatch):
-    monkeypatch.setattr(mail.webbrowser, "open", lambda url: True)
+    monkeypatch.setattr(mail, "_open_url", lambda url: True)
     state.ui = ScriptedUI(["yes"])
     with pytest.raises(ToolError, match="too long"):
         mail.tool_send_mail("a@b.com", "Hi", "x" * 8000)
@@ -175,7 +175,7 @@ def test_every_step_is_logged_in_the_ui_without_the_password():
 
 def test_mail_draft_opens_the_chosen_webmail_after_approval(monkeypatch):
     opened = []
-    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(mail, "_open_url", lambda url: opened.append(url) or True)
     state.ui = ScriptedUI(["yes"])
     out = mail.tool_mail_draft("a@b.com", "Hello", "Test", webmail="gmail")
     assert opened[0].startswith("https://mail.google.com/mail/?view=cm") and "NOT sent" in out
@@ -194,7 +194,7 @@ def test_web_sign_in_refuses_mailboxes_and_points_to_mail_draft():
 
 def test_a_refused_gmail_login_offers_to_open_the_app_password_page_in_the_default_browser(monkeypatch):
     opened = []
-    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(mail, "_open_url", lambda url: opened.append(url) or True)
     FakeSMTP.refuse = True
     state.ui = ScriptedUI(["me@gmail.com", "wrong", "yes"])
     with pytest.raises(ToolError):
@@ -212,8 +212,19 @@ def test_a_refused_gmail_login_offers_to_open_the_app_password_page_in_the_defau
 
 def test_a_draft_opens_gmail_when_no_address_is_known(monkeypatch):
     opened = []
-    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(mail, "_open_url", lambda url: opened.append(url) or True)
     monkeypatch.setattr(mail, "_last_address", "")
     state.ui = ScriptedUI(["yes"])
     mail.tool_mail_draft("a@b.com", "Hi", "x")
     assert opened[0].startswith("https://mail.google.com/mail/?view=cm")
+
+
+def test_the_browser_is_started_detached_from_the_terminal(monkeypatch):
+    calls = []
+    monkeypatch.setattr(mail.sys, "platform", "linux")
+    monkeypatch.setattr(mail.shutil, "which", lambda name: "/usr/bin/xdg-open")
+    monkeypatch.setattr(mail.subprocess, "Popen", lambda cmd, **kw: calls.append((cmd, kw)))
+    assert mail._open_url("https://mail.google.com/x")
+    cmd, kw = calls[0]
+    assert cmd == ["/usr/bin/xdg-open", "https://mail.google.com/x"] and kw["start_new_session"]
+    assert kw["stdin"] == kw["stdout"] == kw["stderr"] == mail.subprocess.DEVNULL
