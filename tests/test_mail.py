@@ -171,3 +171,49 @@ def test_every_step_is_logged_in_the_ui_without_the_password():
     logs = [e[1] for e in state.ui.events if e[0] == "status" and e[1].startswith("[mail]")]
     assert any("connecting to smtp.gmail.com:587" in l for l in logs) and any("logged in as me@gmail.com" in l for l in logs)
     assert not any("pw" == w for e in state.ui.events for w in e[1:] if isinstance(w, str))
+
+
+def test_mail_draft_opens_the_chosen_webmail_after_approval(monkeypatch):
+    opened = []
+    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    state.ui = ScriptedUI(["yes"])
+    out = mail.tool_mail_draft("a@b.com", "Hello", "Test", webmail="gmail")
+    assert opened[0].startswith("https://mail.google.com/mail/?view=cm") and "NOT sent" in out
+    state.ui = ScriptedUI(["yes"])
+    mail.tool_mail_draft("a@b.com", "Hello", "Test", webmail="outlook")
+    assert opened[1].startswith("https://outlook.live.com/mail/0/deeplink/compose?") and "subject=Hello" in opened[1]
+    with pytest.raises(ToolError):
+        mail.tool_mail_draft("a@b.com", "Hello", "Test", webmail="aol")
+
+
+def test_web_sign_in_refuses_mailboxes_and_points_to_mail_draft():
+    from coding_agent.tools import web
+    with pytest.raises(ToolError, match="mail_draft"):
+        web.tool_web_sign_in("https://mail.google.com")
+
+
+def test_a_refused_gmail_login_offers_to_open_the_app_password_page_in_the_default_browser(monkeypatch):
+    opened = []
+    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    FakeSMTP.refuse = True
+    state.ui = ScriptedUI(["me@gmail.com", "wrong", "yes"])
+    with pytest.raises(ToolError):
+        mail.tool_mail_login()
+    assert opened == ["https://myaccount.google.com/apppasswords"]
+    state.ui = ScriptedUI(["me@gmail.com", "wrong", "no"])
+    with pytest.raises(ToolError):
+        mail.tool_mail_login()
+    assert len(opened) == 1
+    state.ui = ScriptedUI(["me@exemple.sn", "wrong"])  # an unknown provider: nothing to open, no question
+    with pytest.raises(ToolError):
+        mail.tool_mail_login()
+    assert len(opened) == 1
+
+
+def test_a_draft_opens_gmail_when_no_address_is_known(monkeypatch):
+    opened = []
+    monkeypatch.setattr(mail.webbrowser, "open", lambda url: opened.append(url) or True)
+    monkeypatch.setattr(mail, "_last_address", "")
+    state.ui = ScriptedUI(["yes"])
+    mail.tool_mail_draft("a@b.com", "Hi", "x")
+    assert opened[0].startswith("https://mail.google.com/mail/?view=cm")

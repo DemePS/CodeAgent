@@ -23,6 +23,11 @@ KNOWN_SMTP_HOSTS = {
     "orange.fr": "smtp.orange.fr", "free.fr": "smtp.free.fr", "sfr.fr": "smtp.sfr.fr",
 }
 DRAFT_URL_MAX = 7000  # longer links are refused by Gmail and by browsers
+APP_PASSWORD_PAGES = {  # providers that refuse a driven browser (Chromium) and the normal password: the person signs in on their own browser
+    "gmail": "https://myaccount.google.com/apppasswords",
+    "outlook": "https://account.live.com/proofs/AppPassword",
+    "yahoo": "https://login.yahoo.com/account/security/app-passwords",
+}
 _last_address = ""  # the address of the last mail_login attempt: tells which webmail to open
 _session: dict = {}  # the verified login of this run: user, password, host, port (kept in memory only)
 _ADDRESS = re.compile(r"[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+")
@@ -93,6 +98,18 @@ def _incorrect_credentials(host: str, user: str, code: int, reason: bytes | str 
                      "or call send_mail without a login: it opens the written message as a draft in the user's browser.")
 
 
+def _offer_app_password_page(address: str) -> None:
+    """After a refused login: offer to open, in the person's default browser, the page where they sign in and create an app password."""
+    domain = address.rsplit("@", 1)[-1].lower()
+    provider = "yahoo" if domain.startswith("yahoo.") else _webmail_for(address)
+    url = APP_PASSWORD_PAGES.get(provider)
+    if not url:
+        return
+    state.ui.status(f"[mail] {provider} refuses a browser driven by a program, so the page opens in your own browser: sign in there and create an app password.")
+    if state.ui.confirm(f"Open {url} in your default browser?", ("yes", "no")) == "yes" and not webbrowser.open(url):
+        state.ui.message(f"No browser could be opened; open this link yourself:\n{url}")
+
+
 def tool_mail_login(new_login: bool = False) -> str:
     """Log in with the saved login, else ask the person for their address and password; check them against their SMTP server and keep them."""
     _session.clear()
@@ -119,7 +136,9 @@ def tool_mail_login(new_login: bool = False) -> str:
         except smtplib.SMTPAuthenticationError as e:
             if from_saved:
                 credentials.forget("mail")  # it no longer works: the person is asked again at the next mail_login
-            raise _incorrect_credentials(host, user, e.smtp_code, e.smtp_error)
+            error = _incorrect_credentials(host, user, e.smtp_code, e.smtp_error)
+            _offer_app_password_page(user)
+            raise error
         except (smtplib.SMTPException, OSError) as e:
             state.ui.warning(f"[mail] {host}:{port} failed: {type(e).__name__}: {e}")
             if attempt + 1 < len(ports):
@@ -134,18 +153,30 @@ def tool_mail_login(new_login: bool = False) -> str:
     return f"Logged in as {user} through {host}:{port}. send_mail can now be used."
 
 
-def _draft_url(user: str, to: list[str], cc: list[str], bcc: list[str], subject: str, body: str) -> str:
-    """A link that opens the message, already written, in the person's webmail (Gmail) or mail program (mailto:)."""
+def _draft_url(webmail: str, to: list[str], cc: list[str], bcc: list[str], subject: str, body: str) -> str:
+    """A link that opens the message, already written, in the person's webmail ("gmail", "outlook") or mail program ("mailto")."""
+    quote = urllib.parse.quote
     fields = {k: v for k, v in (("to", ",".join(to)), ("cc", ",".join(cc)), ("bcc", ",".join(bcc)), ("su", subject), ("body", body)) if v}
-    if user.lower().endswith(("@gmail.com", "@googlemail.com")):
-        return "https://mail.google.com/mail/?" + urllib.parse.urlencode({"view": "cm", "fs": "1", **fields}, quote_via=urllib.parse.quote)
-    query = urllib.parse.urlencode({("subject" if k == "su" else k): v for k, v in fields.items() if k != "to"}, quote_via=urllib.parse.quote)
-    return f"mailto:{urllib.parse.quote(','.join(to))}?{query}"
+    if webmail == "gmail":
+        return "https://mail.google.com/mail/?" + urllib.parse.urlencode({"view": "cm", "fs": "1", **fields}, quote_via=quote)
+    if webmail == "outlook":
+        return "https://outlook.live.com/mail/0/deeplink/compose?" + urllib.parse.urlencode(
+            {("subject" if k == "su" else k): v for k, v in fields.items()}, quote_via=quote)
+    query = urllib.parse.urlencode({("subject" if k == "su" else k): v for k, v in fields.items() if k != "to"}, quote_via=quote)
+    return f"mailto:{quote(','.join(to))}?{query}"
 
 
-def _open_draft(recipients: list[str], copies: list[str], hidden: list[str], subject: str, body: str) -> str:
+def _webmail_for(address: str) -> str:
+    """Where a draft opens when nothing was chosen: Gmail while no address is known, else the webmail of the address's provider."""
+    if not address:
+        return "gmail"
+    domain = address.rsplit("@", 1)[-1].lower()
+    return "gmail" if domain in ("gmail.com", "googlemail.com") else "outlook" if KNOWN_SMTP_HOSTS.get(domain) == "smtp-mail.outlook.com" else "mailto"
+
+
+def _open_draft(recipients: list[str], copies: list[str], hidden: list[str], subject: str, body: str, webmail: str = "") -> str:
     """No login: after the person agrees, open the written message in their browser; they sign in there and press Send themselves."""
-    url = _draft_url(_last_address, recipients, copies, hidden, subject, body)
+    url = _draft_url(webmail or _webmail_for(_last_address), recipients, copies, hidden, subject, body)
     if len(url) > DRAFT_URL_MAX:
         raise ToolError(f"The message is too long to be opened as a draft ({len(url)} characters of link, maximum {DRAFT_URL_MAX}); shorten the body.")
     state.ui.panel("Open the message as a draft", [f"To:      {', '.join(recipients)}",
@@ -160,6 +191,18 @@ def _open_draft(recipients: list[str], copies: list[str], hidden: list[str], sub
         state.ui.message(f"No browser could be opened; open this link yourself:\n{url}")
     return ("The draft was opened in the user's browser. It was NOT sent: the user signs in and presses Send themselves. "
             "Do not say the mail was sent.")
+
+
+def tool_mail_draft(to: str | list, subject: str, body: str, cc: str | list = "", bcc: str | list = "", webmail: str = "") -> str:
+    """Open the written message in the person's own browser (their Gmail / Outlook, or their mail program): they sign in there and press Send."""
+    if webmail not in ("", "gmail", "outlook", "mailto"):
+        raise ToolError("webmail is 'gmail', 'outlook' or 'mailto'.")
+    recipients = _addresses(to, "to")
+    if not recipients:
+        raise ToolError("At least one recipient is needed in 'to'.")
+    if not subject.strip() or "\n" in subject or "\r" in subject:
+        raise ToolError("The subject must be a single non-empty line.")
+    return _open_draft(recipients, _addresses(cc, "cc"), _addresses(bcc, "bcc"), subject, body, webmail)
 
 
 def tool_send_mail(to: str | list, subject: str, body: str, cc: str | list = "", bcc: str | list = "") -> str:

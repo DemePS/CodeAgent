@@ -32,7 +32,7 @@ from ..tools.files import (
 )
 from ..tools.git import tool_git
 from ..tools.interaction import tool_ask_human
-from ..tools.mail import tool_mail_login, tool_send_mail
+from ..tools.mail import tool_mail_draft, tool_mail_login, tool_send_mail
 from ..tools.sms import tool_send_sms
 from ..tools.network import tool_clone_repo, tool_download_file
 from ..tools.web import (
@@ -83,6 +83,7 @@ TOOL_HANDLERS = {
     "git": tool_git,
     "download_file": tool_download_file,
     "mail_login": tool_mail_login,
+    "mail_draft": tool_mail_draft,
     "send_mail": tool_send_mail,
     "send_sms": tool_send_sms,
     "clone_repo": tool_clone_repo,

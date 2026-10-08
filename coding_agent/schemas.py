@@ -101,6 +101,27 @@ TOOLS = [
         },
     },
     {
+        "name": "mail_draft",
+        "description": (
+            "Open the written email in the user's OWN browser (Gmail, Outlook or their mail program): they sign in there themselves and press "
+            "Send. Use it when the user wants to sign in on the mail site, or when mail_login is refused. Nothing is sent by you: tell the user "
+            "it is not sent until they press Send. Never open Gmail/Outlook with web_sign_in or the web tools: Google and Microsoft block them. "
+            "The user approves before the browser opens. Write short emails."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Recipient address(es), comma-separated."},
+                "subject": {"type": "string", "description": "Single-line subject."},
+                "body": {"type": "string", "description": "Plain-text body, concise (a few sentences)."},
+                "cc": {"type": "string", "description": "Optional cc address(es)."},
+                "bcc": {"type": "string", "description": "Optional bcc address(es)."},
+                "webmail": {"type": "string", "enum": ["gmail", "outlook", "mailto"], "description": "Where to open it. Pass 'gmail' when the user says Gmail. Default: from the address used at mail_login, Gmail if none."},
+            },
+            "required": ["to", "subject", "body"],
+        },
+    },
+    {
         "name": "send_mail",
         "description": (
             "Send a plain-text email from the user's mailbox. Call mail_login first (once per session); this tool never asks for a password. "
@@ -378,7 +399,7 @@ TOOLS = [
             "signed-in user. Use it instead of asking for a password, and only when the task needs the signed-in pages. "
             "The user is asked first and can cancel. "
             "Never use it for a mailbox (Gmail, Outlook, Yahoo...): Google and Microsoft refuse sign-in from a browser driven by a program "
-            "(\"This browser or app may not be secure\"). To send an email use mail_login then send_mail."
+            "(\"This browser or app may not be secure\"). To send an email use mail_login then send_mail, or mail_draft so the user signs in on the mail site themselves."
         ),
         "input_schema": {
             "type": "object",
