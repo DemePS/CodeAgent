@@ -9,7 +9,7 @@ from pathlib import Path
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from .. import backups, ocr, state
+from .. import backups, index, ocr, state
 from ..common import (
     ToolError,
     display,
@@ -295,6 +295,30 @@ def tool_search_pdf(path: str, query: str, regex: bool = False, pages: str | Non
         lines.append("Open the pages that matter with read_pdf (pages='N').")
     elif not without_text:
         lines.append("No match: the text may be split by line breaks or hyphens, so try a shorter or different word.")
+    return truncate("\n".join(lines))
+
+
+def tool_search_library(query: str, document: str | None = None, max_results: int = 10) -> str:
+    """Search the PDFs of the library (the read-only folders and the workspace) through the full-text index: pages ranked by the query's words."""
+    if not query or not query.strip():
+        raise ToolError("query is empty.")
+    roots = [r for r in (*state.read_roots, state.workspace) if r and r.is_dir()]
+    for root in roots:
+        index.refresh(root)  # only the files that are new or changed are read (their text layer; scans wait for `coding-agent --index`)
+    result = index.search(roots, query, document=document, limit=max_results)
+    state.ui.status(f"[library] search {query!r}: {len(result['hits'])} page(s)")
+    if not result["files"]:
+        return "No PDF is indexed: there is no PDF in the workspace or the read-only folders."
+    lines = [f"{len(result['hits'])} page(s) for {query!r} in {result['files']} indexed PDF(s); words used: {', '.join(result['words']) or '(none)'}"]
+    for path, page, snippet, mode in result["hits"]:
+        lines.append(f"{Path(path).name} page {page} ({mode}) -- {path}\n   {snippet}")
+    if result["hits"]:
+        lines.append("Open the pages that matter with read_pdf (path, pages='N'). Check the page before quoting it.")
+    else:
+        lines.append("No page has these words. Try other or fewer words (one distinctive word is enough), or a different spelling.")
+    if result["unread"]:
+        names = "; ".join(f"{Path(p).name}: {n} scanned page(s)" for p, n in list(result["unread"].items())[:5])
+        lines.append(f"Not searched, because they are scans not read by OCR yet: {names}. The person can read them once with: coding-agent --index FOLDER")
     return truncate("\n".join(lines))
 
 

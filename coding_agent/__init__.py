@@ -29,6 +29,7 @@ Tools:
   - read_pdf    : give Claude a PDF's pages as a document it reads itself -- text, tables, layout and
                   scanned pages -- or just the extracted text for long documents
   - search_pdf  : find a word or phrase in a PDF's text: the page numbers and a short snippet of every match
+  - search_library : find the pages of all the PDFs of the library that have a query's words (full-text index, ranked; scans through OCR)
                   (the text is extracted once and cached), then open just those pages with read_pdf
   - read_excel  : list a workbook's sheets and show cells (values and formulas) of a sheet or range
   - edit_excel  : set cell values or formulas in an .xlsx/.xlsm (or create a new workbook) -- shows a

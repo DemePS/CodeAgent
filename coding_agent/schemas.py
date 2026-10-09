@@ -472,6 +472,25 @@ TOOLS = [
         },
     },
     {
+        "name": "search_library",
+        "description": (
+            "Search ALL the PDFs of the library at once (the read-only folders and the workspace) through a full-text index. Pages are "
+            "ranked by how many of the query's words they contain, so write the query as a few distinctive words (\"delai prescription "
+            "action assurance\"), not as a sentence you hope to find word for word. Case, accents, apostrophes and plurals are ignored. "
+            "You get the document, the page and a snippet for each page; then open the pages that matter with read_pdf. Scanned pages "
+            "are searched through their OCR text once the library has been indexed with `coding-agent --index`."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "A few distinctive words to look for."},
+                "document": {"type": "string", "description": "Only search the documents whose name or path contains this text (optional)."},
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Pages to list (default 10)."},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "read_excel",
         "description": (
             "Read an Excel workbook (.xlsx/.xlsm) from the workspace. Without sheet (and range), a "

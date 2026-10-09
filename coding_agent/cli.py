@@ -37,6 +37,7 @@ def parse_args() -> argparse.Namespace:
                         help="Delete the sign-ins kept for the browsing tools (a site, or all), then exit.")
     parser.add_argument("--forget-secrets", action="store_true", help="Delete the mail and SMS logins saved in ~/.coding-agent/secrets, then exit.")
     parser.add_argument("--ocr", nargs="+", metavar="PDF", help="Read the scanned pages of these PDFs once with OCR (tesseract), keep the text for search_pdf and read_pdf, then exit.")
+    parser.add_argument("--index", nargs="+", metavar="FOLDER", help="Index the PDFs of these folders for search_library (scanned pages are read with OCR, which takes a while), then exit.")
     parser.add_argument("--check-browser", action="store_true", help="Test the browser used by screenshot_page, then exit.")
     return parser.parse_args()
 
@@ -58,6 +59,20 @@ def run_ocr(files: list[str]) -> None:
         if todo:
             ocr.read_pages(path, todo, progress=lambda i, total: print(f"\r  OCR {i}/{total}", end="", flush=True))
             print()
+
+
+def run_index(folders: list[str]) -> None:
+    """`coding-agent --index FOLDER...`: (re)index the PDFs of each folder, OCR included; only new or changed files are read."""
+    from . import index, ocr
+    if not ocr.available():
+        print("Warning: " + ocr.missing_message() + " Scanned pages will not be indexed.")
+    for name in folders:
+        root = Path(name).expanduser().resolve()
+        if not root.is_dir():
+            raise SystemExit(f"Not a folder: {root}")
+        read = index.refresh(root, ocr_scans=ocr.available(), log=print,
+                             progress=lambda i, total: print(f"\r  OCR {i}/{total}", end="", flush=True))
+        print(f"{root}: {len(index.pdfs_under(root))} PDF(s), {len(read)} read")
 
 
 def main() -> None:
@@ -83,6 +98,8 @@ def main() -> None:
         removed = credentials.forget()
         print("Removed: " + ", ".join(removed) if removed else "No saved login.")
         return
+    if args.index:
+        return run_index(args.index)
     if args.ocr:
         return run_ocr(args.ocr)
     if args.check_browser:

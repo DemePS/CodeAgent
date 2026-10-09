@@ -304,6 +304,7 @@ HOME_DIR = Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") else 
 AGENT_HOME = HOME_DIR / ".coding-agent"
 MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR") or AGENT_HOME / "memory").expanduser()
 OCR_HOME = Path(os.environ.get("AGENT_OCR_DIR") or AGENT_HOME / "ocr").expanduser()  # the text read from scanned pages
+INDEX_HOME = Path(os.environ.get("AGENT_INDEX_DIR") or AGENT_HOME / "index").expanduser()  # the full-text index of the library folders
 BACKUP_HOME = AGENT_HOME / "backups"  # previous versions of workbooks changed by edit_excel
 PACKAGE_DIR = Path(__file__).resolve().parent  # the agent/ package: its own source code
 BUNDLED_SKILLS = PACKAGE_DIR / "skills"
