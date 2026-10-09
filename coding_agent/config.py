@@ -103,6 +103,15 @@ def active_provider() -> str | None:
     return "foundry" if os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") else None
 
 
+_PROVIDER_LABELS = {"anthropic": "Claude", "foundry": "Claude", "deepseek": "DeepSeek"}  # Foundry runs Claude too
+
+
+def provider_label() -> str:
+    """Name shown in the CLI for the model in use, taken from active_provider() (which follows CODEAGENT_PROVIDER and the keys)."""
+    provider = active_provider()
+    return _PROVIDER_LABELS.get(provider) or (provider.title() if provider else "Claude")
+
+
 def key_location() -> str:
     """Where the key in use comes from, for messages: "the API key saved in Settings" or the variable."""
     if _overrides.get("api_key"):

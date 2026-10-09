@@ -3,6 +3,7 @@
 import re
 
 from coding_agent import ui
+from coding_agent.config import provider_label
 
 
 def shown(capsys):
@@ -16,7 +17,7 @@ def test_text_blocks_split_by_citations_lose_no_word_and_share_one_label(capsys)
         terminal.assistant_text(block.rstrip())  # a block ends in the middle of a sentence, on a word the printer is still holding
     terminal.assistant_end()
     out = shown(capsys)
-    assert out.count("Claude:") == 1
+    assert out.count(f"{provider_label()}:") == 1
     assert "ressources" in out and "31 %" in out and out.rstrip().endswith("2026")
 
 
@@ -44,4 +45,23 @@ def test_a_new_answer_after_a_tool_gets_its_own_label(capsys):
     terminal.assistant_start(); terminal.assistant_text("Searching"); terminal.tool_start("web_search")
     terminal.assistant_start(); terminal.assistant_text("Found it"); terminal.assistant_end()
     out = shown(capsys)
-    assert out.count("Claude:") == 2 and "Searching" in out and "Found it" in out
+    assert out.count(f"{provider_label()}:") == 2 and "Searching" in out and "Found it" in out
+
+
+def test_provider_label_follows_the_provider_in_use(monkeypatch):
+    for name in ("CODEAGENT_PROVIDER", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_FOUNDRY_ENDPOINT"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake")
+    assert provider_label() == "Claude"
+    monkeypatch.delenv("ANTHROPIC_API_KEY")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "x")
+    assert provider_label() == "DeepSeek"
+
+
+def test_a_turn_that_opens_with_a_tool_call_still_shows_the_label(capsys):
+    terminal = ui.TerminalUI()
+    terminal.tool_start("grep")
+    terminal.tool_start("read_file")
+    terminal.assistant_end()
+    out = shown(capsys)
+    assert out.count(f"{provider_label()}:") == 1 and out.index(f"{provider_label()}:") < out.index("-> grep")

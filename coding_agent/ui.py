@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 from . import state
-from .config import EDITOR, FILE_REF, LINKS_ENABLED
+from .config import EDITOR, FILE_REF, LINKS_ENABLED, provider_label
 
 
 class UI:
@@ -266,7 +266,14 @@ class TerminalUI(UI):
         if self._out is not None:  # another text block of the same answer (web search citations split it): keep the words still buffered, no new label
             return
         self._out = LinkedPrinter()
-        print("\n\033[1;34mClaude:\033[0m ", end="", flush=True)
+        self._labelled = True
+        print(f"\n\033[1;34m{provider_label()}:\033[0m ", end="", flush=True)
+
+    def _label_turn(self) -> None:
+        """A model turn that opens with thinking or a tool call (no words first) still starts under the label."""
+        if not getattr(self, "_labelled", False):
+            self._labelled = True
+            print(f"\n\033[1;34m{provider_label()}:\033[0m", end="", flush=True)
 
     def assistant_text(self, text: str) -> None:
         if self._out is None:
@@ -274,17 +281,19 @@ class TerminalUI(UI):
         self._out.write(text)
 
     def _flush(self) -> None:
-        """Print what is still buffered and end the current answer: the next text block starts a new "Claude:" line."""
+        """Print what is still buffered and end the current answer: the next text block starts a new "<provider>:" line."""
         if self._out:
             self._out.flush()
         self._out = None
 
     def thinking(self) -> None:
         self._flush()
+        self._label_turn()
         print("\n\033[2m(thinking...)\033[0m", end="", flush=True)
 
     def tool_start(self, name: str) -> None:
         self._flush()
+        self._label_turn()
         print(f"\n\033[2m-> {name}\033[0m", end="", flush=True)
 
     def tool_detail(self, text: str) -> None:
@@ -292,6 +301,7 @@ class TerminalUI(UI):
 
     def assistant_end(self) -> None:
         self._flush()
+        self._labelled = False
         print()
 
     def tool_result(self, name: str, arguments: str, ok: bool, summary: str) -> None:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import time
 
-from .config import SettingError, _get_client, get_model, thinking_options, uses_anthropic_api
+from .config import SettingError, _get_client, get_model, provider_label, thinking_options, uses_anthropic_api
 from .errors import connection_summary, describe
 
 TIME_LIMIT_SECONDS = 90
@@ -66,7 +66,7 @@ def steps():
 
 def run_check(print=print) -> bool:  # noqa: A002 -- replaceable for tests
     """Run the steps, printing each result; stops at the first failure. True if all pass."""
-    print(f"Claude: {connection_summary()}")
+    print(f"{provider_label()}: {connection_summary()}")
     for name, step in steps():
         print(f"- {name}: ", end="", flush=True)
         started = time.monotonic()
