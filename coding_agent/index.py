@@ -10,13 +10,16 @@ size or date changes.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import sqlite3
+import unicodedata
 from pathlib import Path
 
 from .config import INDEX_HOME
 
 MAX_RESULTS = 30
+ANY_WORD_POOL = 1500  # pages with some of the words that are re-ranked by rarity (a long library is a few thousand pages)
 STOPWORDS = frozenset("""
 le la les un une des de du d l et ou en au aux a à est sont se sa son ses ce cet cette ces qui que quoi dont où ne pas plus par pour sur
 sous dans avec sans il elle ils elles on nous vous je tu me te lui leur leurs y fait faut doit peut etre avoir ainsi comme mais si
@@ -114,10 +117,35 @@ def words(query: str) -> list[str]:
     return found
 
 
+def _idf(db: sqlite3.Connection, terms: list[str]) -> dict[str, float]:
+    """How rare each word is in this folder: a word on every page (CIMA in the CIMA code) says little, a rare one says a lot."""
+    total = max(1, db.execute("SELECT COUNT(*) FROM pages").fetchone()[0])
+    weights = {}
+    for t in terms:
+        df = db.execute("SELECT COUNT(*) FROM pages WHERE pages MATCH ?", ('"' + t.replace('"', "") + '"*',)).fetchone()[0]
+        weights[t] = math.log(1 + total / (1 + df))
+    return weights
+
+
+_COMBINING = re.compile("[\u0300-\u036f]")
+_TYPOGRAPHIC = str.maketrans({"\u2019": "'", "\u2018": "'", "\u00a0": " "})
+
+
+def _coverage(text: str, weights: dict[str, float]) -> float:
+    """The summed rarity of the query's words that the page has (prefix match, like the index)."""
+    folded = _COMBINING.sub("", unicodedata.normalize("NFKD", text.translate(_TYPOGRAPHIC))).lower()  # whole text at once: fast enough for ~100 pages
+    tokens = set(re.findall(r"\w+", folded))
+    return sum(w for t, w in weights.items() if any(tok.startswith(t) for tok in tokens))
+
+
 def search(roots: list[Path], query: str, document: str | None = None, limit: int = 10) -> dict:
-    """{"words": [...], "hits": [(path, page, snippet, "all words" | "any word")], "unread": {path: scanned pages not in the index}, "files": n}"""
+    """{"words": [...], "hits": [(path, page, snippet, "all words" | "any word")], "unread": {path: scanned pages not in the index}, "files": n}
+
+    Pages with all the words come first (best BM25 first). Then the pages with some of them, ranked by the summed rarity of the
+    words they have (so a page with a rare word beats a page that repeats a common one), ties by BM25."""
     terms = words(query)
-    limit = max(1, min(int(limit or 10), MAX_RESULTS))
+    limit = int(limit or 10)
+    limit = 10 if limit < 1 else min(limit, MAX_RESULTS)  # nothing or a negative number: the default
     out = {"words": terms, "hits": [], "unread": {}, "files": 0}
     if not terms:
         return out
@@ -130,13 +158,18 @@ def search(roots: list[Path], query: str, document: str | None = None, limit: in
             out["files"] += db.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
             for path, n in db.execute("SELECT path, unread FROM docs WHERE unread > 0"):
                 out["unread"][path] = n
+            weights = None  # the rarity of the words is only needed to order the pages that have some of them
             for mode, match in (("all words", match_and), ("any word", match_or)):
-                if mode == "any word" and len(terms) == 1:
+                if mode == "any word" and (len(terms) == 1 or len(out["hits"]) >= limit):
                     break
-                sql = ("SELECT path, page, snippet(pages, 0, '[', ']', ' ... ', 20) FROM pages WHERE pages MATCH ?"
+                sql = ("SELECT path, page, text, snippet(pages, 0, '[', ']', ' ... ', 40), bm25(pages) FROM pages WHERE pages MATCH ?"
                        + (" AND path LIKE ?" if document else "") + " ORDER BY bm25(pages) LIMIT ?")
-                args = [match] + ([f"%{document}%"] if document else []) + [limit * 3]
-                for path, page, snippet in db.execute(sql, args):
+                args = [match] + ([f"%{document}%"] if document else []) + [ANY_WORD_POOL if mode == "any word" else limit * 3]
+                rows = db.execute(sql, args).fetchall()  # (path, page, text, snippet, bm25)
+                if mode == "any word":
+                    weights = weights or _idf(db, terms)
+                    rows.sort(key=lambda r: (-_coverage(r[2], weights), r[4]))
+                for path, page, _, snippet, _ in rows:
                     if (path, page) not in seen and len(out["hits"]) < limit:
                         seen.add((path, page))
                         out["hits"].append((path, page, snippet, mode))

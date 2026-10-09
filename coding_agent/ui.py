@@ -79,6 +79,10 @@ class UI:
     def assistant_end(self) -> None:
         """The response is complete."""
 
+    def response_end(self, stop_reason: str | None) -> None:
+        """Why the model stopped, known once the response is complete: "end_turn" (it is done: this response is the answer),
+        "tool_use" (it wants a tool, so this response was only a step), "max_tokens" (cut short), "refusal", ... Called after assistant_end."""
+
     def tool_result(self, name: str, arguments: str, ok: bool, summary: str) -> None:
         """A tool call finished: its name, short arguments, success, and a summary (the error if it failed)."""
 

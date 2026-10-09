@@ -1,6 +1,5 @@
 """The agent loop: stream a response, run the requested tools, repeat; one instruction at a time."""
 
-
 import threading
 
 import anthropic
@@ -132,6 +131,7 @@ def _show_events_guarded(stream, call: _Call, ui):
     except BaseException:  # the connection dropped mid-answer: show the words still buffered, not a message cut in the middle of a word
         if not call.cancelled:
             ui.assistant_end()
+            ui.response_end("interrupted")  # what it wrote is cut off: a front end must not take it for a complete answer
         raise
 
 
@@ -166,7 +166,9 @@ def _show_events(stream, call: _Call, ui):
     if call.cancelled:
         return None
     ui.assistant_end()
-    return stream.get_final_message()
+    message = stream.get_final_message()
+    ui.response_end(getattr(message, "stop_reason", None))
+    return message
 
 
 def call_model(client: anthropic.Anthropic, messages: list):

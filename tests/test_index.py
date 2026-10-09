@@ -62,3 +62,30 @@ def test_scans_are_reported_until_they_are_indexed_with_ocr(workspace, monkeypat
     assert index.refresh(workspace, ocr_scans=True) == [workspace / "mixed.pdf"]
     out = documents.tool_search_library("prescription deux ans")
     assert "mixed.pdf page 2" in out and "mixed.pdf page 3" in out and "scanned page(s)" not in out
+
+
+def test_a_page_with_a_rare_word_beats_a_page_that_repeats_a_common_one(workspace):
+    pages = ["cima " * 5, "conference " + "mot " * 30, "cima autre", "cima encore"] + [f"texte banal numero {i}" for i in range(8)]  # the page with the rare word is long
+    make_pdf(workspace / "code.pdf", pages)
+    index.refresh(workspace)
+    db = index.connect(workspace)
+    plain = [row[0] for row in db.execute('SELECT page FROM pages WHERE pages MATCH \'"cima"* OR "conference"*\' ORDER BY bm25(pages)')]
+    db.close()
+    assert plain[0] == 1, "premise: plain BM25 puts the page that repeats the common word first"  # otherwise this test proves nothing
+    out = documents.tool_search_library("cima conference")
+    assert out.index("code.pdf page 2") < out.index("code.pdf page 1")  # the rarity ordering puts the page with the rare word first
+
+
+def test_a_rare_word_is_found_even_when_plain_bm25_ranks_its_page_far_down(workspace):
+    # 100 short pages with the common word, and one very long page with both words: BM25 puts the long page last (100th of 101)
+    pages = [f"cima texte {i}" for i in range(100)] + [f"texte banal {i}" for i in range(199)] + ["cima " + "mot " * 800 + "xylophone"]
+    make_pdf(workspace / "big.pdf", pages)
+    out = documents.tool_search_library("cima xylophone introuvable", max_results=3)  # no page has all three words: the any-word stage decides
+    assert "big.pdf page 300" in out.split("Open the pages")[0]
+
+
+def test_a_negative_or_zero_number_of_results_means_the_default(workspace):
+    make_pdf(workspace / "a.pdf", [f"mot numero {i}" for i in range(12)])
+    index.refresh(workspace)
+    for limit in (0, -3, None):
+        assert len(index.search([workspace], "mot", limit=limit)["hits"]) == 10

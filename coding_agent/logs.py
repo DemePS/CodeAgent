@@ -122,6 +122,12 @@ class LoggedUI(UI):
             log.debug("assistant: %s", "".join(self._text))
         self.ui.assistant_end()
 
+    def response_end(self, stop_reason):
+        log.debug("response ended: %s", stop_reason)
+        hook = getattr(self.ui, "response_end", None)  # a front end that predates the hook is simply not told
+        if hook:
+            hook(stop_reason)
+
     def tool_result(self, name, arguments, ok, summary):
         log.log(logging.INFO if ok else logging.WARNING, "%s(%s) -> %s: %s", name, arguments, "ok" if ok else "failed", summary)
         self.ui.tool_result(name, arguments, ok, summary)

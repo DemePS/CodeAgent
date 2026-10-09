@@ -6,7 +6,7 @@ import httpx
 import pytest
 from anthropic import AnthropicFoundry
 
-from coding_agent import config, context, memory, session, state
+from coding_agent import config, context, loop, memory, session, state
 from coding_agent.ui import HeadlessUI
 
 
@@ -87,6 +87,35 @@ def test_session_with_tool_subset_and_custom_prompt(tmp_path, ui, claude, monkey
     assert ("text", "Done: notes.txt says hello.") in ui.events
     saved = json.loads(state.conversation_file.read_text())
     assert saved[-1]["content"][0]["text"].startswith("Done")
+
+
+def test_the_ui_is_told_why_each_response_stopped(tmp_path, ui, claude, monkeypatch):
+    project = tmp_path / "docs"
+    project.mkdir()
+    (project / "notes.txt").write_text("hello")
+    monkeypatch.setattr(config, "MEMORY_HOME", tmp_path / "mem")
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    claude([([("read_file", {"path": "notes.txt"})], "tool_use"), ([("text", "Done.")], "end_turn")])
+    reasons = []
+    ui.response_end = reasons.append
+    session.open_project(project, ui=ui, tools=["read_file"])
+    assert session.send("Read notes.txt")
+    assert reasons == ["tool_use", "end_turn"]
+
+
+def test_an_interrupted_stream_tells_the_ui_the_response_was_cut(ui):
+    from types import SimpleNamespace
+
+    reasons = []
+    ui.response_end = reasons.append
+
+    def stream():
+        yield SimpleNamespace(type="content_block_start", content_block=SimpleNamespace(type="text"))
+        yield SimpleNamespace(type="text", text="La moitié")
+        raise ConnectionError("dropped")
+    with pytest.raises(ConnectionError):
+        loop._show_events_guarded(stream(), SimpleNamespace(cancelled=False, started=False), ui)
+    assert reasons == ["interrupted"]
 
 
 def test_failed_turn_is_rolled_back(tmp_path, claude, monkeypatch):
