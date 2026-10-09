@@ -35,6 +35,9 @@ dependencies = [
 [project.optional-dependencies]
 # screenshot_page: `pip install "codeagent[browser]"`, then `playwright install chromium`
 browser = ["playwright>=1.63.0,<2"]
+# read_pdf visual mode on DeepSeek: PDF pages are rendered to images with pypdfium2 (Apache-2.0),
+# because DeepSeek accepts images but not PDF document blocks: `pip install "codeagent[pdf-image]"`
+pdf-image = ["pypdfium2>=4.30,<5", "pillow>=10"]
 # Excel itself does the saving, formatting and rendering (Windows or macOS with Excel installed):
 # `pip install "codeagent[excel]"`; AGENT_EXCEL_BACKEND=auto (default) uses it when it can.
 excel = ["xlwings>=0.33,<1"]

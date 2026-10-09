@@ -274,6 +274,9 @@ MAX_SCREENSHOT_TILES = 4  # full-page screenshots are cut into viewport-sized im
 IMAGE_TOKENS = 1600  # rough context cost of one image, for the context estimate
 PDF_PAGE_TOKENS = 2500  # rough context cost of one PDF page (text + page image)
 PDF_MAX_VISUAL_PAGES = 20  # pages per read_pdf call in visual mode
+# DeepSeek cannot take PDF pages as documents, so read_pdf renders them to images with pypdfium2
+# (the "pdf-image" extra). DPI high enough to read a scanned page.
+PDF_IMAGE_DPI = int(float(os.environ.get("AGENT_PDF_IMAGE_DPI") or 150))
 EXCEL_MAX_CELLS = 3000  # cells shown per read_excel call
 EXCEL_MAX_CHANGES = 1000  # cells changed per edit_excel call
 # Who changes, formats and renders workbooks: "xlwings" (Excel itself), "openpyxl" (rewrites the file,

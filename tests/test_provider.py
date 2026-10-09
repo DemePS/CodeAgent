@@ -16,7 +16,7 @@ FOUNDRY = "https://x.services.ai.azure.com/anthropic"
 @pytest.fixture
 def env(monkeypatch):
     for name in ("ANTHROPIC_FOUNDRY_ENDPOINT", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_DEPLOYMENT",
-                 "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL"):
+                 "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "CODEAGENT_PROVIDER", "DEEPSEEK_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     config.clear()
     yield monkeypatch

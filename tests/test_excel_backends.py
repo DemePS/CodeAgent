@@ -196,11 +196,31 @@ def test_format_checks(workspace, charted, ui, openpyxl_backend, monkeypatch):
 
 # --- view_excel
 
-def test_view_with_excel_gives_the_printed_sheet_or_a_picture(workspace, charted, xl):
+def test_view_with_excel_gives_the_printed_sheet_or_a_picture(workspace, charted, xl, monkeypatch):
+    monkeypatch.setattr(excel_look, "uses_deepseek", lambda: False)
     sheet = excel_look.tool_view_excel("schools.xlsx")
     assert "as Excel shows it" in sheet[0]["text"] and sheet[1]["type"] == "document"
     picture = excel_look.tool_view_excel("schools.xlsx", range="a1:b4")
     assert picture[1]["type"] == "image" and picture[1]["source"]["media_type"] == "image/png"
+
+
+def test_view_under_deepseek_renders_the_printed_pages_to_pictures(workspace, charted, xl, monkeypatch):
+    monkeypatch.setattr(excel_look, "uses_deepseek", lambda: True)
+    monkeypatch.setattr(excel_look, "render_pdf_pages", lambda p, pages: [(b"\x89PNG fake", "image/png") for _ in pages])
+    sheet = excel_look.tool_view_excel("schools.xlsx")
+    assert "as Excel shows it" in sheet[0]["text"]
+    assert "picture of the printed sheet" in sheet[1]["text"]
+    assert sheet[2]["type"] == "image" and sheet[2]["source"]["media_type"] == "image/png"
+
+
+def test_view_under_deepseek_without_the_renderer_says_how_to_install_it(workspace, charted, xl, monkeypatch):
+    def missing(p, pages):
+        raise ToolError('needs the optional renderer: pip install "codeagent[pdf-image]"')
+
+    monkeypatch.setattr(excel_look, "uses_deepseek", lambda: True)
+    monkeypatch.setattr(excel_look, "render_pdf_pages", missing)
+    with pytest.raises(ToolError, match=r"codeagent\[pdf-image\]"):
+        excel_look.tool_view_excel("schools.xlsx")
 
 
 def test_view_without_excel_draws_the_cells(charted, openpyxl_backend, monkeypatch):

@@ -1,5 +1,7 @@
 """PDF and Excel tools, including the spreadsheet-first rule."""
 
+import sys
+
 import openpyxl
 import pytest
 
@@ -47,7 +49,8 @@ def workbook(workspace):
     return workspace / "costs.xlsx"
 
 
-def test_pdf_text_and_page_subset(invoice):
+def test_pdf_text_and_page_subset(invoice, monkeypatch):
+    monkeypatch.setattr(documents, "uses_deepseek", lambda: False)  # the Claude path sends the PDF itself
     text = documents.tool_read_pdf("invoice.pdf", mode="text")
     assert "3 page(s)" in text and "Total 642.00 EUR" in text
     blocks = documents.tool_read_pdf("invoice.pdf", pages="1-2")
@@ -260,13 +263,20 @@ def test_applications_can_protect_formulas_and_the_columns(workspace, ui, tmp_pa
     assert openpyxl.load_workbook(workspace / "q.xlsx")["Q"]["C2"].value == "Yes"
 
 
-def test_visual_pdf_reading_is_refused_on_deepseek_but_text_mode_works(invoice, monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "ds-key")
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_FOUNDRY_ENDPOINT", "CODEAGENT_PROVIDER"):
-        monkeypatch.delenv(name, raising=False)
-    with pytest.raises(ToolError, match="mode='text'"):
-        documents.tool_read_pdf("invoice.pdf", mode="visual")
+def test_read_pdf_visual_deepseek_uses_images(invoice, monkeypatch):
+    monkeypatch.setattr(documents, "uses_deepseek", lambda: True)
+    monkeypatch.setattr(documents, "render_pdf_pages", lambda p, sel: [(b"png", "image/png")] * len(sel))
+    blocks = documents.tool_read_pdf("invoice.pdf", pages="1-2")
+    assert blocks[0]["type"] == "text"
+    assert [b["type"] for b in blocks[1:]] == ["image", "image"]
     assert "Total 642.00 EUR" in documents.tool_read_pdf("invoice.pdf", mode="text")
+
+
+def test_read_pdf_visual_deepseek_without_renderer_says_how_to_install_it(invoice, monkeypatch):
+    monkeypatch.setattr(documents, "uses_deepseek", lambda: True)
+    monkeypatch.setitem(sys.modules, "pypdfium2", None)  # makes `import pypdfium2` raise ImportError
+    with pytest.raises(ToolError, match=r"codeagent\[pdf-image\]"):
+        documents.tool_read_pdf("invoice.pdf", mode="visual")
 
 
 def test_search_pdf_gives_the_pages_and_a_snippet_of_every_match(invoice):

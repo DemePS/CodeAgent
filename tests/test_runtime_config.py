@@ -19,7 +19,7 @@ KEY = "sk-ant-api03-abcdefghijklmnop"
 def env(monkeypatch):
     for name in ("ANTHROPIC_FOUNDRY_ENDPOINT", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_DEPLOYMENT",
                  "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "AGENT_MEMORY_MODEL", "AGENT_COMPACT_MODEL",
-                 "CODEAGENT_THINKING", "CODEAGENT_EFFORT"):
+                 "CODEAGENT_THINKING", "CODEAGENT_EFFORT", "CODEAGENT_PROVIDER", "DEEPSEEK_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     config.clear()
     yield monkeypatch

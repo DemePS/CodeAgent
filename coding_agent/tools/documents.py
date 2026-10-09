@@ -27,6 +27,7 @@ from ..config import (
     IMAGE_TYPES,
     MAX_IMAGE_BYTES,
     MAX_TOOL_OUTPUT_CHARS,
+    PDF_IMAGE_DPI,
     PDF_MAX_VISUAL_PAGES,
     uses_deepseek,
 )
@@ -38,6 +39,31 @@ from ..config import (
 def image_block(data: bytes, media_type: str) -> dict:
     return {"type": "image", "source": {"type": "base64", "media_type": media_type,
                                         "data": base64.b64encode(data).decode("ascii")}}
+
+
+def render_pdf_pages(p: Path, selected: list[int]) -> list[tuple[bytes, str]]:
+    """Render chosen PDF pages (1-based) to PNGs with pypdfium2, for models that take
+    images but not PDFs. Returns one (png_bytes, "image/png") per page. Raises ToolError
+    with an actionable message when the optional renderer is missing or a page is too big.
+    """
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        raise ToolError('Showing PDF pages as images needs the optional renderer. Install it with: '
+                        'pip install "codeagent[pdf-image]" (or: uv sync --extra pdf-image)')
+    try:
+        document = pdfium.PdfDocument(str(p))
+        out: list[tuple[bytes, str]] = []
+        for n in selected:
+            image = document.get_page(n - 1).render(scale=PDF_IMAGE_DPI / 72).to_pil()
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            out.append((buffer.getvalue(), "image/png"))
+        return out
+    except ToolError:
+        raise
+    except Exception as e:
+        raise ToolError(f"{p.name} could not be rendered to images: {type(e).__name__}: {e}")
 
 
 # --- PDFs and Excel workbooks ----------------------------------------------------------------------
@@ -94,12 +120,16 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
             parts.append(f"--- page {n} ---\n{text or '(no text layer: a scan or an image -- use mode visual)'}")
         return truncate(label + "\n" + "\n".join(parts))
 
-    if uses_deepseek():
-        raise ToolError("Visual mode needs PDF pages sent as documents, which DeepSeek does not accept: use mode='text'. "
-                        "A page without a text layer (a scan) cannot be read with this model.")
     if len(selected) > PDF_MAX_VISUAL_PAGES:
         raise ToolError(f"{path} has {count} pages; read at most {PDF_MAX_VISUAL_PAGES} at a time in visual mode "
                         f"(e.g. pages='1-{PDF_MAX_VISUAL_PAGES}'), or use mode='text' to skim all of it first.")
+    if uses_deepseek():
+        # DeepSeek takes image blocks but not PDF document blocks: render the pages and send images.
+        rendered = render_pdf_pages(p, selected)
+        note = label + (" (each page below is a picture; page numbers restart at 1)"
+                        if len(selected) != count else " (each page below is a picture)")
+        state.ui.status(f"[pdf] {rel_name(p)} ({len(selected)} of {count} page(s), as image(s))")
+        return [{"type": "text", "text": note}] + [image_block(d, mt) for d, mt in rendered]
     if len(selected) == count:
         data = p.read_bytes()
     else:  # only the requested pages, as a smaller PDF

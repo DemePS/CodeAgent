@@ -2,3 +2,12 @@ __pycache__/
 *.pyc
 .venv/
 .env
+candidatures/
+etablissements/
+logement/
+scripts/test_coding_agent.py
+shortlist_appartements_strasbourg.md
+tomodify
+top.txt
+scripts/prompt_for_claude_code.md
+test.txt

@@ -14,6 +14,7 @@ from __future__ import annotations
 import html
 import io
 import re
+import tempfile
 from pathlib import Path
 
 from .. import backups, state
@@ -25,6 +26,7 @@ from .documents import (
     image_block,
     load_workbook,
     lossy_features,
+    render_pdf_pages,
     save_openpyxl,
     sheet_objects,
     show_cell,
@@ -57,8 +59,8 @@ def tool_view_excel(path: str, sheet: str | None = None, range: str | None = Non
         state.ui.status(f"[excel] {rel_name(p)} {name}{' ' + address if address else ''} rendered by Excel")
         label = f"{display(p)} -- sheet {name}{' range ' + address if address else ''}, as Excel shows it"
         if media_type == "application/pdf":
-            return [{"type": "text", "text": label + " (the pages Excel would print; charts and pictures included)"},
-                    pdf_block(data, display(p))]
+            return [{"type": "text", "text": label + " (the pages Excel would print; charts and pictures included)"}] \
+                + pdf_block(data, display(p))
         return [{"type": "text", "text": label}, checked_image(data, "image/png")]
     ws = wb[name]
     others = sheet_objects(ws)
@@ -77,24 +79,31 @@ def checked_image(data: bytes, media_type: str) -> dict:
     return image_block(data, media_type)
 
 
-def pdf_block(data: bytes, title: str) -> dict:
+def pdf_block(data: bytes, title: str) -> list:
     import base64
 
     from pypdf import PdfReader, PdfWriter
 
-    if uses_deepseek():
-        raise ToolError("The sheet could not be shown: DeepSeek does not accept PDF pages as documents.")
     reader = PdfReader(io.BytesIO(data))
-    if len(reader.pages) > PDF_MAX_VISUAL_PAGES:  # the first pages only
+    count = len(reader.pages)
+    if uses_deepseek():  # images only: render the first pages to pictures
+        shown = min(count, PDF_MAX_VISUAL_PAGES)
+        with tempfile.TemporaryDirectory() as folder:
+            pdf = Path(folder) / "sheet.pdf"
+            pdf.write_bytes(data)
+            pages = render_pdf_pages(pdf, list(range(1, shown + 1)))
+        return [{"type": "text", "text": f"Each page below is a picture of the printed sheet ({shown} of {count} page(s))."}] \
+            + [checked_image(png, media_type) for png, media_type in pages]
+    if count > PDF_MAX_VISUAL_PAGES:  # the first pages only
         writer = PdfWriter()
         for page in reader.pages[:PDF_MAX_VISUAL_PAGES]:
             writer.add_page(page)
         buffer = io.BytesIO()
         writer.write(buffer)
         data = buffer.getvalue()
-    return {"type": "document", "title": title, "context": f"{min(len(reader.pages), PDF_MAX_VISUAL_PAGES)} of "
-            f"{len(reader.pages)} page(s)", "source": {"type": "base64", "media_type": "application/pdf",
-                                                       "data": base64.b64encode(data).decode("ascii")}}
+    return [{"type": "document", "title": title, "context": f"{min(count, PDF_MAX_VISUAL_PAGES)} of {count} page(s)",
+             "source": {"type": "base64", "media_type": "application/pdf",
+                        "data": base64.b64encode(data).decode("ascii")}}]
 
 
 def argb(color) -> str | None:

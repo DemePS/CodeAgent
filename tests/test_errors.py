@@ -23,6 +23,9 @@ def unreachable_client():
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
+    # A developer machine may have a project .env selecting DeepSeek: this suite is about Claude/Foundry.
+    monkeypatch.delenv("CODEAGENT_PROVIDER", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("ANTHROPIC_FOUNDRY_ENDPOINT", ENDPOINT)
     monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
     folder = tmp_path / "p"
