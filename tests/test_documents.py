@@ -313,9 +313,9 @@ def test_search_pdf_says_when_nothing_matches_and_reads_the_text_once(invoice, m
     documents._PDF_TEXT_CACHE.clear()
     reads = []
     real = documents.pdf_page_texts.__wrapped__ if hasattr(documents.pdf_page_texts, "__wrapped__") else None
-    from pypdf import PdfReader
-    original = PdfReader.__init__
-    monkeypatch.setattr(PdfReader, "__init__", lambda self, *a, **k: (reads.append(1), original(self, *a, **k))[1])
+    import pypdfium2
+    original = pypdfium2.PdfDocument
+    monkeypatch.setattr(pypdfium2, "PdfDocument", lambda *a, **k: (reads.append(1), original(*a, **k))[1])
     documents.tool_search_pdf("invoice.pdf", "invoice")
     documents.tool_search_pdf("invoice.pdf", "terms")
     assert len(reads) == 1
@@ -385,3 +385,11 @@ def test_search_pdf_matches_plain_apostrophes_and_quotes_against_typographic_one
     for query in ("l'assure doit", "l\u2019assur\u00e9 doit", 'doit " agir "', 'agir " - vite'):
         assert "1 match(es)" in documents.tool_search_pdf("typo.pdf", query), query
     assert "page 1: Selon l\u2019article 28, l\u2019assur\u00e9 doit" in documents.tool_search_pdf("typo.pdf", "l'assure doit")  # the snippet keeps the original characters
+
+
+def test_page_text_comes_from_pdfium_so_a_font_pypdf_mis_decodes_cannot_garble_it(workspace, monkeypatch):
+    make_pdf(workspace / "invoice2.pdf", ["Article 15 Aggravation du risque", "Article 16 Obligations"])
+    import pypdf
+    monkeypatch.setattr(pypdf.PdfReader, "__init__", lambda *a, **k: (_ for _ in ()).throw(AssertionError("pypdf must not read the text")))
+    documents._PDF_TEXT_CACHE.clear()
+    assert documents.pdf_page_texts(workspace / "invoice2.pdf") == ["Article 15 Aggravation du risque", "Article 16 Obligations"]

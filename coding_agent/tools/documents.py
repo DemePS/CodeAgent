@@ -2,6 +2,7 @@
 
 import base64
 import io
+import logging
 import os
 import re
 import unicodedata
@@ -115,7 +116,8 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
 
     if mode == "text":
         state.ui.status(f"[pdf] {rel_name(p)} text, {len(selected)} page(s)")
-        layer = {n: (reader.pages[n - 1].extract_text() or "").strip() for n in selected}
+        raw = _pdfium_texts(p, selected)
+        layer = {n: (raw[n - 1] if raw is not None else (reader.pages[n - 1].extract_text() or "")).strip() for n in selected}
         scanned, unread = scan_texts(p, [layer.get(n, "") if n in layer else "" for n in range(1, count + 1)], selected)
         parts = []
         for n in selected:
@@ -190,6 +192,40 @@ SEARCH_PDF_MAX_RESULTS = 100
 SEARCH_PDF_SNIPPET_CHARS = 100  # characters kept on each side of a match
 
 
+logging.getLogger("pypdf").setLevel(logging.ERROR)  # it warns on every page of some fonts; the text comes from pdfium first anyway
+
+
+def _pdfium_texts(p: Path, pages: list[int] | None = None) -> list[str] | None:
+    """The text of the pages of a PDF read by pdfium (the engine of Chrome's PDF viewer), line breaks kept; all pages, or only `pages`
+    (1-based; the others are ""). pypdf mis-decodes the custom font encodings of some PDFs (491 of the 608 pages of one insurance code
+    came out as noise once fontTools was installed) and is about 20 times slower. None when pdfium cannot open the file (encrypted,
+    damaged): the caller falls back to pypdf."""
+    try:
+        import pypdfium2 as pdfium
+        document = pdfium.PdfDocument(str(p))
+    except Exception:
+        return None
+    wanted = set(pages) if pages else None
+    out = []
+    try:
+        for n in range(1, len(document) + 1):
+            if wanted is not None and n not in wanted:
+                out.append("")
+                continue
+            try:
+                page = document[n - 1]
+                textpage = page.get_textpage()
+                text = textpage.get_text_range(0, textpage.count_chars())  # explicit: the default call keeps only the text inside the page box
+                out.append(text.replace("\r\n", "\n").replace("\r", "\n"))
+                textpage.close()
+                page.close()
+            except Exception:  # one unreadable page must not stop the search
+                out.append("")
+    finally:
+        document.close()
+    return out
+
+
 def pdf_page_texts(p: Path) -> list[str]:
     """The extracted text of every page of a PDF (empty for a page without a text layer), cached while the file is unchanged."""
     stat = p.stat()
@@ -197,6 +233,13 @@ def pdf_page_texts(p: Path) -> list[str]:
     cached = _PDF_TEXT_CACHE.get(p)
     if cached and cached[0] == signature:
         return cached[1]
+    raw = _pdfium_texts(p)
+    if raw is not None:
+        texts = [" ".join(t.split()) for t in raw]
+        while len(_PDF_TEXT_CACHE) >= _PDF_TEXT_CACHE_SIZE:
+            _PDF_TEXT_CACHE.pop(next(iter(_PDF_TEXT_CACHE)))
+        _PDF_TEXT_CACHE[p] = (signature, texts)
+        return texts
     try:
         from pypdf import PdfReader
         from pypdf.errors import PdfReadError

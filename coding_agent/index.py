@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .config import INDEX_HOME
 
+INDEX_VERSION = 2  # 2: page text read by pdfium
 MAX_RESULTS = 30
 ANY_WORD_POOL = 1500  # pages with some of the words that are re-ranked by rarity (a long library is a few thousand pages)
 STOPWORDS = frozenset("""
@@ -35,6 +36,10 @@ def connect(root: Path) -> sqlite3.Connection:
     path = _path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=30)
+    if db.execute("PRAGMA user_version").fetchone()[0] != INDEX_VERSION:  # built by an older extractor (pypdf garbled some PDFs): start again
+        db.execute("DROP TABLE IF EXISTS docs")
+        db.execute("DROP TABLE IF EXISTS pages")
+        db.execute(f"PRAGMA user_version = {INDEX_VERSION}")
     db.execute("CREATE TABLE IF NOT EXISTS docs (path TEXT PRIMARY KEY, size INTEGER, mtime_ns INTEGER, pages INTEGER, unread INTEGER)")
     db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS pages USING fts5(text, path UNINDEXED, page UNINDEXED, "
                "tokenize='unicode61 remove_diacritics 2')")
