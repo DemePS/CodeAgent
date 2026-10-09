@@ -29,15 +29,17 @@ dependencies = [
     "python-dotenv>=1.1.1,<2", # reads .env
     "openpyxl>=3.1.5,<4", # read_excel / edit_excel
     "pypdf>=6.19.0,<7", # read_pdf (page ranges, text mode)
+    "pypdfium2>=4.30,<5", # renders PDF pages to images: for OCR and for models that take images but not PDFs
+    "pillow>=10", # the rendered pages
+    "pytesseract>=0.3.10,<1", # OCR of scanned PDF pages (needs the tesseract program and its language packs installed)
     "truststore>=0.10.0,<1", # HTTPS behind a company proxy: the operating system's certificates
 ]
 
 [project.optional-dependencies]
 # screenshot_page: `pip install "codeagent[browser]"`, then `playwright install chromium`
 browser = ["playwright>=1.63.0,<2"]
-# read_pdf visual mode on DeepSeek: PDF pages are rendered to images with pypdfium2 (Apache-2.0),
-# because DeepSeek accepts images but not PDF document blocks: `pip install "codeagent[pdf-image]"`
-pdf-image = ["pypdfium2>=4.30,<5", "pillow>=10"]
+# Kept so that "codeagent[pdf-image]" in older pins still installs: pypdfium2 and pillow are now required.
+pdf-image = []
 # Excel itself does the saving, formatting and rendering (Windows or macOS with Excel installed):
 # `pip install "codeagent[excel]"`; AGENT_EXCEL_BACKEND=auto (default) uses it when it can.
 excel = ["xlwings>=0.33,<1"]

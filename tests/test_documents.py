@@ -321,7 +321,67 @@ def test_search_pdf_says_when_nothing_matches_and_reads_the_text_once(invoice, m
     assert len(reads) == 1
 
 
-def test_search_pdf_lists_the_pages_without_a_text_layer(workspace):
+def test_search_pdf_lists_the_pages_without_a_text_layer(workspace, monkeypatch):
+    monkeypatch.setattr(documents.ocr, "available", lambda: False)
     make_pdf(workspace / "mixed.pdf", ["Some words", ""])
     out = documents.tool_search_pdf("mixed.pdf", "words")
-    assert "page 1:" in out and "1 page(s) have no text layer" in out and "2" in out
+    assert "page 1:" in out and "1 scanned page(s) have no text yet and were NOT searched" in out and "tesseract" in out
+
+
+class FakeTesseract:
+    """Stands for pytesseract: reads every page as the same words, and counts the pages it was asked to read."""
+    class TesseractError(Exception):
+        pass
+    pages_read = 0
+
+    @classmethod
+    def get_tesseract_version(cls):
+        return "5.0"
+
+    @classmethod
+    def image_to_string(cls, image, lang=None):
+        cls.pages_read += 1
+        return "Le   delai de\nprescription est de deux ans"
+
+
+@pytest.fixture
+def fake_ocr(tmp_path, monkeypatch):
+    import sys
+    FakeTesseract.pages_read = 0
+    monkeypatch.setitem(sys.modules, "pytesseract", FakeTesseract)
+    monkeypatch.setattr(documents.ocr, "OCR_HOME", tmp_path / "ocr")
+    documents._PDF_TEXT_CACHE.clear()
+    return FakeTesseract
+
+
+def test_search_pdf_reads_scanned_pages_with_ocr_and_keeps_the_text(workspace, fake_ocr):
+    make_pdf(workspace / "mixed.pdf", ["Some words", "", ""])
+    out = documents.tool_search_pdf("mixed.pdf", "prescription")
+    assert "page 2:" in out and "page 3:" in out and "2 scanned page(s) were searched through OCR" in out
+    assert fake_ocr.pages_read == 2
+    documents.tool_search_pdf("mixed.pdf", "deux ans")  # the second search reads nothing again
+    assert fake_ocr.pages_read == 2
+
+
+def test_search_pdf_does_not_ocr_more_pages_than_one_call_may(workspace, fake_ocr, monkeypatch):
+    monkeypatch.setattr(documents, "OCR_MAX_PAGES_PER_CALL", 2)
+    make_pdf(workspace / "scans.pdf", ["", "", "", ""])
+    out = documents.tool_search_pdf("scans.pdf", "prescription")
+    assert fake_ocr.pages_read == 0 and "4 scanned page(s) have no text yet and were NOT searched" in out and "coding-agent --ocr" in out
+    out = documents.tool_search_pdf("scans.pdf", "prescription", pages="1-2")  # a small range is read
+    assert fake_ocr.pages_read == 2 and "page 1:" in out and "page 2:" in out
+
+
+def test_read_pdf_text_mode_gives_the_ocr_text_of_a_scanned_page(workspace, fake_ocr):
+    make_pdf(workspace / "mixed.pdf", ["Some words", ""])
+    out = documents.tool_read_pdf("mixed.pdf", mode="text")
+    assert "Some words" in out and "page 2 (read by OCR" in out and "Le delai de prescription est de deux ans" in out
+
+
+def test_search_pdf_matches_plain_apostrophes_and_quotes_against_typographic_ones(workspace, monkeypatch):
+    make_pdf(workspace / "typo.pdf", ["x"])
+    page = "Selon l\u2019article 28, l\u2019assur\u00e9 doit \u00ab agir \u00bb \u2014 vite"
+    monkeypatch.setattr(documents, "pdf_page_texts", lambda p: [page])
+    for query in ("l'assure doit", "l\u2019assur\u00e9 doit", 'doit " agir "', 'agir " - vite'):
+        assert "1 match(es)" in documents.tool_search_pdf("typo.pdf", query), query
+    assert "page 1: Selon l\u2019article 28, l\u2019assur\u00e9 doit" in documents.tool_search_pdf("typo.pdf", "l'assure doit")  # the snippet keeps the original characters

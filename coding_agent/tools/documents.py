@@ -9,7 +9,7 @@ from pathlib import Path
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from .. import backups, state
+from .. import backups, ocr, state
 from ..common import (
     ToolError,
     display,
@@ -27,6 +27,7 @@ from ..config import (
     IMAGE_TYPES,
     MAX_IMAGE_BYTES,
     MAX_TOOL_OUTPUT_CHARS,
+    OCR_MAX_PAGES_PER_CALL,
     PDF_IMAGE_DPI,
     PDF_MAX_VISUAL_PAGES,
     uses_deepseek,
@@ -114,10 +115,18 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
 
     if mode == "text":
         state.ui.status(f"[pdf] {rel_name(p)} text, {len(selected)} page(s)")
+        layer = {n: (reader.pages[n - 1].extract_text() or "").strip() for n in selected}
+        scanned, unread = scan_texts(p, [layer.get(n, "") if n in layer else "" for n in range(1, count + 1)], selected)
         parts = []
         for n in selected:
-            text = (reader.pages[n - 1].extract_text() or "").strip()
-            parts.append(f"--- page {n} ---\n{text or '(no text layer: a scan or an image -- use mode visual)'}")
+            if layer[n]:
+                parts.append(f"--- page {n} ---\n{layer[n]}")
+            elif scanned.get(n):
+                parts.append(f"--- page {n} (read by OCR: may contain mistakes) ---\n{scanned[n]}")
+            else:
+                parts.append(f"--- page {n} ---\n(no text layer: a scan or an image -- use mode visual)")
+        if unread:
+            parts.append(f"({len(unread)} scanned page(s) were not OCR'd here: {_ocr_hint(unread)})")
         return truncate(label + "\n" + "\n".join(parts))
 
     if len(selected) > PDF_MAX_VISUAL_PAGES:
@@ -149,6 +158,27 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
          "source": {"type": "base64", "media_type": "application/pdf",
                     "data": base64.b64encode(data).decode("ascii")}},
     ]
+
+
+def _ocr_hint(unread: list[int]) -> str:
+    shown = ", ".join(map(str, unread[:10])) + (" ..." if len(unread) > 10 else "")
+    return (f"pages {shown}. Ask for at most {OCR_MAX_PAGES_PER_CALL} of them at a time (pages='a-b'), or read them with mode visual; "
+            f"the person can OCR the whole file once with: coding-agent --ocr FILE")
+
+
+def scan_texts(p: Path, texts: list[str], selected: list[int]) -> tuple[dict[int, str], list[int]]:
+    """The text of the selected pages that have no text layer: (text by page, pages still unread).
+    Pages read before come from the OCR cache; the others are OCR'd now when there are few enough, else they stay unread."""
+    blank = [n for n in selected if not texts[n - 1]]
+    if not blank:
+        return {}, []
+    found = {n: t for n, t in ocr.cached(p).items() if n in set(blank)}
+    todo = [n for n in blank if n not in found]
+    if todo and len(todo) <= OCR_MAX_PAGES_PER_CALL and ocr.available():
+        state.ui.status(f"[pdf] {rel_name(p)}: OCR of {len(todo)} scanned page(s)...")
+        found.update(ocr.read_pages(p, todo))
+        todo = []
+    return found, todo
 
 
 # The text of PDFs searched recently, kept while their file does not change: extracting a long book takes seconds, and the agent
@@ -190,10 +220,17 @@ def pdf_page_texts(p: Path) -> list[str]:
     return texts
 
 
+# PDFs print typographic apostrophes, quotes and dashes, and people type the plain ones: both sides are folded to the plain character
+# (one character for one character, so positions stay the same).
+_PUNCTUATION = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'", "\u02bb": "'", "`": "'", "\u00b4": "'",
+                              "\u201c": '"', "\u201d": '"', "\u00ab": '"', "\u00bb": '"',
+                              "\u2013": "-", "\u2014": "-", "\u2010": "-", "\u2011": "-", "\u00a0": " "})
+
+
 def _fold(text: str) -> str:
     """Lower case without accents, character for character (so a match position in the folded text is the same in the original)."""
     out = []
-    for ch in text:
+    for ch in text.translate(_PUNCTUATION):
         base = "".join(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c))
         out.append(base.lower() if len(base) == 1 else ch.lower())
     return "".join(out)
@@ -209,6 +246,9 @@ def tool_search_pdf(path: str, query: str, regex: bool = False, pages: str | Non
         raise ToolError(f"File not found: {path}")
     texts = pdf_page_texts(p)
     selected = parse_pages(pages, len(texts))
+    scanned, unread = scan_texts(p, texts, selected)
+    if scanned:
+        texts = [scanned.get(i + 1, t) if not t else t for i, t in enumerate(texts)]  # a copy: the cached list stays as extracted
     max_results = max(1, min(int(max_results or SEARCH_PDF_DEFAULT_RESULTS), SEARCH_PDF_MAX_RESULTS))
     if regex:
         try:
@@ -222,7 +262,7 @@ def tool_search_pdf(path: str, query: str, regex: bool = False, pages: str | Non
     hits: list[tuple[int, str]] = []
     pages_with_hits: set[int] = set()
     total = 0
-    without_text = [n for n in selected if not texts[n - 1]]
+    without_text = unread or [n for n in selected if not texts[n - 1]]  # unread: scans not OCR'd; the rest: blank even after OCR
     for n in selected:
         text = texts[n - 1]
         if not text:
@@ -243,9 +283,14 @@ def tool_search_pdf(path: str, query: str, regex: bool = False, pages: str | Non
     lines += [f"page {n}: {snippet}" for n, snippet in hits]
     if total > len(hits):
         lines.append(f"... {total - len(hits)} more match(es) not shown: narrow the query or the pages, or raise max_results (at most {SEARCH_PDF_MAX_RESULTS}).")
-    if without_text:
+    if scanned:
+        lines.append(f"{len(scanned)} scanned page(s) were searched through OCR (it may misread words: check a page with read_pdf).")
+    if unread:
+        lines.append(f"{len(unread)} scanned page(s) have no text yet and were NOT searched: {_ocr_hint(unread)}"
+                     + ("" if ocr.available() else f" -- {ocr.missing_message()}"))
+    elif without_text:
         shown_pages = ", ".join(map(str, without_text[:20])) + (" ..." if len(without_text) > 20 else "")
-        lines.append(f"{len(without_text)} page(s) have no text layer (scans or images) and were not searched: {shown_pages}.")
+        lines.append(f"{len(without_text)} page(s) have no text even after OCR (blank or images) and were not searched: {shown_pages}.")
     if total:
         lines.append("Open the pages that matter with read_pdf (pages='N').")
     elif not without_text:

@@ -277,6 +277,12 @@ PDF_MAX_VISUAL_PAGES = 20  # pages per read_pdf call in visual mode
 # DeepSeek cannot take PDF pages as documents, so read_pdf renders them to images with pypdfium2
 # (the "pdf-image" extra). DPI high enough to read a scanned page.
 PDF_IMAGE_DPI = int(float(os.environ.get("AGENT_PDF_IMAGE_DPI") or 150))
+# OCR of scanned PDF pages (pytesseract + the tesseract program): languages as tesseract names them, resolution of the
+# rendered page, how many pages one search_pdf / read_pdf call may OCR (more are read by `coding-agent --ocr FILE`), and
+# where the text is kept so that a page is read once.
+OCR_LANGS = os.environ.get("AGENT_OCR_LANGS") or "fra+ara+eng"
+OCR_DPI = int(float(os.environ.get("AGENT_OCR_DPI") or 200))
+OCR_MAX_PAGES_PER_CALL = int(float(os.environ.get("AGENT_OCR_MAX_PAGES") or 20))
 EXCEL_MAX_CELLS = 3000  # cells shown per read_excel call
 EXCEL_MAX_CHANGES = 1000  # cells changed per edit_excel call
 # Who changes, formats and renders workbooks: "xlwings" (Excel itself), "openpyxl" (rewrites the file,
@@ -297,6 +303,7 @@ MAX_LISTING_ENTRIES = 500
 HOME_DIR = Path(os.environ["HOME"]).expanduser() if os.environ.get("HOME") else Path.home()
 AGENT_HOME = HOME_DIR / ".coding-agent"
 MEMORY_HOME = Path(os.environ.get("AGENT_MEMORY_DIR") or AGENT_HOME / "memory").expanduser()
+OCR_HOME = Path(os.environ.get("AGENT_OCR_DIR") or AGENT_HOME / "ocr").expanduser()  # the text read from scanned pages
 BACKUP_HOME = AGENT_HOME / "backups"  # previous versions of workbooks changed by edit_excel
 PACKAGE_DIR = Path(__file__).resolve().parent  # the agent/ package: its own source code
 BUNDLED_SKILLS = PACKAGE_DIR / "skills"

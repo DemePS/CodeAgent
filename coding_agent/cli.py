@@ -36,8 +36,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--forget-logins", nargs="?", const="all", metavar="SITE",
                         help="Delete the sign-ins kept for the browsing tools (a site, or all), then exit.")
     parser.add_argument("--forget-secrets", action="store_true", help="Delete the mail and SMS logins saved in ~/.coding-agent/secrets, then exit.")
+    parser.add_argument("--ocr", nargs="+", metavar="PDF", help="Read the scanned pages of these PDFs once with OCR (tesseract), keep the text for search_pdf and read_pdf, then exit.")
     parser.add_argument("--check-browser", action="store_true", help="Test the browser used by screenshot_page, then exit.")
     return parser.parse_args()
+
+
+def run_ocr(files: list[str]) -> None:
+    """`coding-agent --ocr FILE...`: OCR every page without a text layer, with a progress line, and keep the text."""
+    from . import ocr
+    from .config import OCR_LANGS
+    from .tools.documents import pdf_page_texts
+    if not ocr.available():
+        raise SystemExit(ocr.missing_message())
+    for name in files:
+        path = Path(name).expanduser().resolve()
+        texts = pdf_page_texts(path)
+        blank = [n for n, t in enumerate(texts, 1) if not t]
+        done = ocr.cached(path)
+        todo = [n for n in blank if n not in done]
+        print(f"{path.name}: {len(texts)} page(s), {len(blank)} without a text layer, {len(blank) - len(todo)} already read ({OCR_LANGS})")
+        if todo:
+            ocr.read_pages(path, todo, progress=lambda i, total: print(f"\r  OCR {i}/{total}", end="", flush=True))
+            print()
 
 
 def main() -> None:
@@ -63,6 +83,8 @@ def main() -> None:
         removed = credentials.forget()
         print("Removed: " + ", ".join(removed) if removed else "No saved login.")
         return
+    if args.ocr:
+        return run_ocr(args.ocr)
     if args.check_browser:
         print(check_browser())
         return

@@ -454,8 +454,10 @@ TOOLS = [
             "Search the text of a PDF for a word or phrase and get, for every match, its page number and a short snippet around it. "
             "Use it to find where something is in a long PDF, then open only those pages with read_pdf (pages='N'): this is much "
             "cheaper than reading the table of contents and many pages. The search ignores case and accents and treats line breaks "
-            "as spaces. It covers the text layer only: pages that are scans or images are listed as not searched (read them with "
-            "read_pdf in visual mode). A word split by a hyphen at the end of a line may be missed: search for part of the word."
+            "as spaces. A match is a contiguous string on one page, as with grep, so search for one or two distinctive words, not a "
+            "sentence (a phrase you guessed rarely matches word for word). Scanned pages are read through OCR (kept on disk) when "
+            "there are few enough in the range searched; otherwise they are listed as not searched: give pages='a-b', or read them "
+            "with read_pdf in visual mode. A word split by a hyphen at the end of a line may be missed: search for part of the word."
         ),
         "input_schema": {
             "type": "object",
