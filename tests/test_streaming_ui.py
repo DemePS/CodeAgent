@@ -2,8 +2,8 @@
 
 import re
 
-from coding_agent import ui
-from coding_agent.config import provider_label
+from seedagent import ui
+from seedagent.config import provider_label
 
 
 def shown(capsys):
@@ -22,7 +22,7 @@ def test_text_blocks_split_by_citations_lose_no_word_and_share_one_label(capsys)
 
 
 def test_a_dropped_connection_still_shows_the_last_words(capsys):
-    from coding_agent import loop, state
+    from seedagent import loop, state
     from types import SimpleNamespace
 
     class Dropping:

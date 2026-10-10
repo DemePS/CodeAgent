@@ -44,10 +44,10 @@ from openpyxl.formatting.rule import CellIsRule  # noqa: E402
 from openpyxl.styles import PatternFill  # noqa: E402
 from openpyxl.worksheet.datavalidation import DataValidation  # noqa: E402
 
-from coding_agent import backups, state  # noqa: E402
-from coding_agent.tools import documents, excel_look, excel_xl  # noqa: E402
-from coding_agent.tools.excel_add import tool_add_chart, tool_add_pivot_table, tool_add_table  # noqa: E402
-from coding_agent.ui import UI  # noqa: E402
+from seedagent import backups, state  # noqa: E402
+from seedagent.tools import documents, excel_look, excel_xl  # noqa: E402
+from seedagent.tools.excel_add import tool_add_chart, tool_add_pivot_table, tool_add_table  # noqa: E402
+from seedagent.ui import UI  # noqa: E402
 
 OUT = Path("excel-backend-comparison")
 PARTS = {  # what an .xlsx holds, by the folders of its zip

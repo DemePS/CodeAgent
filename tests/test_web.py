@@ -12,9 +12,9 @@ import pytest
 
 pytest.importorskip("playwright")
 
-from coding_agent.common import ToolError  # noqa: E402
-from coding_agent.schemas import TOOLS  # noqa: E402
-from coding_agent.tools import TOOL_HANDLERS, web  # noqa: E402
+from seedagent.common import ToolError  # noqa: E402
+from seedagent.schemas import TOOLS  # noqa: E402
+from seedagent.tools import TOOL_HANDLERS, web  # noqa: E402
 
 POSTS: list[str] = []
 INDEX = """<html><head><title>Home</title></head><body>
@@ -324,7 +324,7 @@ def test_without_playwright_the_tools_say_how_to_install_it(monkeypatch):
 
 @pytest.fixture
 def sessions(tmp_path, monkeypatch):
-    from coding_agent import websessions
+    from seedagent import websessions
     monkeypatch.setattr(websessions, "SESSIONS_DIR", tmp_path / "web-sessions")
     monkeypatch.setenv("DISPLAY", ":0")                                # "there is a screen" (the browser itself is headless here)
     real = web.launch_browser

@@ -3,7 +3,7 @@
 import os
 import time
 
-from coding_agent import memories
+from seedagent import memories
 
 
 def project(home, name, notes="", conversation=False, age_days=0):

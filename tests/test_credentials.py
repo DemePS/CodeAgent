@@ -6,8 +6,8 @@ import sys
 
 import pytest
 
-from coding_agent import credentials, state
-from coding_agent.tools import mail, sms
+from seedagent import credentials, state
+from seedagent.tools import mail, sms
 from tests.conftest import ScriptedUI
 from tests.test_mail import FakeSMTP  # noqa: F401  (the fixtures below patch smtplib with it)
 from tests.test_mail import smtp  # noqa: F401

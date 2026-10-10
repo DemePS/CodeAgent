@@ -3,7 +3,7 @@
 import os
 import time
 
-from coding_agent import cleanup
+from seedagent import cleanup
 
 DAY = 86_400
 NOW = time.time()
@@ -63,14 +63,14 @@ def test_nothing_to_clean(tmp_path):
 def test_given_its_folders_it_does_not_load_the_settings(tmp_path):
     import subprocess
     import sys
-    code = ("import sys, pathlib; from coding_agent import cleanup; "
+    code = ("import sys, pathlib; from seedagent import cleanup; "
             f"cleanup.run(backups=pathlib.Path({str(tmp_path / 'b')!r}), memory=pathlib.Path({str(tmp_path / 'm')!r})); "
-            "print('coding_agent.config' in sys.modules)")
+            "print('seedagent.config' in sys.modules)")
     assert subprocess.run([sys.executable, "-c", code], capture_output=True, text=True).stdout.strip() == "False"
 
 
 def test_it_runs_by_itself_once_when_a_project_is_opened(tmp_path, monkeypatch):
-    from coding_agent import session
+    from seedagent import session
     from tests.conftest import ScriptedUI
     memory = tmp_path / "memory"
     old = file(memory / "gone-11111111" / "notes.md", 120)

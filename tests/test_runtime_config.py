@@ -8,8 +8,8 @@ import anthropic
 import httpx
 import pytest
 
-import coding_agent
-from coding_agent import config, diagnose, errors, memory
+import seedagent
+from seedagent import config, diagnose, errors, memory
 
 FOUNDRY = "https://x.services.ai.azure.com/anthropic"
 KEY = "sk-ant-api03-abcdefghijklmnop"
@@ -27,8 +27,8 @@ def env(monkeypatch):
 
 
 def test_exports():
-    assert coding_agent.configure is config.configure
-    assert coding_agent.active_provider is config.active_provider
+    assert seedagent.configure is config.configure
+    assert seedagent.active_provider is config.active_provider
 
 
 def test_key_beats_foundry_and_clear_restores(env):
@@ -104,7 +104,7 @@ def test_legacy_names_read_at_access_time(env):
 
 def test_no_module_copies_a_model_constant():
     names = {"MODEL", "MEMORY_MODEL", "COMPACT_MODEL"}
-    for path in Path(coding_agent.__file__).parent.rglob("*.py"):
+    for path in Path(seedagent.__file__).parent.rglob("*.py"):
         if path.name == "config.py":
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -155,7 +155,7 @@ def test_memory_worker_uses_the_client_of_its_item(env, monkeypatch):
 def test_sign_in_skipped_with_a_saved_key(env, monkeypatch):
     env.setenv("ANTHROPIC_FOUNDRY_ENDPOINT", FOUNDRY)
     config.configure(api_key=KEY)
-    import coding_agent.signin as signin
+    import seedagent.signin as signin
     monkeypatch.setattr(signin, "SignIn", lambda: pytest.fail("sign-in must not start"))
     diagnose._sign_in()
 

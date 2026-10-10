@@ -15,7 +15,7 @@ OPERATING_SYSTEM = {"HOME", "DISPLAY", "WAYLAND_DISPLAY", "PATH"}  # not setting
 def read_in_code() -> set[str]:
     """The names of the variables the code reads: os.environ[...], os.environ.get(...), os.getenv(...), and cleanup.days(...)."""
     names = set()
-    for path in [*(ROOT / "coding_agent").rglob("*.py"), *(ROOT / "scripts").glob("*.py"), ROOT / "agent.py"]:
+    for path in [*(ROOT / "seedagent").rglob("*.py"), *(ROOT / "scripts").glob("*.py"), ROOT / "agent.py"]:
         if not path.is_file():
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
@@ -46,7 +46,7 @@ def test_the_finder_sees_the_known_variables():
 
 
 def test_the_defaults_in_example_env_are_the_defaults_of_the_code():
-    from coding_agent import config
+    from seedagent import config
     text = (ROOT / "example.env").read_text(encoding="utf-8")
     assert f"CODEAGENT_THINKING={config.DEFAULT_THINKING}" in text and f"CODEAGENT_EFFORT={config.DEFAULT_EFFORT}" in text
     assert f"Default: {config.DEFAULT_MODEL}," in text

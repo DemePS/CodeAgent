@@ -1,6 +1,6 @@
 """Logs of what the agent does, next to the project's memory.
 
-`LoggedUI` wraps the UI of a session: every call is passed on unchanged and also written to the logger `coding_agent.ui`
+`LoggedUI` wraps the UI of a session: every call is passed on unchanged and also written to the logger `seedagent.ui`
 (tool calls and their results, changes, warnings, errors, questions asked, token usage). What the person types as an answer,
 and the contents of files, are never logged: only the short summaries the UI already shows.
 The log file is MEMORY_HOME/<project>/agent.log (with the saved conversation), kept to about 2 MB; AGENT_LOG_LEVEL
@@ -17,14 +17,14 @@ from pathlib import Path
 
 from .ui import UI
 
-log = logging.getLogger("coding_agent.ui")
+log = logging.getLogger("seedagent.ui")
 _handler: RotatingFileHandler | None = None
 
 
 def attach(file: Path) -> None:
     """Write the log to `file` (replacing the file of the previously open project)."""
     global _handler
-    root = logging.getLogger("coding_agent")
+    root = logging.getLogger("seedagent")
     if _handler is not None:
         root.removeHandler(_handler)
         _handler.close()

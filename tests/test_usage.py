@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from coding_agent import usage
+from seedagent import usage
 
 
 def reply(i, o, read=0, write=0):
@@ -30,7 +30,7 @@ def test_tool_results_are_estimated_per_tool(tmp_path):
 
 
 def test_compaction_records_its_call():
-    from coding_agent import context
+    from seedagent import context
     usage.reset()
 
     class Client:

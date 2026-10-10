@@ -6,8 +6,8 @@ import httpx
 import pytest
 from anthropic import AnthropicFoundry
 
-from coding_agent import config, context, loop, memory, session, state
-from coding_agent.ui import HeadlessUI
+from seedagent import config, context, loop, memory, session, state
+from seedagent.ui import HeadlessUI
 
 
 def sse(blocks, stop, input_tokens=1000):
@@ -218,7 +218,7 @@ def test_a_slow_first_answer_is_reported(tmp_path, claude, monkeypatch):
     # Claude (or the SDK's quiet retries of a timeout) takes long: the person sees it is still waiting.
     import time
 
-    from coding_agent import loop
+    from seedagent import loop
     project = tmp_path / "p"
     project.mkdir()
     monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
@@ -260,7 +260,7 @@ def test_the_request_carries_thinking_and_effort(tmp_path, ui, claude, monkeypat
 
 def test_old_tool_outputs_are_cleared_only_when_that_frees_a_good_share_of_the_window(workspace, monkeypatch):
     """Each clearing loses the cached conversation from there on: it must be rare and large, not one output per call."""
-    from coding_agent import state
+    from seedagent import state
     monkeypatch.setattr(context, "KEEP_RECENT_RESULTS", 1)
     monkeypatch.setattr(state, "context_window", 10_000)
     monkeypatch.setitem(state.context, "tokens", 6_000)          # above CLEAR_AT (50%)
@@ -285,7 +285,7 @@ def test_old_tool_outputs_are_cleared_only_when_that_frees_a_good_share_of_the_w
 
 
 def test_the_system_prompt_has_its_own_cache_point(workspace, monkeypatch):
-    from coding_agent import loop, state
+    from seedagent import loop, state
     monkeypatch.setattr(state, "system_prompt", "You help. Workspace: {workspace}")
     for name in ("DEEPSEEK_API_KEY", "AGENT_CACHE_TTL", "ANTHROPIC_BASE_URL", "CODEAGENT_PROVIDER"):
         monkeypatch.delenv(name, raising=False)
@@ -300,7 +300,7 @@ def test_the_system_prompt_has_its_own_cache_point(workspace, monkeypatch):
 
 
 def test_page_images_read_in_a_turn_become_a_reference_in_the_history_but_text_reads_stay(tmp_path, ui, claude, monkeypatch):
-    from coding_agent.tools import documents
+    from seedagent.tools import documents
     from test_documents import make_pdf
     project = tmp_path / "docs"
     project.mkdir()

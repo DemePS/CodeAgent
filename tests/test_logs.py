@@ -2,8 +2,8 @@ import logging
 
 import pytest
 
-from coding_agent import logs, session, state
-from coding_agent.ui import UI
+from seedagent import logs, session, state
+from seedagent.ui import UI
 
 
 @pytest.fixture(autouse=True)

@@ -1,7 +1,7 @@
 """Skills shipped with the agent."""
 
-from coding_agent import skills
-from coding_agent.config import BUNDLED_SKILLS
+from seedagent import skills
+from seedagent.config import BUNDLED_SKILLS
 
 
 def test_the_database_architect_skill_is_bundled():

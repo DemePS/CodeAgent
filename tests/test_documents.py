@@ -5,9 +5,9 @@ import sys
 import openpyxl
 import pytest
 
-from coding_agent import backups, state
-from coding_agent.common import ToolError
-from coding_agent.tools import documents
+from seedagent import backups, state
+from seedagent.common import ToolError
+from seedagent.tools import documents
 
 
 def make_pdf(path, pages):
@@ -461,7 +461,7 @@ def test_a_text_read_whose_pypdf_fallback_fails_does_not_open_visual_mode(invoic
 
 
 def test_a_resumed_conversation_that_read_a_pdf_in_text_mode_keeps_visual_mode_open():
-    from coding_agent.session import had_text_read
+    from seedagent.session import had_text_read
     def call(id_, **args):
         return {"role": "assistant", "content": [{"type": "tool_use", "id": id_, "name": "read_pdf", "input": {"path": "a.pdf", **args}}]}
     def result(id_, error=False):
@@ -477,7 +477,7 @@ def test_a_resumed_conversation_that_read_a_pdf_in_text_mode_keeps_visual_mode_o
 
 
 def test_a_model_that_cannot_see_images_gets_read_pdf_without_visual_mode(scan, monkeypatch):
-    from coding_agent import config, loop
+    from seedagent import config, loop
     monkeypatch.delenv("AGENT_VISION", raising=False)
     monkeypatch.delenv("ANTHROPIC_FOUNDRY_ENDPOINT", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")  # ANTHROPIC_MODEL counts on Anthropic's API (not on Foundry)
@@ -502,8 +502,8 @@ def test_visual_read_pdf_is_refused_for_a_model_that_cannot_see_images(scan, mon
 
 
 def test_a_model_that_cannot_see_images_is_not_offered_any_tool_that_returns_one(monkeypatch):
-    from coding_agent import loop
-    from coding_agent.schemas import IMAGE_TOOLS
+    from seedagent import loop
+    from seedagent.schemas import IMAGE_TOOLS
     monkeypatch.delenv("AGENT_VISION", raising=False)
     monkeypatch.delenv("ANTHROPIC_FOUNDRY_ENDPOINT", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -517,7 +517,7 @@ def test_a_model_that_cannot_see_images_is_not_offered_any_tool_that_returns_one
 
 def test_a_path_typed_with_a_precomposed_accent_finds_a_file_stored_decomposed(workspace):
     import unicodedata
-    from coding_agent.common import resolve, resolve_readable
+    from seedagent.common import resolve, resolve_readable
     nfc = "DCG 10 comptabilité approfondie.pdf"
     nfd = unicodedata.normalize("NFD", nfc)
     assert nfc != nfd

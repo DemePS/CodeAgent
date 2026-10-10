@@ -5,9 +5,9 @@ import json
 
 import pytest
 
-from coding_agent import state
-from coding_agent.common import ToolError
-from coding_agent.tools import sms
+from seedagent import state
+from seedagent.common import ToolError
+from seedagent.tools import sms
 from tests.conftest import ScriptedUI
 
 

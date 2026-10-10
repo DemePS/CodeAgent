@@ -2,8 +2,8 @@
 
 import pytest
 
-from coding_agent import index, ocr
-from coding_agent.tools import documents
+from seedagent import index, ocr
+from seedagent.tools import documents
 
 from test_documents import FakeTesseract, make_pdf  # noqa: F401 -- the stand-in for tesseract and the minimal PDF writer
 

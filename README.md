@@ -15,7 +15,7 @@ Or from a clone of this repository: `uv sync` installs the package and the `codi
 `uv sync --all-extras` adds the browser and the Excel backend. An application built on it just runs `uv sync` too: its own `pyproject.toml`
 and `uv.lock` say which version of the engine to fetch.
 
-The package `seedagent` installs the `coding_agent` Python package and the `coding-agent` command (also available as `seedagent`).
+The package `seedagent` installs the `seedagent` Python package and the `coding-agent` command (also available as `seedagent`).
 Python 3.10 or later; Windows, macOS and Linux.
 
 ## Configure
@@ -92,8 +92,8 @@ the questions of the running session by itself).
 ## Use it as a library
 
 ```python
-from coding_agent import session
-from coding_agent.ui import TerminalUI  # or your own UI (subclass coding_agent.ui.UI)
+from seedagent import session
+from seedagent.ui import TerminalUI  # or your own UI (subclass seedagent.ui.UI)
 
 session.open_project("path/to/folder", ui=TerminalUI(),
                      tools=["read_excel", "edit_excel", "read_pdf", "ask_human"],  # optional subset
@@ -119,12 +119,12 @@ question and progress message goes through the UI object, so a web or desktop fr
 An application adds a tool of its own without changing the package:
 
 ```python
-import coding_agent
+import seedagent
 
 def say_hello(who: str, loud: bool = False) -> str:          # called as handler(**arguments)
     return f"Hello {who}{'!' if loud else ''}"
 
-coding_agent.register_tool(
+seedagent.register_tool(
     {"name": "say_hello", "description": "Greet someone.",
      "input_schema": {"type": "object", "properties": {"who": {"type": "string"}, "loud": {"type": "boolean"}}, "required": ["who"]}},
     say_hello)
@@ -132,10 +132,10 @@ session.open_project(folder, ui=ui, tools=["read_file", "say_hello"])    # a too
 ```
 
 The handler gets one keyword argument per property of the `input_schema` and returns a string or a list of content blocks
-(`{"type": "text", ...}`, `{"type": "image", ...}`). To report a failure Claude should see, it raises `coding_agent.common.ToolError`; any other
-exception also reaches Claude as an error result and does not stop the agent. It runs in the agent's thread and can use `coding_agent.state`
+(`{"type": "text", ...}`, `{"type": "image", ...}`). To report a failure Claude should see, it raises `seedagent.common.ToolError`; any other
+exception also reaches Claude as an error result and does not stop the agent. It runs in the agent's thread and can use `seedagent.state`
 (`state.ui`, `state.workspace`). CodeAgent's path checks and confirmations guard only its own tools: what the handler does is the application's
-responsibility (to read a file the way the built-in tools do, `coding_agent.common.resolve_readable(path)` applies the same rules). A built-in
+responsibility (to read a file the way the built-in tools do, `seedagent.common.resolve_readable(path)` applies the same rules). A built-in
 tool cannot be replaced, registering the same handler twice does nothing, and a second handler under a taken name is an error.
 
 ## Tools
@@ -248,7 +248,7 @@ refused in applications that restrict edits (chosen sheets, protected formulas, 
 - Every file or workbook change is shown (a diff, or a cell-by-cell table) and waits for your
   approval; a copy of the previous version of each workbook is kept in `~/.coding-agent/backups/` for 3 days,
   and `restore_backup` puts one back ("undo your changes to costs.xlsx"). Applications can list and
-  restore them with `coding_agent.backups` (`versions()`, `restore()`).
+  restore them with `seedagent.backups` (`versions()`, `restore()`).
 - Deleting always asks, even in autonomous mode; downloads and clones always ask; the agent cannot
   modify its own files; `run_python` cannot start processes or delete files.
 - **No secret reaches code the model wrote.** `run_python` and Excel scripts run with an environment from which every variable that says
@@ -260,9 +260,9 @@ refused in applications that restrict edits (chosen sheets, protected formulas, 
 ## What stays on your machine
 
 Everything is in `~/.coding-agent` (`$HOME`, or your user folder on Windows), cleaned automatically
-(`coding_agent/cleanup.py`): once per process, at the start of `coding-agent` and the first time an application
+(`seedagent/cleanup.py`): once per process, at the start of `coding-agent` and the first time an application
 opens a project (`session.open_project`). `AGENT_CLEANUP=off` switches that off; an application that runs for
-weeks (a server) can call `coding_agent.cleanup.run()` itself, daily (a call counts as the run):
+weeks (a server) can call `seedagent.cleanup.run()` itself, daily (a call counts as the run):
 
 | What | Where | Kept |
 |---|---|---|

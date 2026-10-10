@@ -1,6 +1,6 @@
 [project]
 name = "seedagent"
-version = "0.7.0"
+version = "0.8.0"
 description = "A coding and document agent on Claude (Azure / Microsoft Foundry): tools, safety rules, memory and context management, usable from the terminal or as a library"
 readme = "README.md"
 license = "MIT"
@@ -50,19 +50,19 @@ Source = "https://github.com/DemePS/CodeAgent"
 Issues = "https://github.com/DemePS/CodeAgent/issues"
 
 [project.scripts]
-coding-agent = "coding_agent.cli:main"
-seedagent = "coding_agent.cli:main"  # the same command under the name of the package
+seedagent = "seedagent.cli:main"
+coding-agent = "seedagent.cli:main"  # the former name of the command
 
 [build-system]
 requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.sdist]
-include = ["coding_agent", "tests", "README.md", "LICENSE"]
+include = ["seedagent", "coding_agent", "tests", "README.md", "LICENSE"]
 
 [tool.hatch.build.targets.wheel]
-# The coding_agent package, with its bundled skills (coding_agent/skills/*/SKILL.md).
-packages = ["coding_agent"]
+# The seedagent package, with its bundled skills (seedagent/skills/*/SKILL.md), and coding_agent, its former name (an alias).
+packages = ["seedagent", "coding_agent"]
 
 [dependency-groups]
 dev = [

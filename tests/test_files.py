@@ -2,10 +2,10 @@
 
 import pytest
 
-from coding_agent import state
-from coding_agent.common import ToolError
-from coding_agent.config import PACKAGE_DIR
-from coding_agent.tools import files
+from seedagent import state
+from seedagent.common import ToolError
+from seedagent.config import PACKAGE_DIR
+from seedagent.tools import files
 
 
 def test_edit_shows_diff_and_applies_on_yes(workspace, ui):
@@ -68,7 +68,7 @@ def test_agent_never_modifies_its_own_package(workspace, monkeypatch):
     monkeypatch.setattr(state, "workspace", PACKAGE_DIR.parent)
     monkeypatch.setattr(state, "cwd", PACKAGE_DIR.parent)
     with pytest.raises(ToolError, match="own source code"):
-        files.tool_write_file("coding_agent/loop.py", "boom")
+        files.tool_write_file("seedagent/loop.py", "boom")
 
 
 def test_delete_folder_refusals(workspace, ui):
@@ -157,8 +157,8 @@ def test_grep_does_not_return_a_whole_minified_line_nor_an_unbounded_result(work
 
 # --- secrets never reach code the model wrote -----------------------------------------------------------------------------
 def test_the_environment_of_model_code_holds_no_secret(monkeypatch):
-    from coding_agent import config
-    from coding_agent.common import scrubbed_env
+    from seedagent import config
+    from seedagent.common import scrubbed_env
     config.clear()
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-secret-value-1234567890")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret-value-1234567890")
@@ -177,8 +177,8 @@ def test_the_environment_of_model_code_holds_no_secret(monkeypatch):
 
 
 def test_run_python_cannot_read_the_key_and_its_output_is_redacted(workspace, monkeypatch):
-    from coding_agent import config, state
-    from coding_agent.tools import python_runner
+    from seedagent import config, state
+    from seedagent.tools import python_runner
     config.clear()
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-secret-value-1234567890")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret-value-1234567890")

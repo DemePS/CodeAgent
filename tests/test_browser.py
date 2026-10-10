@@ -4,8 +4,8 @@ import nturl2path
 import urllib.request
 from urllib.parse import urlsplit
 
-from coding_agent.common import resolve
-from coding_agent.tools import browser
+from seedagent.common import resolve
+from seedagent.tools import browser
 
 
 def test_a_workspace_page_comes_back_to_its_own_path(workspace):

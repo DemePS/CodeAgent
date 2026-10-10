@@ -7,7 +7,7 @@ from azure.core.credentials import AccessToken
 from azure.core.exceptions import ClientAuthenticationError
 from azure.identity import AuthenticationRecord
 
-from coding_agent import config, errors, signin
+from seedagent import config, errors, signin
 
 SCOPE = "https://ai.azure.com/.default"
 

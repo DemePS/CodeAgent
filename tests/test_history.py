@@ -2,7 +2,7 @@
 
 import pytest
 
-from coding_agent import history
+from seedagent import history
 
 
 class FakeReadline:

@@ -8,7 +8,7 @@ import anthropic
 import httpx
 import pytest
 
-from coding_agent import config, errors
+from seedagent import config, errors
 
 FOUNDRY = "https://x.services.ai.azure.com/anthropic"
 
@@ -27,7 +27,7 @@ def model_with(**settings) -> str:
     """MODEL as a fresh process reads it at import (empty values count as unset, and block any .env)."""
     names = ("ANTHROPIC_FOUNDRY_ENDPOINT", "ANTHROPIC_FOUNDRY_DEPLOYMENT", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL")
     environment = {**os.environ, **{name: settings.get(name, "") for name in names}}
-    return subprocess.run([sys.executable, "-c", "from coding_agent.config import get_model; print(get_model())"],
+    return subprocess.run([sys.executable, "-c", "from seedagent.config import get_model; print(get_model())"],
                           env=environment, capture_output=True, text=True, check=True).stdout.strip()
 
 
@@ -128,7 +128,7 @@ def test_a_base_url_on_deepseek_com_counts_as_deepseek(deepseek_env):
 
 
 def test_deepseek_gets_no_web_search_tool_and_no_cache_control(deepseek_env):
-    from coding_agent import loop, state
+    from seedagent import loop, state
     state.tool_names = None
     assert any(t["name"] == "web_search" for t in loop.active_tools()) or config.WEB_SEARCH == "off"
     assert loop.caching_options() == {"cache_control": {"type": "ephemeral"}}
@@ -137,7 +137,7 @@ def test_deepseek_gets_no_web_search_tool_and_no_cache_control(deepseek_env):
 
 
 def test_the_cache_lifetime_setting(deepseek_env):
-    from coding_agent import loop
+    from seedagent import loop
     deepseek_env.delenv("AGENT_CACHE_TTL", raising=False)
     assert loop.caching_options() == {"cache_control": {"type": "ephemeral"}}
     deepseek_env.setenv("AGENT_CACHE_TTL", "1h")

@@ -5,10 +5,10 @@ import socket
 
 import pytest
 
-from coding_agent import state
-from coding_agent.common import ToolError
-from coding_agent.tools import network
-from coding_agent.ui import TerminalUI
+from seedagent import state
+from seedagent.common import ToolError
+from seedagent.tools import network
+from seedagent.ui import TerminalUI
 
 
 def test_download_refuses_metadata_and_non_http(workspace):
@@ -61,7 +61,7 @@ def test_the_package_imports_without_a_console():
     import subprocess
     import sys
     code = ("import sys; sys.stdout = sys.stderr = None\n"
-            "import coding_agent.session, coding_agent.cli, coding_agent.ui\n"
+            "import seedagent.session, seedagent.cli, seedagent.ui\n"
             "open(sys.argv[1], 'w').write('ok')")
     import tempfile, pathlib
     marker = pathlib.Path(tempfile.mkdtemp()) / "ok"

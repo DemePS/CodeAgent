@@ -2,9 +2,9 @@
 
 import pytest
 
-from coding_agent import session, state
-from coding_agent.common import ToolError
-from coding_agent.tools import documents, files
+from seedagent import session, state
+from seedagent.common import ToolError
+from seedagent.tools import documents, files
 
 
 @pytest.fixture
@@ -104,7 +104,7 @@ def test_writing_outside_is_still_refused(workspace, shared, ui, asking):
 
 
 def test_credentials_are_never_read_even_when_allowed(workspace, tmp_path, monkeypatch, ui, asking):
-    from coding_agent import common
+    from seedagent import common
     home = tmp_path / "home"
     (home / ".ssh").mkdir(parents=True)
     (home / ".ssh" / "id_rsa").write_text("PRIVATE")

@@ -1,14 +1,14 @@
-"""An application adds its own tool with coding_agent.register_tool, without changing the package."""
+"""An application adds its own tool with seedagent.register_tool, without changing the package."""
 
 from types import SimpleNamespace
 
 import pytest
 
-import coding_agent
-from coding_agent import schemas, state, tools
-from coding_agent.common import ToolError
-from coding_agent.loop import active_tools
-from coding_agent.tools import TOOL_HANDLERS, register_tool, run_tool
+import seedagent
+from seedagent import schemas, state, tools
+from seedagent.common import ToolError
+from seedagent.loop import active_tools
+from seedagent.tools import TOOL_HANDLERS, register_tool, run_tool
 from tests.conftest import ScriptedUI
 
 SCHEMA = {"name": "say_hello", "description": "Greet someone.",
@@ -100,5 +100,5 @@ def test_a_bad_definition_is_refused_at_once():
 
 
 def test_it_is_reachable_from_the_package_and_the_session():
-    from coding_agent import session
-    assert coding_agent.register_tool is tools.register_tool is session.register_tool
+    from seedagent import session
+    assert seedagent.register_tool is tools.register_tool is session.register_tool

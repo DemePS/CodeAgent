@@ -1,13 +1,13 @@
 """The public API: open a project and run instructions, from any front end.
 
-    from coding_agent import session
-    from coding_agent.ui import TerminalUI
+    from seedagent import session
+    from seedagent.ui import TerminalUI
 
     session.open_project("path/to/project", ui=TerminalUI())
     session.send("Fill costs.xlsx from invoices/*.pdf")
 
 An application built on the agent can narrow what Claude sees: `tools` enables a subset of the
-tools (see coding_agent.schemas.TOOLS for the names) and `system_prompt` replaces the coding
+tools (see seedagent.schemas.TOOLS for the names) and `system_prompt` replaces the coding
 agent's instructions ({workspace} in it is replaced by the project path).
 """
 
@@ -65,7 +65,7 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
     if not workspace.is_dir():
         raise NotADirectoryError(f"Not a directory: {workspace}")
     if (cleaned := cleanup.run_once(memory=MEMORY_HOME)) and cleaned != "Clean-up: nothing to delete":
-        logging.getLogger("coding_agent.cleanup").info(cleaned)  # old backups, unused memories, old conversations (before resume)
+        logging.getLogger("seedagent.cleanup").info(cleaned)  # old backups, unused memories, old conversations (before resume)
     state.ui = LoggedUI(ui)
     state.set_workspace(workspace, project_id(workspace), MEMORY_HOME)
     logs.attach(state.conversation_file.parent / "agent.log")

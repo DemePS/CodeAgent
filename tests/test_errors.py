@@ -4,8 +4,8 @@ import httpx
 import pytest
 from anthropic import AnthropicFoundry
 
-from coding_agent import errors, session
-from coding_agent.ui import HeadlessUI
+from seedagent import errors, session
+from seedagent.ui import HeadlessUI
 
 ENDPOINT = "https://x.services.ai.azure.com/anthropic"
 
@@ -86,7 +86,7 @@ def test_unrelated_errors_are_not_hidden(project, monkeypatch):
 
 def test_check_names_the_first_step_that_fails(project, monkeypatch):
     # Foundry answers a plain request but times out once thinking is asked for.
-    from coding_agent import diagnose
+    from seedagent import diagnose
 
     reply = {"id": "m", "type": "message", "role": "assistant", "model": "x", "content": [{"type": "text", "text": "hi"}],
              "stop_reason": "end_turn", "stop_sequence": None, "usage": {"input_tokens": 1, "output_tokens": 1}}

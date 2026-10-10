@@ -280,7 +280,7 @@ _OLD_NAMES = {"MODEL": get_model, "MEMORY_MODEL": get_memory_model, "COMPACT_MOD
 
 
 def __getattr__(name: str):
-    """The old constants, for programs that read config.MODEL: read when accessed. (`from coding_agent.config
+    """The old constants, for programs that read config.MODEL: read when accessed. (`from seedagent.config
     import MODEL` still copies the value once: use get_model().)"""
     if name in _OLD_NAMES:
         return _OLD_NAMES[name]()

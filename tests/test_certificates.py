@@ -2,7 +2,7 @@
 
 import ssl
 
-from coding_agent import certificates
+from seedagent import certificates
 
 
 def test_the_system_certificate_store_is_used():

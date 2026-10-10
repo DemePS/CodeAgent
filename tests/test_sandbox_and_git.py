@@ -5,10 +5,10 @@ import subprocess
 
 import pytest
 
-from coding_agent import state
-from coding_agent.common import ToolError
-from coding_agent.tools import git as git_tool
-from coding_agent.tools import python_runner
+from seedagent import state
+from seedagent.common import ToolError
+from seedagent.tools import git as git_tool
+from seedagent.tools import python_runner
 
 
 def run(code):

@@ -7,10 +7,10 @@ from pathlib import Path
 import openpyxl
 import pytest
 
-from coding_agent import backups, state
-from coding_agent.common import ToolError
-from coding_agent.tools import documents, excel_script, excel_xl
-from coding_agent.tools.excel_script import check_script, tool_run_python_excel
+from seedagent import backups, state
+from seedagent.common import ToolError
+from seedagent.tools import documents, excel_script, excel_xl
+from seedagent.tools.excel_script import check_script, tool_run_python_excel
 
 import fake_xlwings
 
@@ -96,7 +96,7 @@ def test_refused_scripts(code, refused):
 # --- the run
 
 def test_always_offered_unless_the_application_lists_its_own_tools(workspace, monkeypatch):
-    from coding_agent.loop import active_tools
+    from seedagent.loop import active_tools
 
     assert "run_python_excel" in [t["name"] for t in active_tools()]
     monkeypatch.setattr(state, "tool_names", {"read_excel", "edit_excel"})  # e.g. the Excel filler
@@ -208,7 +208,7 @@ def test_settings_read_from_a_dotenv(tmp_path, where):
     run.mkdir()
     (run / ".env" if where == "run folder" else home / ".coding-agent" / ".env").write_text("AGENT_EXCEL_BACKEND=openpyxl\n")
     start = tmp_path / "start.py"
-    start.write_text("import coding_agent.config as c\nprint(c.EXCEL_BACKEND)\n")
+    start.write_text("import seedagent.config as c\nprint(c.EXCEL_BACKEND)\n")
     env = {k: v for k, v in __import__("os").environ.items() if k != "AGENT_EXCEL_BACKEND"}
     env.update(HOME=str(home), USERPROFILE=str(home), PYTHONPATH=str(TESTS.parent))
     out = subprocess.run([sys.executable, str(start)], cwd=run, env=env, capture_output=True, text=True)

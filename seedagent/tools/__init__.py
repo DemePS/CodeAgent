@@ -108,7 +108,7 @@ def register_tool(schema: dict, handler: Callable[..., str | list]) -> None:
     `schema` is the tool definition sent to Claude: {"name", "description", "input_schema": {"type": "object", "properties": ...,
     "required": [...]}}. `handler` is called as handler(**arguments), one keyword parameter per property, and returns a string or a list of
     content blocks ({"type": "text", ...}, {"type": "image", ...}); to report a failure Claude should see, it raises
-    coding_agent.common.ToolError. It runs in the agent's thread and can use coding_agent.state (state.ui, state.workspace).
+    seedagent.common.ToolError. It runs in the agent's thread and can use seedagent.state (state.ui, state.workspace).
     The application's code is responsible for what the handler does: CodeAgent's path checks and confirmations only guard its own tools.
 
     Registering does not enable the tool: a session offers it only when it is in the `tools=[...]` of open_project (or `tools=None`, all).

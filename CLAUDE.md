@@ -16,7 +16,7 @@ Notes for working on this repository (CodeAgent: the engine under WaxalAgent, Is
 
 Status: not started. The branch `concurrency` exists, at the same commit as `main`, for the experiment.
 
-Why: a model response often asks for several tools at once (2 to 4 `search_library`, `read_file`, `read_pdf`). `coding_agent/loop.py`
+Why: a model response often asks for several tools at once (2 to 4 `search_library`, `read_file`, `read_pdf`). `seedagent/loop.py`
 runs them one after another: `results = [run_tool(b) for b in tool_uses]`. The searches are milliseconds, but a read of 5 pages or a
 few greps add up, and the model is waiting. `search_library` already searches its `a | b | c` alternatives in a thread pool
 (`index.MAX_PARALLEL`); asyncio is not the tool for this (nothing waits on a network, it is SQLite and Python work), threads are.

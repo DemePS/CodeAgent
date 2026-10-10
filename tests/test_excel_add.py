@@ -5,10 +5,10 @@ import sys
 import openpyxl
 import pytest
 
-from coding_agent import backups, state
-from coding_agent.common import ToolError
-from coding_agent.tools import documents, excel_xl
-from coding_agent.tools.excel_add import tool_add_chart, tool_add_pivot_table, tool_add_table
+from seedagent import backups, state
+from seedagent.common import ToolError
+from seedagent.tools import documents, excel_xl
+from seedagent.tools.excel_add import tool_add_chart, tool_add_pivot_table, tool_add_table
 
 import fake_xlwings
 
@@ -197,8 +197,8 @@ def test_input_checks(workspace, expenses, ui, openpyxl_backend):
 
 
 def test_the_three_tools_are_offered_with_their_own_fields():
-    from coding_agent.schemas import TOOLS
-    from coding_agent.tools import TOOL_HANDLERS
+    from seedagent.schemas import TOOLS
+    from seedagent.tools import TOOL_HANDLERS
 
     schemas = {t["name"]: t for t in TOOLS}
     fields = {name: set(schemas[name]["input_schema"]["properties"]) for name in ("add_chart", "add_table", "add_pivot_table")}

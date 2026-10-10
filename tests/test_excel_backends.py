@@ -7,9 +7,9 @@ import openpyxl
 import pytest
 from openpyxl.chart import BarChart, Reference
 
-from coding_agent import backups, state
-from coding_agent.common import ToolError
-from coding_agent.tools import documents, excel_look, excel_xl
+from seedagent import backups, state
+from seedagent.common import ToolError
+from seedagent.tools import documents, excel_look, excel_xl
 
 import fake_xlwings
 

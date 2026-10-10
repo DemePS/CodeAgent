@@ -4,9 +4,9 @@ import zipfile
 
 import pytest
 
-from coding_agent.common import ToolError
-from coding_agent.config import MAX_TOOL_OUTPUT_CHARS
-from coding_agent.tools import TOOL_HANDLERS, office
+from seedagent.common import ToolError
+from seedagent.config import MAX_TOOL_OUTPUT_CHARS
+from seedagent.tools import TOOL_HANDLERS, office
 
 W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
 A = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
@@ -117,12 +117,12 @@ def test_an_empty_document_says_so(workspace):
 @pytest.fixture
 def index_home(tmp_path, monkeypatch):
     """The index goes to a temporary folder, never to ~/.coding-agent/index."""
-    from coding_agent import index
+    from seedagent import index
     monkeypatch.setattr(index, "INDEX_HOME", tmp_path / "index")
 
 
 def test_word_and_powerpoint_files_are_in_the_search_index(workspace, index_home):
-    from coding_agent import index
+    from seedagent import index
     docx(workspace / "contrat.docx", ["Article 1 objet du contrat", "Article 2 delai de prescription quinze ans"], table=[["Clause", "Duree"], ["Garantie", "dix ans"]])
     pptx(workspace / "deck.pptx", [["Budget 2027"], ["Charges", "Loyer annuel 38 400"]], notes={2: ["verifier le bail commercial"]})
     errors: dict = {}
@@ -135,7 +135,7 @@ def test_word_and_powerpoint_files_are_in_the_search_index(workspace, index_home
 
 
 def test_a_word_hit_gives_the_character_to_reopen_it_with(workspace, index_home):
-    from coding_agent import index
+    from seedagent import index
     lines = [f"paragraphe {i:04d} " + "mot " * 40 for i in range(200)] + ["PASSAGE UNIQUE zebulon quartz"]
     docx(workspace / "long.docx", lines)
     index.refresh(workspace)
@@ -151,7 +151,7 @@ def test_one_slide_can_be_read_alone(workspace):
 
 
 def test_read_file_names_the_tool_for_a_file_that_is_not_text(workspace):
-    from coding_agent.tools.files import tool_read_file
+    from seedagent.tools.files import tool_read_file
     docx(workspace / "a.docx", ["x"])
     pptx(workspace / "a.pptx", [["x"]])
     (workspace / "a.pdf").write_bytes(b"%PDF-1.4\x00\xff\x81\x8d")

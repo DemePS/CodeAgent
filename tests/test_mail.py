@@ -2,9 +2,9 @@
 
 import pytest
 
-from coding_agent import state
-from coding_agent.common import ToolError
-from coding_agent.tools import mail
+from seedagent import state
+from seedagent.common import ToolError
+from seedagent.tools import mail
 from tests.conftest import ScriptedUI
 
 
@@ -187,7 +187,7 @@ def test_mail_draft_opens_the_chosen_webmail_after_approval(monkeypatch):
 
 
 def test_web_sign_in_refuses_mailboxes_and_points_to_mail_draft(monkeypatch):
-    from coding_agent.tools import web
+    from seedagent.tools import web
     monkeypatch.setattr(web, "_playwright_error", lambda: Exception)  # the browser extra is not installed everywhere
     with pytest.raises(ToolError, match="mail_draft"):
         web.tool_web_sign_in("https://mail.google.com")
