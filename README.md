@@ -7,16 +7,15 @@ Azure subscription through Microsoft Foundry) or DeepSeek. Use it from the termi
 your own tool on top of it (a desktop app that fills Excel workbooks from invoices, a voice assistant over
 a library of PDFs...).
 
-Not on PyPI yet (see [Publishing to PyPI](#publishing-to-pypi-to-do); it will be `pip install seedagent`). From a clone of this repository, run
-`uv sync`: it installs the package and the `coding-agent` command in `.venv` (`uv run coding-agent`), and
-`uv sync --all-extras` adds the browser and the Excel backend. An application built on it just runs `uv sync` too:
-its own `pyproject.toml` and `uv.lock` say which version of the engine to fetch.
-
 ```bash
-pip install "git+https://github.com/DemePS/CodeAgent.git@<commit-or-tag>"
+pip install seedagent
 ```
 
-The package installs the `coding_agent` Python package and the `coding-agent` command.
+Or from a clone of this repository: `uv sync` installs the package and the `coding-agent` command in `.venv` (`uv run coding-agent`), and
+`uv sync --all-extras` adds the browser and the Excel backend. An application built on it just runs `uv sync` too: its own `pyproject.toml`
+and `uv.lock` say which version of the engine to fetch.
+
+The package `seedagent` installs the `coding_agent` Python package and the `coding-agent` command (also available as `seedagent`).
 Python 3.10 or later; Windows, macOS and Linux.
 
 ## Configure
@@ -296,31 +295,23 @@ The CI (`.github/workflows/package.yml`) runs the same on Linux and Windows, Pyt
 installed, then installs the built wheel in a fresh environment and runs the tests there. A test must not depend on a `.env`, on the
 order of files or on the repository layout (the wheel's tests run from a copy of `tests/`).
 
-## Publishing to PyPI (to do)
+## Releasing (maintainers)
 
-The workflow (`.github/workflows/package.yml`) is ready but nothing has been published yet: the
-applications install the engine from a GitHub commit meanwhile. To publish a version:
+The workflow (`.github/workflows/package.yml`) publishes to PyPI by trusted publishing (no token stored). The project is `seedagent`; its
+publisher on pypi.org is owner `DemePS`, repository `CodeAgent`, workflow `package.yml`, environment `pypi` (also an environment `pypi` in
+the repository's settings). PyPI refuses a name that equals an existing one once `-`, `_` and `.` are removed (`codeagent` was refused:
+`code-agent` exists), so check a new name against the full list before registering it.
 
-0. **The project name is `seedagent`** (`name` in `pyproject.toml`; the import stays `coding_agent` and the command `coding-agent`, also
-   available as `seedagent`). PyPI refuses a name that is the same as an existing one once `-`, `_` and `.` are removed: `codeagent` was
-   refused because `code-agent` exists ("This project name is too similar to an existing project"). The name is also the project name of the
-   publisher below.
-1. **Once, on pypi.org** -- Your account (with two-factor authentication) > Publishing > *Add a new pending publisher*: PyPI project
-   `seedagent`, owner `DemePS`, repository `CodeAgent`, workflow `package.yml`, environment `pypi`; and create the
-   environment `pypi` in the repository's settings on GitHub. (The api-management branch publishes `codeagent-apim` the same way: add a
-   second pending publisher with that project name.)
-2. **For each release**, tag the commit whose `pyproject.toml` has that version, and push the tag:
-   ```bash
-   git fetch origin
-   git tag -a v0.7.0 origin/main -m "v0.7.0"     # api-management: apim-v0.5.0 on origin/api-management
-   git push origin v0.7.0
-   ```
-   The tag runs the tests and the build, publishes to PyPI (trusted publishing: no token stored) and
-   creates a GitHub Release. A tag whose version differs from `pyproject.toml` is refused. If the tag
-   was pushed before step 1, only the publish job fails: re-run it (Actions > the run > *Re-run
-   failed jobs*) once PyPI is set up.
-3. **Afterwards**, the applications can depend on the published package (`seedagent==0.7.0`) and drop
-   their `[tool.uv.sources]` git pin (then `uv lock`).
+To publish a version, tag the commit whose `pyproject.toml` has that version, with CI green, and push the tag:
+
+```bash
+git fetch origin
+git tag -a v0.7.0 origin/main -m "v0.7.0"
+git push origin v0.7.0
+```
+
+The tag runs the tests and the build, publishes to PyPI and creates a GitHub Release. A tag whose version differs from `pyproject.toml` is
+refused. A published version can never be replaced: fix forward with a new version. Applications then depend on `seedagent==<version>`.
 
 ## License
 
