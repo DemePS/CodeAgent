@@ -16,7 +16,7 @@ from pathlib import Path
 from openpyxl.utils import get_column_letter, range_boundaries
 
 from .. import backups, state
-from ..common import ToolError, display, is_protected, rel_name
+from ..common import ToolError, display, is_protected, rel_name, require_chosen_workbook
 from .documents import excel_backend, excel_path, load_workbook, lossy_features, save_openpyxl
 
 CHART_TYPES = ("column", "bar", "line", "pie", "area", "scatter")
@@ -56,6 +56,7 @@ def add(path: str, kind: str, source: str, sheet: str | None = None, chart_type:
     p = excel_path(path)
     if is_protected(p):
         raise ToolError(f"{path} is part of the coding agent's own files and cannot be modified.")
+    require_chosen_workbook(p)
     book_name = rel_name(p)
     source = (source or "").strip().upper().replace("$", "")
     if not BLOCK.match(source):
