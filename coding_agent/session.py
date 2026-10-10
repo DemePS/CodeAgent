@@ -49,9 +49,9 @@ def had_text_read(history: list) -> bool:
         for block in content:
             if not isinstance(block, dict):
                 continue
-            if block.get("type") == "tool_use" and block.get("name") == "read_pdf" \
+            if block.get("type") == "tool_use" and block.get("name") == "read_pdf" and block.get("id") is not None \
                     and (block.get("input") or {}).get("mode") in (None, "text"):
-                text_reads.add(block.get("id"))
+                text_reads.add(block["id"])
             elif block.get("type") == "tool_result" and block.get("tool_use_id") in text_reads and not block.get("is_error"):
                 return True
     return False

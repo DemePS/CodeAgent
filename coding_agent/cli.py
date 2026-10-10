@@ -183,6 +183,7 @@ def interact(client: anthropic.Anthropic, messages: list, args: argparse.Namespa
             messages.clear()
             state.pending_blocks.clear()
             state.memory_sent = False
+            state.pdf_read_as_text = False  # the conversation is empty: read_pdf's visual mode needs a text read again
             reset_usage()
             save_conversation(messages)
             print("Started a fresh conversation (memory notes are kept).")

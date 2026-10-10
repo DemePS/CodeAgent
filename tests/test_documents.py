@@ -447,6 +447,19 @@ def test_a_text_read_that_fails_does_not_open_visual_mode(invoice, monkeypatch):
     assert documents.state.pdf_read_as_text is False
 
 
+def test_a_text_read_whose_pypdf_fallback_fails_does_not_open_visual_mode(invoice, monkeypatch):
+    import pypdf
+    monkeypatch.setattr(documents.state, "pdf_read_as_text", False)
+    monkeypatch.setattr(documents, "_pdfium_texts", lambda p, selected: None)  # pdfium unavailable: pypdf is the fallback
+
+    def extract_fails(self, *args, **kwargs):
+        raise ValueError("pypdf cannot decode this page")
+    monkeypatch.setattr(pypdf.PageObject, "extract_text", extract_fails)
+    with pytest.raises(ValueError):
+        documents.tool_read_pdf("invoice.pdf", pages="1", mode="text")
+    assert documents.state.pdf_read_as_text is False
+
+
 def test_a_resumed_conversation_that_read_a_pdf_in_text_mode_keeps_visual_mode_open():
     from coding_agent.session import had_text_read
     def call(id_, **args):
@@ -459,3 +472,5 @@ def test_a_resumed_conversation_that_read_a_pdf_in_text_mode_keeps_visual_mode_o
     assert had_text_read([call("t1", mode="text"), result("t1", error=True)]) is False   # a failed read does not count
     assert had_text_read([call("v1", mode="visual"), result("v1")]) is False             # visual alone does not open the gate
     assert had_text_read([{"role": "user", "content": "hello"}]) is False
+    no_id = {"role": "assistant", "content": [{"type": "tool_use", "name": "read_pdf", "input": {}}]}
+    assert had_text_read([no_id, {"role": "user", "content": [{"type": "tool_result", "content": "x"}]}]) is False  # malformed: no ids
