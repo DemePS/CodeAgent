@@ -474,10 +474,11 @@ TOOLS = [
     {
         "name": "search_library",
         "description": (
-            "Search ALL the PDFs of the library at once (the read-only folders and the workspace) through a full-text index. Pages are "
+            "Search ALL the documents of the library at once (PDFs and plain text files, in the read-only folders and the workspace) through a full-text index. Pages are "
             "ranked by how many of the query's words they contain, so write the query as a few distinctive words (\"delai prescription "
             "action assurance\"), not as a sentence you hope to find word for word. Case, accents, apostrophes and plurals are ignored. "
-            "You get the document, the page and a snippet for each page; then open the pages that matter with read_pdf. Scanned pages "
+            "The documents may be in another language than the question (English or Arabic texts, for example): search with the words of the document's language too, not only with the words of the question. "
+            "You get the document, the page (or the line, for a text file) and a snippet for each result; then open the passages that matter with read_pdf or read_file. Scanned pages "
             "are searched through their OCR text once the library has been indexed with `coding-agent --index`."
         ),
         "input_schema": {

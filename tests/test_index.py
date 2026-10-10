@@ -89,3 +89,57 @@ def test_a_negative_or_zero_number_of_results_means_the_default(workspace):
     index.refresh(workspace)
     for limit in (0, -3, None):
         assert len(index.search([workspace], "mot", limit=limit)["hits"]) == 10
+
+
+def test_a_text_file_is_searched_and_the_result_gives_the_line_to_read(workspace):
+    lines = ["# Quran -- header comment", "1|1|In the name of Allah, the Entirely Merciful.", "66|6|Fire whose fuel is people and stones, over which are [appointed] angels, harsh and severe",
+             "67|1|Blessed is He in whose hand is dominion."]
+    (workspace / "quran.txt").write_text("\n".join(lines), encoding="utf-8")
+    out = documents.tool_search_library("angels severe")
+    assert "quran.txt line 3" in out and "[angels]" in out and "read_file" in out and "start_line=N" in out
+    assert "header comment" not in out  # comment lines of a data file are not indexed
+
+
+def test_prose_is_cut_into_paragraph_records_and_numbered_data_gets_one_record_per_line(workspace, monkeypatch):
+    monkeypatch.setattr(index, "TEXT_CHUNK_CHARS", 60)
+    (workspace / "notes.txt").write_text("alpha one\nbeta two\n\n" + "gamma " * 30 + "\n\ndelta four", encoding="utf-8")
+    records = index._text_records(workspace / "notes.txt")
+    assert [line for _, line in records] == [1, 4, 6] and records[0][0] == "alpha one beta two" and records[2][0] == "delta four"
+    (workspace / "data.txt").write_text("# comment\n1|1|first verse\n1|2|second verse\n1|3|third verse", encoding="utf-8")
+    assert index._text_records(workspace / "data.txt") == [("1|1|first verse", 2), ("1|2|second verse", 3), ("1|3|third verse", 4)]
+
+
+def test_a_file_too_big_for_a_search_waits_for_the_indexing_command(workspace, monkeypatch):
+    (workspace / "big.txt").write_text("1\\tSahih\\tRevelation\\tNarrated 'Umar: actions are judged by intentions\\n" * 5, encoding="utf-8")
+    monkeypatch.setattr(index, "IN_TOOL_MAX_BYTES", 50)
+    out = documents.tool_search_library("intentions")
+    assert "No PDF is indexed" in out or "Not searched yet" in out
+    assert [p.name for p in index.pending(workspace)] == ["big.txt"]
+    index.refresh(workspace)  # `coding-agent --index`: no size limit
+    assert "big.txt line 1" in documents.tool_search_library("intentions") and index.pending(workspace) == []
+
+
+def test_pdfs_and_text_files_are_searched_together(workspace):
+    make_pdf(workspace / "code.pdf", ["Les anges sont des creatures"])
+    (workspace / "quran.txt").write_text("66|6|over which are angels harsh and severe", encoding="utf-8")
+    out = documents.tool_search_library("angels anges")
+    assert "code.pdf page 1" in out and "quran.txt line 1" in out
+
+
+def test_one_unreadable_file_does_not_stop_the_search_of_the_others(workspace):
+    import os
+    (workspace / "a_locked.txt").write_text("1|1|secretword", encoding="utf-8")
+    (workspace / "a_locked.txt").chmod(0)
+    (workspace / "z_good.txt").write_text("1|1|zebra stripes", encoding="utf-8")
+    try:
+        if os.access(workspace / "a_locked.txt", os.R_OK):  # running as root: the permission cannot be refused
+            pytest.skip("file permissions are not enforced for this user")
+        out = documents.tool_search_library("zebra")
+        assert "z_good.txt line 1" in out and "a_locked.txt" in out and "Could not be read" in out
+    finally:
+        (workspace / "a_locked.txt").chmod(0o644)
+
+
+def test_a_binary_file_with_a_text_name_is_not_indexed(workspace):
+    (workspace / "blob.txt").write_bytes(b"abc\x00def" + bytes(range(256)) * 20)
+    assert index._text_records(workspace / "blob.txt") == []

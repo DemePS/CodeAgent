@@ -18,7 +18,10 @@ from pathlib import Path
 
 from .config import INDEX_HOME
 
-INDEX_VERSION = 2  # 2: page text read by pdfium
+INDEX_VERSION = 3  # 2: page text read by pdfium; 3: plain text files (.txt, .md) are indexed too
+TEXT_SUFFIXES = (".txt", ".md")
+TEXT_CHUNK_CHARS = 1500       # prose is cut into records of whole paragraphs, about this long
+IN_TOOL_MAX_BYTES = 25_000_000  # a search call indexes new files up to this size itself (about 13 MB/s); bigger ones wait for `coding-agent --index`
 MAX_RESULTS = 30
 ANY_WORD_POOL = 1500  # pages with some of the words that are re-ranked by rarity (a long library is a few thousand pages)
 STOPWORDS = frozenset("""
@@ -46,8 +49,18 @@ def connect(root: Path) -> sqlite3.Connection:
     return db
 
 
+def documents_under(root: Path) -> list[Path]:
+    """The PDFs and the plain text files (.txt, .md) of a folder, hidden folders left out."""
+    return sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in (".pdf", *TEXT_SUFFIXES)
+                  and not any(part.startswith(".") for part in p.relative_to(root).parts))
+
+
 def pdfs_under(root: Path) -> list[Path]:
-    return sorted(p for p in root.rglob("*.pdf") if p.is_file() and not any(part.startswith(".") for part in p.relative_to(root).parts))
+    return [p for p in documents_under(root) if p.suffix.lower() == ".pdf"]
+
+
+def is_text_file(path) -> bool:
+    return Path(path).suffix.lower() in TEXT_SUFFIXES
 
 
 def _stale(db: sqlite3.Connection, p: Path) -> bool:
@@ -56,11 +69,69 @@ def _stale(db: sqlite3.Connection, p: Path) -> bool:
     return row != (stat.st_size, stat.st_mtime_ns)
 
 
+_DATA_LINE = re.compile(r"^\d+\s*[|\t]")
+
+
+def _text_records(p: Path) -> list[tuple[str, int]]:
+    """A text file as (text, line where the record starts).
+    A file of numbered records (`66|6|text`, `1<TAB>Sahih<TAB>...`: a verse or a hadith per line) gives one record per line, so the line number
+    points at the passage. Prose gives its paragraphs (separated by blank lines), grouped up to TEXT_CHUNK_CHARS; a longer paragraph stands alone.
+    Comment lines (# ...) of a data file are left out; in a .md file they are headings and stay."""
+    with open(p, "rb") as handle:
+        if b"\0" in handle.read(4096):  # a binary file with a text name: nothing to search
+            return []
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    keep_hash = p.suffix.lower() == ".md"
+    content = [(n, line.strip()) for n, line in enumerate(lines, 1) if line.strip() and (keep_hash or not line.lstrip().startswith("#"))]
+    if not content:
+        return []
+    if sum(1 for _, line in content if _DATA_LINE.match(line)) >= 0.8 * len(content):
+        return [(line, n) for n, line in content]
+    paragraphs, current, start = [], [], 0
+    for n, raw in enumerate(lines, 1):
+        text = raw.strip()
+        if not text or (not keep_hash and text.startswith("#")):
+            if current and not text:
+                paragraphs.append((" ".join(current), start))
+                current = []
+            continue
+        if not current:
+            start = n
+        current.append(text)
+    if current:
+        paragraphs.append((" ".join(current), start))
+    records, buffer, first, size = [], [], 0, 0
+    for text, line in paragraphs:
+        if buffer and size + len(text) > TEXT_CHUNK_CHARS:
+            records.append((" ".join(buffer), first))
+            buffer, size = [], 0
+        if not buffer:
+            first = line
+        buffer.append(text)
+        size += len(text) + 1
+    if buffer:
+        records.append((" ".join(buffer), first))
+    return records
+
+
+def _index_text_file(db: sqlite3.Connection, p: Path) -> tuple[int, int]:
+    records = _text_records(p)
+    stat = p.stat()
+    with db:
+        db.execute("DELETE FROM pages WHERE path = ?", (str(p),))
+        db.executemany("INSERT INTO pages (text, path, page) VALUES (?, ?, ?)", [(text, str(p), line) for text, line in records])
+        db.execute("INSERT OR REPLACE INTO docs VALUES (?, ?, ?, ?, ?)", (str(p), stat.st_size, stat.st_mtime_ns, len(records), 0))
+    return len(records), 0
+
+
 def index_document(db: sqlite3.Connection, p: Path, ocr_scans: bool = False, progress=None) -> tuple[int, int]:
-    """(pages, scanned pages left without text): the text layer, plus the OCR text of the scans when it exists or ocr_scans is set."""
+    """(pages, scanned pages left without text): the text layer, plus the OCR text of the scans when it exists or ocr_scans is set.
+    A plain text file gives records instead of pages (the number kept is the line where the record starts)."""
     from . import ocr
     from .tools.documents import pdf_page_texts
 
+    if is_text_file(p):
+        return _index_text_file(db, p)
     texts = pdf_page_texts(p)
     blank = [n for n, t in enumerate(texts, 1) if not t]
     done = ocr.cached(p)
@@ -83,11 +154,15 @@ def index_document(db: sqlite3.Connection, p: Path, ocr_scans: bool = False, pro
     return len(texts), unread
 
 
-def refresh(root: Path, ocr_scans: bool = False, progress=None, log=None) -> list[Path]:
-    """Index the PDFs of a folder that are new or changed (and forget the ones that are gone). Returns the files read."""
+def refresh(root: Path, ocr_scans: bool = False, progress=None, log=None, max_bytes: int | None = None,
+            errors: dict | None = None) -> list[Path]:
+    """Index the PDFs and text files of a folder that are new or changed (and forget the ones that are gone). Returns the files read.
+    max_bytes: leave bigger files for later (a search call must not spend a minute indexing a 12 MB file): see pending().
+    errors: filled with {path: why} for the files that could not be read (no permission, password-protected, damaged): one such file
+    must not stop the search of all the others."""
     db = connect(root)
     try:
-        files = pdfs_under(root)
+        files = documents_under(root)
         known = {row[0] for row in db.execute("SELECT path FROM docs")}
         with db:
             for gone in known - {str(p) for p in files}:
@@ -97,11 +172,27 @@ def refresh(root: Path, ocr_scans: bool = False, progress=None, log=None) -> lis
         for p in files:
             row = db.execute("SELECT unread FROM docs WHERE path = ?", (str(p),)).fetchone()
             if _stale(db, p) or (ocr_scans and row and row[0]):
+                if max_bytes is not None and p.stat().st_size > max_bytes and _stale(db, p):
+                    continue
                 if log:
                     log(f"indexing {p.name}")
-                index_document(db, p, ocr_scans=ocr_scans, progress=progress)
+                try:
+                    index_document(db, p, ocr_scans=ocr_scans, progress=progress)
+                except Exception as e:  # noqa: BLE001 -- any failure of one file, whatever its kind
+                    if errors is not None:
+                        errors[p] = f"{type(e).__name__}: {e}"[:160]
+                    continue
                 read.append(p)
         return read
+    finally:
+        db.close()
+
+
+def pending(root: Path) -> list[Path]:
+    """The documents of a folder that are not in the index (yet) or changed since: they are not searched."""
+    db = connect(root)
+    try:
+        return [p for p in documents_under(root) if _stale(db, p)]
     finally:
         db.close()
 

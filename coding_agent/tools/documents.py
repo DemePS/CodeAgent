@@ -346,19 +346,28 @@ def tool_search_library(query: str, document: str | None = None, max_results: in
     if not query or not query.strip():
         raise ToolError("query is empty.")
     roots = [r for r in (*state.read_roots, state.workspace) if r and r.is_dir()]
+    unreadable: dict = {}
     for root in roots:
-        index.refresh(root)  # only the files that are new or changed are read (their text layer; scans wait for `coding-agent --index`)
+        index.refresh(root, max_bytes=index.IN_TOOL_MAX_BYTES, errors=unreadable)  # only new or changed files are read; scans and big files wait for `coding-agent --index`
     result = index.search(roots, query, document=document, limit=max_results)
     state.ui.status(f"[library] search {query!r}: {len(result['hits'])} page(s)")
     if not result["files"]:
         return "No PDF is indexed: there is no PDF in the workspace or the read-only folders."
     lines = [f"{len(result['hits'])} page(s) for {query!r} in {result['files']} indexed PDF(s); words used: {', '.join(result['words']) or '(none)'}"]
     for path, page, snippet, mode in result["hits"]:
-        lines.append(f"{Path(path).name} page {page} ({mode}) -- {path}\n   {snippet}")
+        where = f"line {page}" if index.is_text_file(path) else f"page {page}"
+        lines.append(f"{Path(path).name} {where} ({mode}) -- {path}\n   {snippet}")
     if result["hits"]:
-        lines.append("Open the pages that matter with read_pdf (path, pages='N'). Check the page before quoting it.")
+        lines.append("Open the pages that matter with read_pdf (path, pages='N'); for a text file read_file (path, start_line=N, end_line=N+5). "
+                     "Check the passage before quoting it.")
     else:
         lines.append("No page has these words. Try other or fewer words (one distinctive word is enough), or a different spelling.")
+    waiting = [p for root in roots for p in index.pending(root) if p not in unreadable]
+    if unreadable:
+        lines.append("Could not be read, so not searched: " + "; ".join(f"{p.name} ({why})" for p, why in list(unreadable.items())[:5]))
+    if waiting:
+        lines.append("Not searched yet (too big to index during a search): " + ", ".join(p.name for p in waiting[:6])
+                     + ". The person can index them once with: coding-agent --index FOLDER")
     if result["unread"]:
         names = "; ".join(f"{Path(p).name}: {n} scanned page(s)" for p, n in list(result["unread"].items())[:5])
         lines.append(f"Not searched, because they are scans not read by OCR yet: {names}. The person can read them once with: coding-agent --index FOLDER")

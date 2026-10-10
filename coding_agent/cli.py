@@ -72,7 +72,7 @@ def run_index(folders: list[str]) -> None:
             raise SystemExit(f"Not a folder: {root}")
         read = index.refresh(root, ocr_scans=ocr.available(), log=print,
                              progress=lambda i, total: print(f"\r  OCR {i}/{total}", end="", flush=True))
-        print(f"{root}: {len(index.pdfs_under(root))} PDF(s), {len(read)} read")
+        print(f"{root}: {len(index.documents_under(root))} document(s), {len(read)} read")
 
 
 def main() -> None:
