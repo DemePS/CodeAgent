@@ -121,28 +121,32 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "text") -> li
         scanned, unread = scan_texts(p, [layer.get(n, "") if n in layer else "" for n in range(1, count + 1)], selected)
         parts = []
         for n in selected:
-            if layer[n]:
+            if layer[n] and not has_usable_text(layer[n]) and len(layer[n]) >= 30:
+                parts.append(f"--- page {n} (the text looks unreliable: handwriting, a damaged scan or mostly codes; mode visual shows the page) ---\n{layer[n]}")
+            elif layer[n]:
                 parts.append(f"--- page {n} ---\n{layer[n]}")
+            elif scanned.get(n) and not has_usable_text(scanned[n]):
+                parts.append(f"--- page {n} (OCR found only noise: handwriting or a drawing; mode visual shows the page) ---\n{scanned[n]}")
             elif scanned.get(n):
                 parts.append(f"--- page {n} (read by OCR: may contain mistakes) ---\n{scanned[n]}")
             else:
-                parts.append(f"--- page {n} ---\n(no text layer: a scan or an image -- use mode visual)")
+                parts.append(f"--- page {n} ---\n(no text: a drawing, a photo or handwriting that OCR cannot read; mode visual shows the page)")
         if unread:
             parts.append(f"({len(unread)} scanned page(s) were not OCR'd here: {_ocr_hint(unread)})")
         return truncate(label + "\n" + "\n".join(parts))
 
     texts = pdf_page_texts(p)
-    if all(len(texts[n - 1]) >= VISUAL_MIN_TEXT_CHARS for n in selected):
+    if all(has_usable_text(texts[n - 1]) for n in selected):
         raise ToolError(
             f"Page(s) {pages or 'all'} of {path} have a text layer: read them with mode='text'. Visual mode is only for scanned pages "
             f"(no text layer); the page images are slow to process and stay in the conversation for every later call.")
-    blank = [n for n in selected if len(texts[n - 1]) < VISUAL_MIN_TEXT_CHARS]
+    blank = [n for n in selected if len(texts[n - 1]) < VISUAL_MIN_TEXT_CHARS]  # (a layer of garbage is not blank: nothing to OCR, the images are the way)
     if blank and len(blank) <= OCR_MAX_PAGES_PER_CALL and ocr.available():
         try:  # the pages are read by OCR once (the text is cached): then mode 'text' gives them at once, cheaper and faster than images
             found = ocr.read_pages(p, blank)
         except Exception:  # noqa: BLE001 -- OCR failing is not a reason to refuse the images
             found = {}
-        if all(len(found.get(n, "")) >= VISUAL_MIN_TEXT_CHARS for n in blank):
+        if all(has_usable_text(texts[n - 1]) or has_usable_text(found.get(n, "")) for n in selected):
             raise ToolError(
                 f"Page(s) {pages or 'all'} of {path}: the pages without a text layer have been read by OCR and their text is ready: "
                 f"read them with mode='text' (OCR may contain mistakes: check a figure before quoting it). Visual mode is only for pages "
@@ -205,6 +209,36 @@ _PDF_TEXT_CACHE: dict[Path, tuple[tuple[int, int], list[str]]] = {}
 _PDF_TEXT_CACHE_SIZE = 4
 SEARCH_PDF_DEFAULT_RESULTS = 20
 VISUAL_MIN_TEXT_CHARS = 10  # a page with at least this much text has a text layer; visual mode is refused for such pages
+DOT_LEADERS = re.compile(r"[.\-_…·•]{3,}")  # "Section ........ 12" in a table of contents
+NUMBER = re.compile(r"[\d.,:/%€$£+-]*\d[\d.,:/%€$£+-]*")
+TEXT_MIN_QUALITY = 0.6  # below this share of word-like characters, a page's text is not trusted (handwriting read by OCR, damaged scan)
+
+
+def text_quality(text: str) -> float:
+    """0 to 1: how much of the text is made of words. The mean of the share of the characters and of the share of the tokens that are
+    word-like (3+ characters, mostly letters; combining marks count, so vowelled Arabic scores like any text; dot leaders are ignored).
+    Measured on whole documents: real text 0.7-0.9 in English, French and Arabic, prices and order codes included (median 0.75-0.85);
+    the text layer of handwriting, read by OCR, median 0.29 (43 of 44 pages under 0.6); a tenth of a book of lettering alphabets under 0.7."""
+    tokens = DOT_LEADERS.sub(" ", text).split()
+    total = sum(len(t) for t in tokens)
+    if not total:
+        return 0.0
+    def wordlike(t: str) -> bool:
+        n = len(t)
+        if n >= 2 and NUMBER.fullmatch(t):  # 642.00  45,50  12%  2026-05
+            return True
+        if n < 3:
+            return False
+        if sum(c.isalpha() or unicodedata.category(c)[0] == "M" for c in t) / n >= 0.8:  # a word
+            return True
+        return (sum(c.isalnum() for c in t) / n >= 0.8 and sum(c.isdigit() for c in t) >= 2
+                and any(c.isalpha() for c in t))  # a code: TXA025, INV-31
+    words = [t for t in tokens if wordlike(t)]
+    return (sum(len(t) for t in words) / total + len(words) / len(tokens)) / 2
+
+
+def has_usable_text(text: str) -> bool:
+    return len(text) >= VISUAL_MIN_TEXT_CHARS and text_quality(text) >= TEXT_MIN_QUALITY
 SEARCH_PDF_MAX_RESULTS = 100
 SEARCH_PDF_SNIPPET_CHARS = 100  # characters kept on each side of a match
 

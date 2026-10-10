@@ -429,3 +429,30 @@ def test_visual_mode_is_allowed_when_ocr_finds_no_text_on_the_page(scan, fake_oc
     monkeypatch.setattr(documents, "uses_deepseek", lambda: False)
     monkeypatch.setattr(fake_ocr, "image_to_string", classmethod(lambda cls, image, lang=None: "  "))  # a drawing: nothing to read
     assert documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")[1]["type"] == "document"
+
+
+def test_text_quality_tells_text_from_the_ocr_of_handwriting():
+    assert documents.text_quality("The total of the invoice is 642.00 EUR, payable in thirty days") >= 0.6
+    assert documents.text_quality("قَالَ الشَّيْخُ رَحِمَهُ اللَّهُ تَعَالَى فِي كِتَابِهِ") >= 0.6      # vowelled Arabic
+    assert documents.text_quality("oer Crotill ee * re tain ys 7 — eee ae ; 7 ich oe ee ’ a 2 4) » wi") < 0.5
+    assert documents.text_quality("Invoice INV-31 Sensors 12 x 45.50") >= 0.6 and documents.text_quality("TXA025 2-200 lux 0-45 °C 12%") >= 0.6  # numbers, codes
+    assert documents.text_quality("Section sur les heures ........................ 131") >= 0.6      # a table of contents
+    assert not documents.has_usable_text("") and not documents.has_usable_text("a 2 4) » wi , ; ~")
+
+
+def test_a_page_with_a_garbage_text_layer_can_be_read_visually_and_text_mode_warns(workspace, monkeypatch):
+    monkeypatch.setattr(documents, "uses_deepseek", lambda: False)
+    make_pdf(workspace / "journal.pdf", ["& 7 vA - 3 4 es ee a 2 eee 4 > wi iret a ae ee ee ee ee AT a Be * a se > - a are ee", "Total 642.00 EUR on this page"])
+    text = documents.tool_read_pdf("journal.pdf", pages="1", mode="text")
+    assert "looks unreliable" in text and "mode visual" in text
+    assert "unreliable" not in documents.tool_read_pdf("journal.pdf", pages="2", mode="text")
+    assert documents.tool_read_pdf("journal.pdf", pages="1", mode="visual")[1]["type"] == "document"    # not refused
+    with pytest.raises(ToolError, match="mode='text'"):                                                  # a real page still is
+        documents.tool_read_pdf("journal.pdf", pages="2", mode="visual")
+
+
+def test_ocr_noise_from_handwriting_does_not_block_the_images(scan, fake_ocr, monkeypatch):
+    monkeypatch.setattr(documents, "uses_deepseek", lambda: False)
+    monkeypatch.setattr(fake_ocr, "image_to_string", classmethod(lambda cls, image, lang=None: "& 7 vA - 3 4 es ee a 2 eee 4 > wi iret a ae ee ee ee ee AT a Be * a se > - a are ee"))
+    assert documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")[1]["type"] == "document"
+    assert "OCR found only noise" in documents.tool_read_pdf("scan.pdf", pages="1", mode="text")
