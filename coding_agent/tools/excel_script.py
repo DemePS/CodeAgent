@@ -29,7 +29,7 @@ import zipfile
 from pathlib import Path
 
 from .. import backups, state
-from ..common import ToolError, display, is_protected, rel_name, truncate
+from ..common import ToolError, display, is_protected, rel_name, scrubbed_env, truncate
 from ..config import RUN_TIMEOUT_SECONDS
 from ..guard import GUARD_SOURCE
 from .documents import excel_backend, excel_path, load_workbook, show_cell
@@ -127,7 +127,7 @@ def execute(p: Path, folder: Path, code: str, timeout: int) -> subprocess.Comple
     the runner and the script are written to `folder` (in the temp folder)."""
     (folder / "runner.py").write_text(RUNNER, encoding="utf-8")
     (folder / "script.py").write_text(code, encoding="utf-8")
-    env = dict(os.environ, AGENT_GUARD_WORKSPACE=str(state.workspace))
+    env = dict(scrubbed_env(), AGENT_GUARD_WORKSPACE=str(state.workspace))  # no secret for the script
     cmd = [sys.executable, "-c", GUARD_SOURCE, "script", str(folder / "runner.py"), str(p), str(folder / "script.py")]
     try:
         return subprocess.run(cmd, cwd=folder, capture_output=True, text=True, timeout=timeout, env=env)

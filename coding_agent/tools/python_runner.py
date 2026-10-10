@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 from .. import state
-from ..common import ToolError, truncate
+from ..common import ToolError, hide_secrets, scrubbed_env, truncate
+from ..errors import redact
 from ..config import RUN_TIMEOUT_SECONDS, UV
 from ..guard import GUARD_SOURCE
 
@@ -17,7 +18,7 @@ def project_env() -> dict:
     When the agent itself runs from its own environment (e.g. `uv run coding-agent`), variables
     such as VIRTUAL_ENV point at it; `uv run` in the project must use the project's environment.
     """
-    env = {k: v for k, v in os.environ.items()
+    env = {k: v for k, v in scrubbed_env().items()  # no secret: the code printed what it receives
            if k not in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "UV_PROJECT", "PYTHONHOME", "PYTHONPATH", "CONDA_PREFIX")}
     if sys.prefix != sys.base_prefix:  # the agent runs in a virtualenv: take its bin/ off PATH
         own_bin = os.path.normcase(str(Path(sys.prefix) / ("Scripts" if os.name == "nt" else "bin")))
@@ -77,10 +78,10 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
         raise ToolError(f"Timed out after {timeout}s.")
 
     state.ui.status(f"[exit code {proc.returncode}]")
-    return truncate(
+    return truncate(hide_secrets(redact(
         f"exit code: {proc.returncode}\n"
         f"--- stdout ---\n{proc.stdout or '(empty)'}\n"
         f"--- stderr ---\n{proc.stderr or '(empty)'}"
-    )
+    )))
 
 

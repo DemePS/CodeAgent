@@ -112,6 +112,45 @@ def is_protected(p: Path) -> bool:
     return any(p == prot or prot in p.parents for prot in state.protected_paths)
 
 
+_SECRET_WORDS = {"KEY", "KEYS", "SECRET", "SECRETS", "TOKEN", "TOKENS", "PASSWORD", "PASSWD", "PASS", "CREDENTIAL",
+                 "CREDENTIALS", "AUTH", "APIKEY", "PRIVATE", "PAT"}
+_SECRET_PREFIXES = ("ANTHROPIC_", "DEEPSEEK_", "OPENAI_", "AZURE_", "AWS_", "GITHUB_", "GH_", "GITLAB_", "HF_", "HUGGINGFACE_",
+                    "GOOGLE_", "TWILIO_", "STRIPE_", "SLACK_", "NPM_", "PYPI_", "TWINE_", "UV_PUBLISH")
+
+
+def _is_secret_name(name: str) -> bool:
+    upper = name.upper()
+    return upper.startswith(_SECRET_PREFIXES) or bool(set(upper.replace("-", "_").split("_")) & _SECRET_WORDS)
+
+
+def secret_values(env: dict | None = None) -> set[str]:
+    """The values of the variables that hold secrets, and the API key in use (8 characters or more)."""
+    from .config import current_api_key
+    source = os.environ if env is None else env
+    values = {v for k, v in source.items() if _is_secret_name(k) and len(v) >= 8}
+    key = current_api_key()
+    if key and len(key) >= 8:
+        values.add(key)
+    return values
+
+
+def scrubbed_env(env: dict | None = None) -> dict:
+    """A copy of the environment without secrets, for code the model wrote (run_python, Excel scripts): that code can
+    print what it receives, and a document can steer the model. Dropped: names that say they hold a secret (KEY, TOKEN,
+    SECRET, PASSWORD, AUTH...), the variables of cloud and model services, and any variable that holds a copy of one."""
+    source = dict(os.environ if env is None else env)
+    secrets = secret_values(source)
+    return {name: value for name, value in source.items()
+            if not _is_secret_name(name) and not any(secret in value for secret in secrets)}
+
+
+def hide_secrets(text: str) -> str:
+    """The text with every secret value of the environment (and the API key in use) hidden."""
+    for secret in sorted(secret_values(), key=len, reverse=True):
+        text = text.replace(secret, "[secret hidden]")
+    return text
+
+
 def truncate(text: str) -> str:
     if len(text) <= MAX_TOOL_OUTPUT_CHARS:
         return text

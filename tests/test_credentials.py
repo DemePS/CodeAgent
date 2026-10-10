@@ -2,6 +2,9 @@
 
 import json
 import stat
+import sys
+
+import pytest
 
 from coding_agent import credentials, state
 from coding_agent.tools import mail, sms
@@ -10,6 +13,7 @@ from tests.test_mail import FakeSMTP  # noqa: F401  (the fixtures below patch sm
 from tests.test_mail import smtp  # noqa: F401
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
 def test_files_are_private_and_can_be_forgotten(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_SECRETS_DIR", str(tmp_path / "secrets"))
     path = credentials.save("mail", {"user": "a@b.com", "password": "pw"})

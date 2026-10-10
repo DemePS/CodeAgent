@@ -479,6 +479,8 @@ def test_a_resumed_conversation_that_read_a_pdf_in_text_mode_keeps_visual_mode_o
 def test_a_model_that_cannot_see_images_gets_read_pdf_without_visual_mode(scan, monkeypatch):
     from coding_agent import config, loop
     monkeypatch.delenv("AGENT_VISION", raising=False)
+    monkeypatch.delenv("ANTHROPIC_FOUNDRY_ENDPOINT", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")  # ANTHROPIC_MODEL counts on Anthropic's API (not on Foundry)
     for model, sees in (("deepseek-v4-pro", False), ("deepseek-flash", True), ("claude-sonnet-5-5", True)):
         monkeypatch.setenv("ANTHROPIC_MODEL", model)
         assert config.model_sees_images() is sees
@@ -503,6 +505,8 @@ def test_a_model_that_cannot_see_images_is_not_offered_any_tool_that_returns_one
     from coding_agent import loop
     from coding_agent.schemas import IMAGE_TOOLS
     monkeypatch.delenv("AGENT_VISION", raising=False)
+    monkeypatch.delenv("ANTHROPIC_FOUNDRY_ENDPOINT", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setattr(state, "tool_names", None)
     monkeypatch.setenv("ANTHROPIC_MODEL", "deepseek-v4-pro")
     blind = {t["name"] for t in loop.active_tools()}

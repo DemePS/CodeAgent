@@ -4,7 +4,11 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
+# The package tests run from an installed wheel, where there is no example.env nor source tree to compare with.
+pytestmark = pytest.mark.skipif(not (ROOT / "example.env").is_file(), reason="repository layout only")
 OPERATING_SYSTEM = {"HOME", "DISPLAY", "WAYLAND_DISPLAY", "PATH"}  # not settings of the agent
 
 

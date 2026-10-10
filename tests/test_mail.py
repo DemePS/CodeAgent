@@ -186,8 +186,9 @@ def test_mail_draft_opens_the_chosen_webmail_after_approval(monkeypatch):
         mail.tool_mail_draft("a@b.com", "Hello", "Test", webmail="aol")
 
 
-def test_web_sign_in_refuses_mailboxes_and_points_to_mail_draft():
+def test_web_sign_in_refuses_mailboxes_and_points_to_mail_draft(monkeypatch):
     from coding_agent.tools import web
+    monkeypatch.setattr(web, "_playwright_error", lambda: Exception)  # the browser extra is not installed everywhere
     with pytest.raises(ToolError, match="mail_draft"):
         web.tool_web_sign_in("https://mail.google.com")
 

@@ -148,8 +148,41 @@ def test_read_file_drops_the_byte_order_mark_and_refuses_binary(workspace):
 
 def test_grep_does_not_return_a_whole_minified_line_nor_an_unbounded_result(workspace):
     (workspace / "bundle.js").write_text("var a=1;" + "comptable " * 100_000 + "\n")          # one line of 1 MB
-    (workspace / "notes.txt").write_text("\n".join(f"comptable line {i} " + "x" * 200 for i in range(400)) + "\n")
     result = files.tool_grep("comptable")
-    assert len(result) < 60_000                                                              # bounded, whatever the files hold
-    assert "bundle.js:1:" in result and "line cut" in result                                 # the long line is cut, not dropped
-    assert "var a=1;" in result
+    assert "bundle.js:1:" in result and "line cut" in result and "var a=1;" in result      # the long line is cut, not dropped
+    assert len(result) < 1_000
+    (workspace / "notes.txt").write_text("\n".join(f"comptable line {i} " + "x" * 200 for i in range(400)) + "\n")
+    assert len(files.tool_grep("comptable")) < 60_000                                       # bounded, whatever the files hold
+
+
+# --- secrets never reach code the model wrote -----------------------------------------------------------------------------
+def test_the_environment_of_model_code_holds_no_secret(monkeypatch):
+    from coding_agent import config
+    from coding_agent.common import scrubbed_env
+    config.clear()
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-secret-value-1234567890")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret-value-1234567890")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_" + "a" * 30)
+    monkeypatch.setenv("MY_SERVICE_PASSWORD", "hunter2")
+    monkeypatch.setenv("SOME_VARIABLE", "the value is sk-deepseek-secret-value-1234567890 inside")   # the key under a harmless name
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "x")
+    monkeypatch.setenv("KEPT_SETTING", "fine")
+    env = scrubbed_env()
+    for name in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "MY_SERVICE_PASSWORD", "SOME_VARIABLE", "AWS_SECRET_ACCESS_KEY"):
+        assert name not in env, name
+    assert env["KEPT_SETTING"] == "fine" and "PATH" in env
+
+
+def test_run_python_cannot_read_the_key_and_its_output_is_redacted(workspace, monkeypatch):
+    from coding_agent import config, state
+    from coding_agent.tools import python_runner
+    config.clear()
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-deepseek-secret-value-1234567890")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-secret-value-1234567890")
+    monkeypatch.setattr(state, "always_allow_python", True)
+    (workspace / "show.py").write_text(
+        "import os\nprint('seen:', os.environ.get('DEEPSEEK_API_KEY'), os.environ.get('ANTHROPIC_API_KEY'))\n"
+        "print('typed:', 'sk-deepseek-secret-value-' + '1234567890')\n")   # the model can also build the key itself
+    out = python_runner.tool_run_python(args=["show.py"])
+    assert "seen: None None" in out
+    assert "sk-deepseek-secret-value-1234567890" not in out and "sk-ant-secret" not in out

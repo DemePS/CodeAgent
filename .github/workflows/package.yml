@@ -59,8 +59,8 @@ jobs:
           python3 -m venv /tmp/fresh
           /tmp/fresh/bin/pip install -q dist/*.whl pytest
           /tmp/fresh/bin/coding-agent --help > /dev/null
-          cp -r tests /tmp/package-tests && cd /tmp/package-tests
-          /tmp/fresh/bin/python -m pytest -q -p no:cacheprovider .
+          mkdir /tmp/package-src && cp -r tests /tmp/package-src/tests && cd /tmp/package-src
+          /tmp/fresh/bin/python -m pytest -q -p no:cacheprovider tests
       - uses: actions/upload-artifact@v4
         with:
           name: dist
