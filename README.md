@@ -1,18 +1,20 @@
-# CodeAgent
+# SeedAgent
 
-An agent on Claude, running in your Azure subscription (Microsoft Foundry): it reads and edits files,
-Excel workbooks and PDFs in a project folder, asks before every change, and remembers what it learned
-about each project. Use it from the terminal, or as a library to build your own tool on top of it
-(for example a desktop app that fills Excel workbooks from PDF documents).
+A document and coding agent. It reads and edits files, Excel workbooks and PDFs (scans included) in a project
+folder, searches a library of documents, browses the web, writes mail drafts and code, asks before every
+change, and remembers what it learned about each project. The model is Claude (Anthropic's API, or your own
+Azure subscription through Microsoft Foundry) or DeepSeek. Use it from the terminal, or as a library to build
+your own tool on top of it (a desktop app that fills Excel workbooks from invoices, a voice assistant over
+a library of PDFs...).
+
+Not on PyPI yet (see [Publishing to PyPI](#publishing-to-pypi-to-do); it will be `pip install seed-agent`). From a clone of this repository, run
+`uv sync`: it installs the package and the `coding-agent` command in `.venv` (`uv run coding-agent`), and
+`uv sync --all-extras` adds the browser and the Excel backend. An application built on it just runs `uv sync` too:
+its own `pyproject.toml` and `uv.lock` say which version of the engine to fetch.
 
 ```bash
-pip install codeagent
+pip install "git+https://github.com/DemePS/CodeAgent.git@<commit-or-tag>"
 ```
-
-Not on PyPI yet (see [Publishing to PyPI](#publishing-to-pypi-to-do)). Until then, from a clone of
-this repository, run `uv sync`: it installs the package and the `coding-agent` command in `.venv`
-(`uv run coding-agent`). An application built on it just runs `uv sync` too: its own `pyproject.toml`
-and `uv.lock` say which version of the engine to fetch.
 
 The package installs the `coding_agent` Python package and the `coding-agent` command.
 Python 3.10 or later; Windows, macOS and Linux.
@@ -66,8 +68,11 @@ choose it over them. The model is `deepseek-flash` by default; `ANTHROPIC_MODEL=
 `coding-agent --check` tests the connection.
 
 What DeepSeek does not take, and what the agent does about it: no `web_search` tool (it is left out, `Web search: off`); no `cache_control`
-(DeepSeek caches by itself); no PDF `document` blocks, so `read_pdf` works in `text` mode only (a scan cannot be read); thinking is sent as
-`disabled` for `CODEAGENT_THINKING=off`. Set `AGENT_CONTEXT_WINDOW` to the model's real window (the default is 200,000 tokens).
+(DeepSeek caches by itself); no PDF `document` blocks, so `read_pdf` sends pages as rendered images instead (pypdfium2) and scans are read
+by OCR or by looking at the page; thinking is sent as `disabled` for `CODEAGENT_THINKING=off`. `deepseek-flash` looks at images;
+`deepseek-v4-pro` does not (it answers "unsupported image"): the tools that return an image are then not offered and `read_pdf` has no visual
+mode (`AGENT_VISION=on|off` overrides the list for a model that is not in it). Set `AGENT_CONTEXT_WINDOW` to the model's real window (the
+default is 200,000 tokens). An application can hand the key over without any environment variable: `configure(api_key=..., model=...)`.
 
 ## Use it in the terminal
 
@@ -101,6 +106,10 @@ session.close()
 `session.open_project(..., excel_first=True)` (for an application that fills workbooks) refuses `read_pdf`
 until `read_excel` has run, when the instruction mentions a spreadsheet; it is off by default.
 
+An application that fills one workbook can also set, after `open_project`: `state.excel_writable = {path}` (no other workbook can be changed
+or created), `state.excel_protect_formulas = True` (a formula can be neither replaced nor cleared), and `state.excel_edit_sheets[path] = {"Sheet1"}`
+(only those sheets). They are checked by the tool, not asked of the model.
+
 `session.stop()` stops the running instruction from another thread (e.g. a Stop button);
 `session.add_read_folder(path)` lets the agent read (never write) another folder. Every approval,
 question and progress message goes through the UI object, so a web or desktop front end can show them.
@@ -125,17 +134,38 @@ session.open_project(folder, ui=ui, tools=["read_file", "say_hello"])    # a too
 The handler gets one keyword argument per property of the `input_schema` and returns a string or a list of content blocks
 (`{"type": "text", ...}`, `{"type": "image", ...}`). To report a failure Claude should see, it raises `coding_agent.common.ToolError`; any other
 exception also reaches Claude as an error result and does not stop the agent. It runs in the agent's thread and can use `coding_agent.state`
-(`state.ui`, `state.workspace`). CodeAgent's path checks and confirmations guard only its own tools: what the handler does is the application's
+(`state.ui`, `state.workspace`). SeedAgent's path checks and confirmations guard only its own tools: what the handler does is the application's
 responsibility (to read a file the way the built-in tools do, `coding_agent.common.resolve_readable(path)` applies the same rules). A built-in
 tool cannot be replaced, registering the same handler twice does nothing, and a second handler under a taken name is an error.
 
 ## Tools
 
-Files (`read_file`, `write_file`, `edit_file`, `list_directory`, `grep`, `copy_path`, `delete_file`,
-`delete_folder`, `change_directory`), documents (`read_pdf`, `search_pdf`, `view_image`, `read_excel`,
-`edit_excel`, `view_excel`, `format_excel`, `add_chart`, `add_table`, `add_pivot_table`, `restore_backup`), `git` (read-only), `run_python` (sandboxed),
-`download_file`, `clone_repo`, `web_search`, `screenshot_page`, `web_open`, `web_click`, `web_type`, `web_back`, `web_page`, `web_look`, `web_sign_in`, `web_close` (`uv sync --extra browser`), `ask_human`,
-`load_skill`.
+43 tools; an application offers the subset it wants (`session.open_project(tools=[...])`).
+
+| Group | Tools |
+|---|---|
+| Files | `read_file`, `write_file`, `edit_file`, `list_directory`, `change_directory`, `grep`, `copy_path`, `delete_file`, `delete_folder` |
+| Documents | `read_pdf`, `search_pdf`, `search_library`, `view_image` |
+| Excel | `read_excel`, `edit_excel`, `view_excel`, `format_excel`, `add_chart`, `add_table`, `add_pivot_table`, `restore_backup`, `run_python_excel` |
+| Web | `web_search`, `web_open`, `web_click`, `web_type`, `web_back`, `web_page`, `web_look`, `screenshot_page`, `web_sign_in`, `web_set_token`, `web_close`, `download_file` |
+| Mail and SMS | `mail_login`, `mail_draft`, `send_mail`, `send_sms` |
+| Code | `run_python` (sandboxed), `git` (read-only), `clone_repo` |
+| Other | `load_skill`, `ask_human` |
+
+`read_file` reads UTF-8 and, failing that, Windows-1252 (the usual export of Excel and French accounting software; the result says so).
+`grep` cuts a matching line at 300 characters and bounds its whole result, so a minified file cannot flood the conversation.
+
+### Documents, scans and the library
+
+- `read_pdf` reads **text** by default (page ranges). Its **visual** mode (pages rendered as images, at most 20 per call) is allowed once a
+  text read happened in the conversation, to check what a scan or a table really shows; names, dates and amounts taken from a scan should be
+  checked that way. A model that cannot see images gets no visual mode.
+- Scanned pages are read by **OCR** (tesseract and its language packs must be installed); the text is kept in `AGENT_OCR_DIR` so a page is
+  read once. `coding-agent --ocr PDF...` does it ahead of time.
+- `search_library` searches a library of PDFs and text files (the read-only folders and the project) through a full-text index
+  (SQLite FTS5; alternatives with `a | b | c`, ranked by the words found). Files that are new or changed are indexed on the way, up to a
+  size; bigger ones, and a first indexing with OCR, are done once with `coding-agent --index FOLDER...` (`AGENT_INDEX_DIR` moves the index).
+- `read_pdf`, `read_file`, `search_library` and `grep` also read the folders given with `--read` / `session.add_read_folder` (never write).
 
 ### Browsing the web
 
@@ -218,6 +248,11 @@ refused in applications that restrict edits (chosen sheets, protected formulas, 
   restore them with `coding_agent.backups` (`versions()`, `restore()`).
 - Deleting always asks, even in autonomous mode; downloads and clones always ask; the agent cannot
   modify its own files; `run_python` cannot start processes or delete files.
+- **No secret reaches code the model wrote.** `run_python` and Excel scripts run with an environment from which every variable that says
+  it is a secret (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*AUTH*`), the variables of cloud and model services (`ANTHROPIC_*`,
+  `DEEPSEEK_*`, `AZURE_*`, `AWS_*`, `GITHUB_*`...) and any copy of an API key are removed, and the output of the script has those values
+  hidden. A document that steers the model cannot make it print your keys.
+- The agent never reads `~/.coding-agent` (credentials and its own settings), so a knowledge folder must live elsewhere.
 
 ## What stays on your machine
 
@@ -247,31 +282,40 @@ coding-agent --forget all            # delete every project's memory (asks first
 ## Development
 
 ```bash
-uv sync            # the exact versions the tests ran with (uv.lock)
+uv sync --all-extras                      # the exact versions the tests ran with (uv.lock), with the browser and Excel extras
+uv run playwright install chromium        # the browser tools and their tests need it
 uv run pytest
-uv build           # dist/codeagent-<version>.tar.gz and .whl
+uv build                                  # dist/seed_agent-<version>.tar.gz and .whl
 ```
+
+The CI (`.github/workflows/package.yml`) runs the same on Linux and Windows, Python 3.10 and 3.14, with every extra and Chromium
+installed, then installs the built wheel in a fresh environment and runs the tests there. A test must not depend on a `.env`, on the
+order of files or on the repository layout (the wheel's tests run from a copy of `tests/`).
 
 ## Publishing to PyPI (to do)
 
 The workflow (`.github/workflows/package.yml`) is ready but nothing has been published yet: the
 applications install the engine from a GitHub commit meanwhile. To publish a version:
 
-1. **Once, on pypi.org** -- Your account > Publishing > *Add a new pending publisher*: PyPI project
-   `codeagent`, owner `DemePS`, repository `CodeAgent`, workflow `package.yml`, environment `pypi`.
-   (The api-management branch publishes `codeagent-apim` the same way: add a second pending publisher
-   with that project name.)
+0. **The project name is `seed-agent`** (`name` in `pyproject.toml`; the import stays `coding_agent` and the command `coding-agent`, also
+   available as `seed-agent`). PyPI refuses a name that is the same as an existing one once `-`, `_` and `.` are removed: `codeagent` was
+   refused because `code-agent` exists ("This project name is too similar to an existing project"). The name is also the project name of the
+   publisher below.
+1. **Once, on pypi.org** -- Your account (with two-factor authentication) > Publishing > *Add a new pending publisher*: PyPI project
+   `seed-agent`, owner `DemePS`, repository `CodeAgent`, workflow `package.yml`, environment `pypi`; and create the
+   environment `pypi` in the repository's settings on GitHub. (The api-management branch publishes `codeagent-apim` the same way: add a
+   second pending publisher with that project name.)
 2. **For each release**, tag the commit whose `pyproject.toml` has that version, and push the tag:
    ```bash
    git fetch origin
-   git tag -a v0.5.0 origin/main -m "v0.5.0"     # api-management: apim-v0.5.0 on origin/api-management
-   git push origin v0.5.0
+   git tag -a v0.7.0 origin/main -m "v0.7.0"     # api-management: apim-v0.5.0 on origin/api-management
+   git push origin v0.7.0
    ```
    The tag runs the tests and the build, publishes to PyPI (trusted publishing: no token stored) and
    creates a GitHub Release. A tag whose version differs from `pyproject.toml` is refused. If the tag
    was pushed before step 1, only the publish job fails: re-run it (Actions > the run > *Re-run
    failed jobs*) once PyPI is set up.
-3. **Afterwards**, the applications can depend on the published package (`codeagent==0.5.0`) and drop
+3. **Afterwards**, the applications can depend on the published package (`seed-agent==0.7.0`) and drop
    their `[tool.uv.sources]` git pin (then `uv lock`).
 
 ## License

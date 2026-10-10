@@ -1,5 +1,5 @@
 [project]
-name = "codeagent"
+name = "seed-agent"
 version = "0.7.0"
 description = "A coding and document agent on Claude (Azure / Microsoft Foundry): tools, safety rules, memory and context management, usable from the terminal or as a library"
 readme = "README.md"
@@ -36,12 +36,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# screenshot_page: `pip install "codeagent[browser]"`, then `playwright install chromium`
+# screenshot_page: `pip install "seed-agent[browser]"`, then `playwright install chromium`
 browser = ["playwright>=1.63.0,<2"]
-# Kept so that "codeagent[pdf-image]" in older pins still installs: pypdfium2 and pillow are now required.
+# Kept so that "seed-agent[pdf-image]" in older pins still installs: pypdfium2 and pillow are now required.
 pdf-image = []
 # Excel itself does the saving, formatting and rendering (Windows or macOS with Excel installed):
-# `pip install "codeagent[excel]"`; AGENT_EXCEL_BACKEND=auto (default) uses it when it can.
+# `pip install "seed-agent[excel]"`; AGENT_EXCEL_BACKEND=auto (default) uses it when it can.
 excel = ["xlwings>=0.33,<1"]
 
 [project.urls]
@@ -51,6 +51,7 @@ Issues = "https://github.com/DemePS/CodeAgent/issues"
 
 [project.scripts]
 coding-agent = "coding_agent.cli:main"
+seed-agent = "coding_agent.cli:main"  # the same command under the name of the package
 
 [build-system]
 requires = ["hatchling==1.32.4"]
