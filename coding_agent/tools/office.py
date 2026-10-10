@@ -6,6 +6,7 @@ Only text is read: a picture inside the document is not (export the page as an i
 parts with `start`, the way a long page is read with `read_pdf`'s page ranges.
 """
 
+import posixpath
 import re
 import xml.etree.ElementTree as ET
 import zipfile
@@ -82,8 +83,42 @@ def tool_read_word(path: str, start: int = 0) -> str:
 
 
 def _slide_text(root) -> str:
-    paragraphs = (_words(p, DRAWING, "t").strip() for p in root.iter(f"{{{DRAWING}}}p"))
-    return "\n".join(line for line in paragraphs if line)
+    """The text of a slide or of its notes, in document order; a table gives one line per row, "cell | cell"."""
+    lines: list[str] = []
+
+    def walk(element):
+        if element.tag == f"{{{DRAWING}}}tbl":
+            for row in element.iter(f"{{{DRAWING}}}tr"):
+                cells = [" ".join(_words(p, DRAWING, "t").strip() for p in cell.iter(f"{{{DRAWING}}}p")).strip()
+                         for cell in row.iter(f"{{{DRAWING}}}tc")]
+                if any(cells):
+                    lines.append(" | ".join(cells))
+        elif element.tag == f"{{{DRAWING}}}p":
+            text = _words(element, DRAWING, "t").strip()
+            if text:
+                lines.append(text)
+        else:
+            for child in element:
+                walk(child)
+
+    walk(root)
+    return "\n".join(lines)
+
+
+def _notes_of(z: zipfile.ZipFile, slide: str) -> str | None:
+    """The notes part of a slide, found through the slide's relationships: notesSlideN is numbered in the order the notes were
+    created, which is not the slide's number."""
+    rels = re.sub(r"ppt/slides/(slide\d+\.xml)$", r"ppt/slides/_rels/\1.rels", slide)
+    try:
+        root = ET.fromstring(z.read(rels))
+    except (KeyError, ET.ParseError):
+        return None
+    for rel in root:
+        if rel.get("Type", "").endswith("/notesSlide"):
+            target = rel.get("Target", "")
+            name = posixpath.normpath(posixpath.join("ppt/slides", target)) if not target.startswith("/") else target.lstrip("/")
+            return name if name in z.namelist() else None
+    return None
 
 
 def tool_read_powerpoint(path: str, start: int = 0) -> str:
@@ -91,10 +126,10 @@ def tool_read_powerpoint(path: str, start: int = 0) -> str:
     with z:
         number = lambda n: int(re.search(r"(\d+)\.xml$", n).group(1))  # noqa: E731
         slides = sorted((n for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)), key=number)
-        notes = {number(n): n for n in z.namelist() if re.fullmatch(r"ppt/notesSlides/notesSlide\d+\.xml", n)}
         parts = []
         for name in slides:
             text = _slide_text(_xml(z, name, path))
-            note = _slide_text(_xml(z, notes[number(name)], path)) if number(name) in notes else ""
+            notes_name = _notes_of(z, name)
+            note = _slide_text(_xml(z, notes_name, path)) if notes_name else ""
             parts.append(f"--- slide {number(name)} ---\n{text}" + (f"\n(notes) {note}" if note else ""))
     return _window("\n\n".join(parts), start, "(no slides in this presentation)")

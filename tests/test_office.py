@@ -45,6 +45,29 @@ def test_powerpoint_gives_slides_in_numeric_order_with_notes(workspace):
     assert text.index("--- slide 2 ---") < text.index("--- slide 10 ---") < text.index("--- slide 11 ---")
 
 
+def test_a_note_belongs_to_the_slide_that_points_to_it_not_to_the_same_number(workspace):
+    """PowerPoint numbers notesSlideN in the order the notes were created: the only note of the deck is notesSlide1, on slide 2."""
+    ns = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+    with zipfile.ZipFile(workspace / "n.pptx", "w") as z:
+        for i, title in enumerate(("One", "Two", "Three"), 1):
+            z.writestr(f"ppt/slides/slide{i}.xml", f'<p:sld {A} xmlns:p="x"><p:cSld><a:p><a:r><a:t>{title}</a:t></a:r></a:p></p:cSld></p:sld>')
+        z.writestr("ppt/slides/_rels/slide2.xml.rels",
+                   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                   '<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" '
+                   'Target="../notesSlides/notesSlide1.xml"/></Relationships>')
+        z.writestr("ppt/notesSlides/notesSlide1.xml", f'<p:notes {A} xmlns:p="x"><a:p><a:r><a:t>For slide two</a:t></a:r></a:p></p:notes>')
+    text = office.tool_read_powerpoint("n.pptx")
+    assert "--- slide 1 ---\nOne\n\n--- slide 2 ---\nTwo\n(notes) For slide two\n\n--- slide 3 ---\nThree" in text
+
+
+def test_a_table_on_a_slide_gives_one_line_per_row(workspace):
+    cell = lambda t: f"<a:tc><a:txBody><a:p><a:r><a:t>{t}</a:t></a:r></a:p></a:txBody></a:tc>"  # noqa: E731
+    table = "<a:tbl>" + "".join("<a:tr>" + "".join(cell(c) for c in row) + "</a:tr>" for row in (("T", "In"), ("T1", "310 000"))) + "</a:tbl>"
+    with zipfile.ZipFile(workspace / "t.pptx", "w") as z:
+        z.writestr("ppt/slides/slide1.xml", f'<p:sld {A} xmlns:p="x"><p:cSld><a:p><a:r><a:t>Cash</a:t></a:r></a:p>{table}</p:cSld></p:sld>')
+    assert office.tool_read_powerpoint("t.pptx") == "--- slide 1 ---\nCash\nT | In\nT1 | 310 000"
+
+
 def test_a_long_document_is_read_in_parts(workspace):
     docx(workspace / "long.docx", [f"line {i:05d} " + "x" * 90 for i in range(1500)])          # about 150,000 characters
     first = office.tool_read_word("long.docx")
