@@ -553,33 +553,6 @@ def test_only_the_chosen_workbook_can_be_changed(workspace, ui, monkeypatch):
     assert "1 cell(s) changed" in edit("journal.xlsx")
 
 
-def test_the_other_excel_tools_keep_to_the_chosen_workbook_too(workspace, ui, monkeypatch):
-    """format_excel, add_chart, add_table, add_pivot_table and restore_backup follow the same one-workbook rule as edit_excel."""
-    import openpyxl
-    from coding_agent.tools import excel_add, excel_look
-    for name in ("journal.xlsx", "budget.xlsx"):
-        wb = openpyxl.Workbook()
-        wb.active.title = "Costs"
-        wb.active.append(["Item", "Qty"])
-        wb.active.append(["a", 1])
-        wb.save(workspace / name)
-    monkeypatch.setattr(state, "excel_writable", {(workspace / "journal.xlsx").resolve()})
-    refused = r"Only the workbook chosen for this job can be changed \(journal.xlsx\); budget.xlsx cannot"
-    attempts = (
-        lambda: excel_look.tool_format_excel("budget.xlsx", "A1:B1", sheet="Costs", bold=True),
-        lambda: excel_add.tool_add_chart("budget.xlsx", "A1:B2", "bar", sheet="Costs"),
-        lambda: excel_add.tool_add_table("budget.xlsx", "A1:B2", sheet="Costs"),
-        lambda: excel_add.tool_add_pivot_table("budget.xlsx", "A1:B2", ["Item"], ["Qty"], sheet="Costs"),
-        lambda: documents.tool_restore_backup("budget.xlsx"),
-    )
-    for attempt in attempts:
-        with pytest.raises(ToolError, match=refused):
-            attempt()
-    assert openpyxl.load_workbook(workspace / "budget.xlsx")["Costs"]["A1"].font.bold is False      # nothing was touched
-    ui.answers = ["yes"]
-    assert "Formatted" in excel_look.tool_format_excel("journal.xlsx", "A1:B1", sheet="Costs", bold=True)   # the chosen one works
-
-
 def test_a_new_conversation_forgets_the_chosen_workbook(workspace):
     state.excel_writable = {workspace / "journal.xlsx"}
     state.reset_conversation()

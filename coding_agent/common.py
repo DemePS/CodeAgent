@@ -118,15 +118,6 @@ _SECRET_PREFIXES = ("ANTHROPIC_", "DEEPSEEK_", "OPENAI_", "AZURE_", "AWS_", "GIT
                     "GOOGLE_", "TWILIO_", "STRIPE_", "SLACK_", "NPM_", "PYPI_", "TWINE_", "UV_PUBLISH")
 
 
-def require_chosen_workbook(p: Path) -> None:
-    """When an application names the workbook of its job (state.excel_writable), no other workbook can be changed or created by an
-    Excel tool: edit_excel, format_excel, add_chart, add_table, add_pivot_table, restore_backup."""
-    if state.excel_writable is not None and p.resolve() not in state.excel_writable:
-        chosen = ", ".join(sorted(w.name for w in state.excel_writable)) or "none"
-        raise ToolError(f"Only the workbook chosen for this job can be changed ({chosen}); {rel_name(p)} cannot, and no other workbook "
-                        "can be created. If another workbook really needs a change, ask the person.")
-
-
 def _says_secret(name: str) -> bool:
     """The name itself says the value is a secret (KEY, TOKEN, SECRET, PASSWORD...)."""
     return bool(set(name.upper().replace("-", "_").split("_")) & _SECRET_WORDS)

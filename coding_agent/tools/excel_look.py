@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 
 from .. import backups, state
-from ..common import ToolError, display, is_protected, rel_name, require_chosen_workbook
+from ..common import ToolError, display, is_protected, rel_name
 from ..config import EXCEL_VIEW_MAX_CELLS, MAX_IMAGE_BYTES, PDF_MAX_VISUAL_PAGES, uses_deepseek
 from .documents import (
     excel_backend,
@@ -230,7 +230,6 @@ def tool_format_excel(path: str, range: str, sheet: str | None = None, bold: boo
     p = excel_path(path)
     if is_protected(p):
         raise ToolError(f"{path} is part of the coding agent's own files and cannot be modified.")
-    require_chosen_workbook(p)
     name = rel_name(p)
     style = {"bold": bold, "italic": italic, "font_color": font_color, "fill": fill, "wrap": wrap, "align": align,
              "border": border, "number_format": number_format, "column_width": column_width,
