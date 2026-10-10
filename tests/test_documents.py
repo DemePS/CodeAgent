@@ -412,3 +412,20 @@ def test_page_text_comes_from_pdfium_so_a_font_pypdf_mis_decodes_cannot_garble_i
     monkeypatch.setattr(pypdf.PdfReader, "__init__", lambda *a, **k: (_ for _ in ()).throw(AssertionError("pypdf must not read the text")))
     documents._PDF_TEXT_CACHE.clear()
     assert documents.pdf_page_texts(workspace / "invoice2.pdf") == ["Article 15 Aggravation du risque", "Article 16 Obligations"]
+
+
+def test_visual_mode_is_refused_for_a_scan_that_ocr_can_read_and_allowed_when_it_cannot(scan, fake_ocr, monkeypatch):
+    monkeypatch.setattr(documents, "uses_deepseek", lambda: False)
+    with pytest.raises(ToolError, match=r"read by OCR and their text is ready: read them with mode='text'"):
+        documents.tool_read_pdf("scan.pdf", pages="1-2", mode="visual")
+    assert fake_ocr.pages_read == 2                                   # read once, now cached
+    assert "prescription" in documents.tool_read_pdf("scan.pdf", pages="1-2", mode="text")
+    assert fake_ocr.pages_read == 2                                   # the text mode did not read them again
+    monkeypatch.setattr(documents.ocr, "available", lambda: False)    # no tesseract: the images are the only way
+    assert documents.tool_read_pdf("scan.pdf", pages="3", mode="visual")[1]["type"] == "document"
+
+
+def test_visual_mode_is_allowed_when_ocr_finds_no_text_on_the_page(scan, fake_ocr, monkeypatch):
+    monkeypatch.setattr(documents, "uses_deepseek", lambda: False)
+    monkeypatch.setattr(fake_ocr, "image_to_string", classmethod(lambda cls, image, lang=None: "  "))  # a drawing: nothing to read
+    assert documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")[1]["type"] == "document"

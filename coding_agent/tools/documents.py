@@ -136,6 +136,17 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "text") -> li
         raise ToolError(
             f"Page(s) {pages or 'all'} of {path} have a text layer: read them with mode='text'. Visual mode is only for scanned pages "
             f"(no text layer); the page images are slow to process and stay in the conversation for every later call.")
+    blank = [n for n in selected if len(texts[n - 1]) < VISUAL_MIN_TEXT_CHARS]
+    if blank and len(blank) <= OCR_MAX_PAGES_PER_CALL and ocr.available():
+        try:  # the pages are read by OCR once (the text is cached): then mode 'text' gives them at once, cheaper and faster than images
+            found = ocr.read_pages(p, blank)
+        except Exception:  # noqa: BLE001 -- OCR failing is not a reason to refuse the images
+            found = {}
+        if all(len(found.get(n, "")) >= VISUAL_MIN_TEXT_CHARS for n in blank):
+            raise ToolError(
+                f"Page(s) {pages or 'all'} of {path}: the pages without a text layer have been read by OCR and their text is ready: "
+                f"read them with mode='text' (OCR may contain mistakes: check a figure before quoting it). Visual mode is only for pages "
+                f"OCR cannot read (drawings, handwriting).")
     if len(selected) > PDF_MAX_VISUAL_PAGES:
         raise ToolError(f"{path} has {count} pages; read at most {PDF_MAX_VISUAL_PAGES} at a time in visual mode "
                         f"(e.g. pages='1-{PDF_MAX_VISUAL_PAGES}'), or use mode='text' to skim all of it first.")
