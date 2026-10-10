@@ -715,6 +715,38 @@ TOOLS = [
         },
     },
     {
+        "name": "read_word",
+        "description": (
+            "Read the text of a Word (.docx) document: its paragraphs in order and the rows of its tables as 'cell | cell'. "
+            "Pictures, headers and footers are not read. A long document is read in parts: the result says which `start` to "
+            "call again with. Not for PDF, Excel or images (they have their own tools); an old .doc must be saved as .docx."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path of the .docx file."},
+                "start": {"type": "integer", "description": "Character to start from (default 0), to read the next part of a long document."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "read_powerpoint",
+        "description": (
+            "Read the text of a PowerPoint (.pptx) presentation, slide by slide, with the speaker notes. Pictures are not read. "
+            "A long presentation is read in parts: the result says which `start` to call again with. An old .ppt must be saved "
+            "as .pptx."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path of the .pptx file."},
+                "start": {"type": "integer", "description": "Character to start from (default 0), to read the next part of a long presentation."},
+            },
+            "required": ["path"],
+        },
+    },
+    {
         "name": "copy_path",
         "description": (
             "Copy a file or a folder (with everything in it) to another place in the workspace. If "

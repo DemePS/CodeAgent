@@ -20,6 +20,7 @@ from ..tools.documents import (
 from ..tools.excel_add import tool_add_chart, tool_add_pivot_table, tool_add_table
 from ..tools.excel_look import tool_format_excel, tool_view_excel
 from ..tools.excel_script import tool_run_python_excel
+from ..tools.office import tool_read_powerpoint, tool_read_word
 from ..tools.files import (
     tool_change_directory,
     tool_copy_path,
@@ -67,6 +68,8 @@ TOOL_HANDLERS = {
     "web_sign_in": tool_web_sign_in,
     "web_set_token": tool_web_set_token,
     "view_image": tool_view_image,
+    "read_word": tool_read_word,
+    "read_powerpoint": tool_read_powerpoint,
     "read_pdf": tool_read_pdf,
     "search_pdf": tool_search_pdf,
     "search_library": tool_search_library,

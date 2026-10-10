@@ -141,12 +141,12 @@ tool cannot be replaced, registering the same handler twice does nothing, and a 
 
 ## Tools
 
-43 tools; an application offers the subset it wants (`session.open_project(tools=[...])`).
+45 tools; an application offers the subset it wants (`session.open_project(tools=[...])`).
 
 | Group | Tools |
 |---|---|
 | Files | `read_file`, `write_file`, `edit_file`, `list_directory`, `change_directory`, `grep`, `copy_path`, `delete_file`, `delete_folder` |
-| Documents | `read_pdf`, `search_pdf`, `search_library`, `view_image` |
+| Documents | `read_pdf`, `search_pdf`, `search_library`, `view_image`, `read_word`, `read_powerpoint` |
 | Excel | `read_excel`, `edit_excel`, `view_excel`, `format_excel`, `add_chart`, `add_table`, `add_pivot_table`, `restore_backup`, `run_python_excel` |
 | Web | `web_search`, `web_open`, `web_click`, `web_type`, `web_back`, `web_page`, `web_look`, `screenshot_page`, `web_sign_in`, `web_set_token`, `web_close`, `download_file` |
 | Mail and SMS | `mail_login`, `mail_draft`, `send_mail`, `send_sms` |
@@ -166,6 +166,8 @@ tool cannot be replaced, registering the same handler twice does nothing, and a 
 - `search_library` searches a library of PDFs and text files (the read-only folders and the project) through a full-text index
   (SQLite FTS5; alternatives with `a | b | c`, ranked by the words found). Files that are new or changed are indexed on the way, up to a
   size; bigger ones, and a first indexing with OCR, are done once with `coding-agent --index FOLDER...` (`AGENT_INDEX_DIR` moves the index).
+- `read_word` (.docx: paragraphs and tables) and `read_powerpoint` (.pptx: slides and speaker notes) read the text only, with no extra
+  dependency; a long document is read in parts with `start`. A picture inside is not read.
 - `read_pdf`, `read_file`, `search_library` and `grep` also read the folders given with `--read` / `session.add_read_folder` (never write).
 
 ### Browsing the web
