@@ -38,6 +38,25 @@ def project_id(workspace: Path) -> str:
     return f"{workspace.name}-{hashlib.sha256(str(workspace).encode()).hexdigest()[:8]}"
 
 
+def had_text_read(history: list) -> bool:
+    """True when the history holds a read_pdf call in text mode (the default) that was answered without an error:
+    read_pdf's visual mode is then allowed, as it was when the conversation was saved."""
+    text_reads = set()
+    for message in history:
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and block.get("name") == "read_pdf" \
+                    and (block.get("input") or {}).get("mode") in (None, "text"):
+                text_reads.add(block.get("id"))
+            elif block.get("type") == "tool_result" and block.get("tool_use_id") in text_reads and not block.get("is_error"):
+                return True
+    return False
+
+
 def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
                  system_prompt: str | None = None, resume: bool = False, auto: bool = False,
                  excel_first: bool = False) -> Path:
@@ -56,6 +75,7 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
     state.excel_first = excel_first
     state.skills = discover_skills()
     messages[:] = load_conversation() if resume else []
+    state.pdf_read_as_text = had_text_read(messages)  # a resumed conversation that already read a PDF in text mode
     if auto:
         set_auto_mode(True)
     return workspace

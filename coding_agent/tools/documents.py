@@ -116,7 +116,6 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "text") -> li
 
     if mode == "text":
         state.ui.status(f"[pdf] {rel_name(p)} text, {len(selected)} page(s)")
-        state.pdf_read_as_text = True
         raw = _pdfium_texts(p, selected)
         layer = {n: (raw[n - 1] if raw is not None else (reader.pages[n - 1].extract_text() or "")).strip() for n in selected}
         scanned, unread = scan_texts(p, [layer.get(n, "") if n in layer else "" for n in range(1, count + 1)], selected)
@@ -130,6 +129,7 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "text") -> li
                 parts.append(f"--- page {n} ---\n(no text layer: a scan or an image -- use mode visual)")
         if unread:
             parts.append(f"({len(unread)} scanned page(s) were not OCR'd here: {_ocr_hint(unread)})")
+        state.pdf_read_as_text = True  # only now: a text read that failed delivered nothing, so it does not open visual mode
         return truncate(label + "\n" + "\n".join(parts))
 
     if not state.pdf_read_as_text:

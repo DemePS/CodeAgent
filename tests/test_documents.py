@@ -425,3 +425,37 @@ def test_a_new_conversation_forgets_that_a_page_was_read_in_text_mode(workspace)
     documents.state.pdf_read_as_text = True
     documents.state.reset_conversation()
     assert documents.state.pdf_read_as_text is False
+
+
+def test_a_text_read_that_fails_does_not_open_visual_mode(invoice, monkeypatch):
+    monkeypatch.setattr(documents.state, "pdf_read_as_text", False)
+    real_pdfium_texts = documents._pdfium_texts
+
+    def blow_up(path, selected):
+        raise RuntimeError("pdfium blew up")
+    monkeypatch.setattr(documents, "_pdfium_texts", blow_up)
+    with pytest.raises(RuntimeError):
+        documents.tool_read_pdf("invoice.pdf", pages="1", mode="text")
+    assert documents.state.pdf_read_as_text is False                      # nothing was delivered to the model
+    monkeypatch.setattr(documents, "_pdfium_texts", real_pdfium_texts)
+
+    def ocr_fails(p, texts, selected):
+        raise ToolError("tesseract failed on page 1")
+    monkeypatch.setattr(documents, "scan_texts", ocr_fails)
+    with pytest.raises(ToolError, match="tesseract failed"):
+        documents.tool_read_pdf("invoice.pdf", pages="1", mode="text")
+    assert documents.state.pdf_read_as_text is False
+
+
+def test_a_resumed_conversation_that_read_a_pdf_in_text_mode_keeps_visual_mode_open():
+    from coding_agent.session import had_text_read
+    def call(id_, **args):
+        return {"role": "assistant", "content": [{"type": "tool_use", "id": id_, "name": "read_pdf", "input": {"path": "a.pdf", **args}}]}
+    def result(id_, error=False):
+        return {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id_, "content": "x", **({"is_error": True} if error else {})}]}
+    assert had_text_read([]) is False
+    assert had_text_read([call("t1"), result("t1")]) is True                       # the default mode is text
+    assert had_text_read([call("t1", mode="text"), result("t1")]) is True
+    assert had_text_read([call("t1", mode="text"), result("t1", error=True)]) is False   # a failed read does not count
+    assert had_text_read([call("v1", mode="visual"), result("v1")]) is False             # visual alone does not open the gate
+    assert had_text_read([{"role": "user", "content": "hello"}]) is False
