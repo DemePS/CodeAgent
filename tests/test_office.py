@@ -114,7 +114,14 @@ def test_an_empty_document_says_so(workspace):
 
 
 # --- the library index and the redirecting refusal ------------------------------------------------------------------------
-def test_word_and_powerpoint_files_are_in_the_search_index(workspace):
+@pytest.fixture
+def index_home(tmp_path, monkeypatch):
+    """The index goes to a temporary folder, never to ~/.coding-agent/index."""
+    from coding_agent import index
+    monkeypatch.setattr(index, "INDEX_HOME", tmp_path / "index")
+
+
+def test_word_and_powerpoint_files_are_in_the_search_index(workspace, index_home):
     from coding_agent import index
     docx(workspace / "contrat.docx", ["Article 1 objet du contrat", "Article 2 delai de prescription quinze ans"], table=[["Clause", "Duree"], ["Garantie", "dix ans"]])
     pptx(workspace / "deck.pptx", [["Budget 2027"], ["Charges", "Loyer annuel 38 400"]], notes={2: ["verifier le bail commercial"]})
@@ -127,7 +134,7 @@ def test_word_and_powerpoint_files_are_in_the_search_index(workspace):
     assert slide and slide[0][0].endswith("deck.pptx") and slide[0][1] == 2
 
 
-def test_a_word_hit_gives_the_character_to_reopen_it_with(workspace):
+def test_a_word_hit_gives_the_character_to_reopen_it_with(workspace, index_home):
     from coding_agent import index
     lines = [f"paragraphe {i:04d} " + "mot " * 40 for i in range(200)] + ["PASSAGE UNIQUE zebulon quartz"]
     docx(workspace / "long.docx", lines)
