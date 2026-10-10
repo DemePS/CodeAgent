@@ -104,9 +104,10 @@ PAGE_READ_TOOLS = ("read_pdf",)
 
 
 def forget_page_reads(messages: list, start: int = 0) -> int:
-    """At the end of a turn, replace what the PDF pages read in it contained (page images, a PDF document, extracted text) with a reference:
-    which file and which pages. The text of a page is cached (pdf_page_texts, the OCR cache, the index), so reading it again is quick, while
-    images and long page texts would stay in the history and be sent again with every later model call (slow and costly).
+    """At the end of a turn, replace the pages read VISUALLY in it (page images, a PDF document block) with a reference: which file and
+    which pages. Images are about 1,600 tokens a page, slow to process, and would be sent again with every later model call. The text of a
+    page is cached (pdf_page_texts, the OCR cache, the index), so reading it again is quick. Text reads stay as they are: the provider's
+    prompt cache makes carrying them cheap.
     New message objects are made: the lists that other code holds (the memory curator reads the turn) are not changed.
     Returns how many results were replaced."""
     calls = {}
@@ -123,10 +124,12 @@ def forget_page_reads(messages: list, start: int = 0) -> int:
         blocks, changed = [], False
         for block in message["content"]:
             call = calls.get(block.get("tool_use_id")) if block.get("type") == "tool_result" else None
-            if call and call["name"] in PAGE_READ_TOOLS and not block.get("is_error"):
+            content = block.get("content")
+            visual = isinstance(content, list) and any(isinstance(part, dict) and part.get("type") in ("image", "document") for part in content)
+            if call and call["name"] in PAGE_READ_TOOLS and visual and not block.get("is_error"):
                 shown = call["input"]
-                block = {**block, "content": (f"[{call['name']} {shown.get('path')}, pages {shown.get('pages') or 'all'}: the content is not kept in "
-                                              f"the conversation; read the pages again if you need them (the text is cached, so it is quick)]")}
+                block = {**block, "content": (f"[{call['name']} {shown.get('path')}, pages {shown.get('pages') or 'all'}, read as images: the images are "
+                                              f"not kept in the conversation; read the pages again (mode 'text' if they have text) if you need them]")}
                 changed = True
                 replaced += 1
             blocks.append(block)
