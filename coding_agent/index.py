@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+from concurrent.futures import ThreadPoolExecutor
 import re
 import sqlite3
 import unicodedata
@@ -18,6 +19,7 @@ from pathlib import Path
 
 from .config import INDEX_HOME
 
+MAX_PARALLEL = 4  # alternatives searched at the same time
 RRF_K = 60  # reciprocal rank fusion: how fast the weight of a rank falls
 INDEX_VERSION = 3  # 2: page text read by pdfium; 3: plain text files (.txt, .md) are indexed too
 TEXT_SUFFIXES = (".txt", ".md")
@@ -228,6 +230,29 @@ _COMBINING = re.compile("[\u0300-\u036f]")
 _TYPOGRAPHIC = str.maketrans({"\u2019": "'", "\u2018": "'", "\u00a0": " "})
 
 
+def _postings(db: sqlite3.Connection, terms: list[str], document: str | None = None) -> tuple[dict[str, float], dict[int, float]]:
+    """(the rarity of each word, the summed rarity of the words each page has), read from the inverted index: no page text is fetched.
+    A word's rarity counts every page of the folder (a filter on the document does not change how rare a word is)."""
+    total = max(1, db.execute("SELECT COUNT(*) FROM pages").fetchone()[0])
+    weights: dict[str, float] = {}
+    postings: dict[str, list[int]] = {}
+    for t in terms:
+        match = '"' + t.replace('"', "") + '"*'
+        if document:  # the path is fetched only to filter on it
+            rows = db.execute("SELECT rowid, path FROM pages WHERE pages MATCH ?", (match,)).fetchall()
+            weights[t] = math.log(1 + total / (1 + len(rows)))
+            postings[t] = [rid for rid, path in rows if document in path]
+        else:
+            rows = [r[0] for r in db.execute("SELECT rowid FROM pages WHERE pages MATCH ?", (match,))]
+            weights[t] = math.log(1 + total / (1 + len(rows)))
+            postings[t] = rows
+    coverage: dict[int, float] = {}
+    for t, rids in postings.items():
+        for rid in rids:
+            coverage[rid] = coverage.get(rid, 0.0) + weights[t]
+    return weights, coverage
+
+
 def _coverage(text: str, weights: dict[str, float]) -> float:
     """The summed rarity of the query's words that the page has (prefix match, like the index)."""
     folded = _COMBINING.sub("", unicodedata.normalize("NFKD", text.translate(_TYPOGRAPHIC))).lower()  # whole text at once: fast enough for ~100 pages
@@ -249,7 +274,12 @@ def search(roots: list[Path], query: str, document: str | None = None, limit: in
         return _search_one(roots, phrasings[0], document, limit)
     limit = int(limit or 10)
     limit = 10 if limit < 1 else min(limit, MAX_RESULTS)
-    results = [_search_one(roots, phrasing, document, limit) for phrasing in phrasings]
+    for root in roots:
+        connect(root).close()  # the schema is checked once, here, not by every thread
+    # One thread per alternative (at most 4): each opens its own read-only connection, and SQLite lets go of the GIL while it runs a query.
+    # (asyncio would not help: nothing here waits on the network; it is all SQLite calls and Python work.)
+    with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(phrasings))) as pool:
+        results = list(pool.map(lambda phrasing: _search_one(roots, phrasing, document, limit), phrasings))  # same order as the alternatives
     score: dict[tuple, float] = {}
     best: dict[tuple, tuple] = {}
     found_by: dict[tuple, int] = {}
@@ -294,18 +324,26 @@ def _search_one(roots: list[Path], query: str, document: str | None = None, limi
             out["files"] += db.execute("SELECT COUNT(*) FROM docs").fetchone()[0]
             for path, n in db.execute("SELECT path, unread FROM docs WHERE unread > 0"):
                 out["unread"][path] = n
-            weights = None  # the rarity of the words is only needed to order the pages that have some of them
             for mode, match in (("all words", match_and), ("any word", match_or)):
                 if mode == "any word" and (len(terms) == 1 or len(out["hits"]) >= limit):
                     break
-                sql = ("SELECT path, page, text, snippet(pages, 0, '[', ']', ' ... ', 40), bm25(pages) FROM pages WHERE pages MATCH ?"
-                       + (" AND path LIKE ?" if document else "") + " ORDER BY bm25(pages) LIMIT ?")
-                args = [match] + ([f"%{document}%"] if document else []) + [ANY_WORD_POOL if mode == "any word" else limit * 3]
-                rows = db.execute(sql, args).fetchall()  # (path, page, text, snippet, bm25)
-                if mode == "any word":
-                    weights = weights or _idf(db, terms)
-                    rows.sort(key=lambda r: (-_coverage(r[2], weights), r[4]))
-                for path, page, _, snippet, _ in rows:
+                if mode == "all words":
+                    sql = ("SELECT path, page, snippet(pages, 0, '[', ']', ' ... ', 40), bm25(pages) FROM pages WHERE pages MATCH ?"
+                           + (" AND path LIKE ?" if document else "") + " ORDER BY bm25(pages) LIMIT ?")
+                    rows = db.execute(sql, [match] + ([f"%{document}%"] if document else []) + [limit * 3]).fetchall()
+                else:
+                    # the pages with some of the words, the richest in rare words first (read from the postings), then by BM25
+                    # Ranked from the index alone: the rarity of the words each page has (the postings) and BM25 for every matching page are
+                    # cheap (a few ms); snippet() re-reads the text and costs about 0.25 ms a page, so it is computed for the pages kept only.
+                    _, coverage = _postings(db, terms, document)
+                    bm = dict(db.execute("SELECT rowid, bm25(pages) FROM pages WHERE pages MATCH ?", (match,)))
+                    ranked = sorted((rid for rid in coverage if rid in bm), key=lambda rid: (-coverage[rid], bm[rid]))[:limit * 3]
+                    marks = ",".join("?" * len(ranked))
+                    snippets = {rid: (path, page, snippet) for path, page, snippet, rid in db.execute(
+                        "SELECT path, page, snippet(pages, 0, '[', ']', ' ... ', 40), rowid FROM pages "
+                        f"WHERE pages MATCH ? AND rowid IN ({marks})", [match, *ranked])} if ranked else {}
+                    rows = [(*snippets[rid], 0.0) for rid in ranked if rid in snippets]
+                for path, page, snippet, *_ in rows:
                     if (path, page) not in seen and len(out["hits"]) < limit:
                         seen.add((path, page))
                         out["hits"].append((path, page, snippet, mode))

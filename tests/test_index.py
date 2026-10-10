@@ -161,3 +161,13 @@ def test_a_query_without_a_bar_is_searched_as_before_and_empty_alternatives_are_
     assert index.alternatives("alpha") == ["alpha"] and index.alternatives("alpha | | ") == ["alpha"]
     assert index.search([workspace], "alpha | | ")["hits"] == single["hits"]
     assert "alternatives:" not in documents.tool_search_library("alpha")
+
+
+def test_alternatives_give_the_same_answer_whether_they_run_one_by_one_or_together(workspace, monkeypatch):
+    (workspace / "q.txt").write_text("\n".join(f"{i}|1|word{i % 7} common text{i % 3} extra{i % 11}" for i in range(1, 200)), encoding="utf-8")
+    index.refresh(workspace)
+    query = "word1 extra2 | word3 text1 | extra5 | word6 common"
+    together = index.search([workspace], query, limit=10)
+    monkeypatch.setattr(index, "MAX_PARALLEL", 1)
+    one_by_one = index.search([workspace], query, limit=10)
+    assert together["hits"] == one_by_one["hits"] and together["words"] == one_by_one["words"] and together["hits"]
