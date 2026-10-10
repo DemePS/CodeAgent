@@ -68,7 +68,8 @@ def _words(element, namespace: str, tag: str) -> str:
     return "".join(t.text or "" for t in element.iter(f"{{{namespace}}}{tag}"))
 
 
-def tool_read_word(path: str, start: int = 0) -> str:
+def word_text(path: str) -> str:
+    """The whole text of a .docx, as read_word gives it (an offset into it is a `start` of read_word)."""
     path, z = _open(path, ".docx", ".doc")
     with z:
         body = _xml(z, "word/document.xml", path).find(f"{{{WORD}}}body")
@@ -79,7 +80,11 @@ def tool_read_word(path: str, start: int = 0) -> str:
         elif block.tag == f"{{{WORD}}}tbl":
             for row in block.iter(f"{{{WORD}}}tr"):
                 lines.append(" | ".join(_words(cell, WORD, "t").strip() for cell in row.iter(f"{{{WORD}}}tc")))
-    return _window("\n".join(line for line in lines if line), start, "(no text in this document)")
+    return "\n".join(line for line in lines if line)
+
+
+def tool_read_word(path: str, start: int = 0) -> str:
+    return _window(word_text(path), start, "(no text in this document)")
 
 
 def _slide_text(root) -> str:
@@ -121,15 +126,26 @@ def _notes_of(z: zipfile.ZipFile, slide: str) -> str | None:
     return None
 
 
-def tool_read_powerpoint(path: str, start: int = 0) -> str:
+def powerpoint_slides(path: str) -> list[tuple[int, str]]:
+    """(slide number, its text and its speaker notes) for every slide, in order."""
     path, z = _open(path, ".pptx", ".ppt")
     with z:
         number = lambda n: int(re.search(r"(\d+)\.xml$", n).group(1))  # noqa: E731
         slides = sorted((n for n in z.namelist() if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)), key=number)
-        parts = []
+        out = []
         for name in slides:
             text = _slide_text(_xml(z, name, path))
             notes_name = _notes_of(z, name)
             note = _slide_text(_xml(z, notes_name, path)) if notes_name else ""
-            parts.append(f"--- slide {number(name)} ---\n{text}" + (f"\n(notes) {note}" if note else ""))
-    return _window("\n\n".join(parts), start, "(no slides in this presentation)")
+            out.append((number(name), text + (f"\n(notes) {note}" if note else "")))
+    return out
+
+
+def tool_read_powerpoint(path: str, start: int = 0, slide: int | None = None) -> str:
+    slides = powerpoint_slides(path)
+    if slide is not None:
+        for number, text in slides:
+            if number == int(slide):
+                return _window(f"--- slide {number} ---\n{text}", start, "(this slide has no text)")
+        raise ToolError(f"{path} has {len(slides)} slide(s): there is no slide {slide}.")
+    return _window("\n\n".join(f"--- slide {n} ---\n{t}" for n, t in slides), start, "(no slides in this presentation)")

@@ -100,6 +100,23 @@ def tool_grep(
     return truncate("\n".join(matches)) if matches else "No matches."
 
 
+_OTHER_TOOLS = {".docx": ("a Word file", "read_word"), ".pptx": ("a PowerPoint file", "read_powerpoint"), ".pdf": ("a PDF", "read_pdf"),
+                ".xlsx": ("an Excel workbook", "read_excel"), ".xlsm": ("an Excel workbook", "read_excel"),
+                ".png": ("an image", "view_image"), ".jpg": ("an image", "view_image"), ".jpeg": ("an image", "view_image"),
+                ".gif": ("an image", "view_image"), ".webp": ("an image", "view_image")}
+
+
+def _not_text_message(path: str, p: Path) -> str:
+    """Why a file is not read as text, and which tool reads it."""
+    suffix = p.suffix.lower()
+    if suffix in _OTHER_TOOLS:
+        kind, tool = _OTHER_TOOLS[suffix]
+        return f"{path} is {kind}, not a text file: read it with {tool}."
+    if suffix in (".doc", ".ppt", ".xls"):
+        return f"{path} is an old Office file, not text: save it as {suffix}x (or PDF) first."
+    return f"{path} is not a UTF-8 or Windows-1252 text file."
+
+
 def tool_read_file(path: str, start_line: int | None = None, end_line: int | None = None) -> str:
     p = resolve_readable(path)
     if not p.is_file():
@@ -112,7 +129,7 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
         try:
             lines = p.read_text(encoding="cp1252").splitlines()
         except UnicodeDecodeError:
-            raise ToolError(f"{path} is not a UTF-8 or Windows-1252 text file.")
+            raise ToolError(_not_text_message(path, p))
         note = "(this file is not UTF-8: read as Windows-1252)\n"
     start = start_line or 1
     end = min(end_line or len(lines), len(lines))

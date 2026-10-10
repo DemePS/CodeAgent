@@ -363,10 +363,13 @@ def tool_search_library(query: str, document: str | None = None, max_results: in
     alternatives = f"; alternatives: {' | '.join(result['phrasings'])}" if len(result.get("phrasings", [])) > 1 else ""
     lines = [f"{len(result['hits'])} page(s) for {query!r} in {result['files']} indexed document(s); words used: {', '.join(result['words']) or '(none)'}{alternatives}"]
     for path, page, snippet, mode in result["hits"]:
-        where = f"line {page}" if index.is_text_file(path) else f"page {page}"
+        suffix = Path(path).suffix.lower()
+        where = (f"line {page}" if index.is_text_file(path) else f"slide {page}" if suffix == ".pptx"
+                 else f"character {page}" if suffix == ".docx" else f"page {page}")
         lines.append(f"{Path(path).name} {where} ({mode}) -- {path}\n   {snippet}")
     if result["hits"]:
-        lines.append("Open the pages that matter with read_pdf (path, pages='N'); for a text file read_file (path, start_line=N, end_line=N+5). "
+        lines.append("Open the pages that matter with read_pdf (path, pages='N'); for a text file read_file (path, start_line=N, end_line=N+5); "
+                     "for a slide read_powerpoint (path, slide=N); for a Word file read_word (path, start=N). "
                      "Check the passage before quoting it.")
     else:
         lines.append("No page has these words. Try other or fewer words (one distinctive word is enough), or a different spelling.")

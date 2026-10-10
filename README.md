@@ -163,11 +163,12 @@ tool cannot be replaced, registering the same handler twice does nothing, and a 
   checked that way. A model that cannot see images gets no visual mode.
 - Scanned pages are read by **OCR** (tesseract and its language packs must be installed); the text is kept in `AGENT_OCR_DIR` so a page is
   read once. `coding-agent --ocr PDF...` does it ahead of time.
-- `search_library` searches a library of PDFs and text files (the read-only folders and the project) through a full-text index
+- `search_library` searches a library of PDFs, Word and PowerPoint files and text files (the read-only folders and the project) through a full-text index
   (SQLite FTS5; alternatives with `a | b | c`, ranked by the words found). Files that are new or changed are indexed on the way, up to a
   size; bigger ones, and a first indexing with OCR, are done once with `coding-agent --index FOLDER...` (`AGENT_INDEX_DIR` moves the index).
 - `read_word` (.docx: paragraphs and tables) and `read_powerpoint` (.pptx: slides and speaker notes) read the text only, with no extra
-  dependency; a long document is read in parts with `start`. A picture inside is not read.
+  dependency; a long document is read in parts with `start`, a slide alone with `slide`. Both are in the search index (a slide is a page; a
+  Word file is cut in blocks, located by character). A picture inside is not read.
 - `read_pdf`, `read_file`, `search_library` and `grep` also read the folders given with `--read` / `session.add_read_folder` (never write).
 
 ### Browsing the web

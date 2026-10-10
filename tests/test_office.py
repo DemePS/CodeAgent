@@ -111,3 +111,46 @@ def test_entities_in_the_xml_are_refused(workspace):
 def test_an_empty_document_says_so(workspace):
     docx(workspace / "e.docx", [])
     assert office.tool_read_word("e.docx") == "(no text in this document)"
+
+
+# --- the library index and the redirecting refusal ------------------------------------------------------------------------
+def test_word_and_powerpoint_files_are_in_the_search_index(workspace):
+    from coding_agent import index
+    docx(workspace / "contrat.docx", ["Article 1 objet du contrat", "Article 2 delai de prescription quinze ans"], table=[["Clause", "Duree"], ["Garantie", "dix ans"]])
+    pptx(workspace / "deck.pptx", [["Budget 2027"], ["Charges", "Loyer annuel 38 400"]], notes={2: ["verifier le bail commercial"]})
+    errors: dict = {}
+    index.refresh(workspace, errors=errors)
+    assert not errors
+    word = index.search([workspace], "prescription quinze")["hits"]
+    assert word and word[0][0].endswith("contrat.docx")
+    slide = index.search([workspace], "bail commercial")["hits"]                      # a note counts, and the slide number is the page
+    assert slide and slide[0][0].endswith("deck.pptx") and slide[0][1] == 2
+
+
+def test_a_word_hit_gives_the_character_to_reopen_it_with(workspace):
+    from coding_agent import index
+    lines = [f"paragraphe {i:04d} " + "mot " * 40 for i in range(200)] + ["PASSAGE UNIQUE zebulon quartz"]
+    docx(workspace / "long.docx", lines)
+    index.refresh(workspace)
+    hit = index.search([workspace], "zebulon quartz")["hits"][0]
+    assert "zebulon" in office.tool_read_word("long.docx", start=hit[1])
+
+
+def test_one_slide_can_be_read_alone(workspace):
+    pptx(workspace / "d.pptx", [["One"], ["Two"], ["Three"]])
+    assert office.tool_read_powerpoint("d.pptx", slide=2) == "--- slide 2 ---\nTwo"
+    with pytest.raises(ToolError, match="no slide 9"):
+        office.tool_read_powerpoint("d.pptx", slide=9)
+
+
+def test_read_file_names_the_tool_for_a_file_that_is_not_text(workspace):
+    from coding_agent.tools.files import tool_read_file
+    docx(workspace / "a.docx", ["x"])
+    pptx(workspace / "a.pptx", [["x"]])
+    (workspace / "a.pdf").write_bytes(b"%PDF-1.4\x00\xff\x81\x8d")
+    (workspace / "old.doc").write_bytes(b"\x00\xd0\xcf\x11\x81\x8d")
+    for name, tool in (("a.docx", "read_word"), ("a.pptx", "read_powerpoint"), ("a.pdf", "read_pdf")):
+        with pytest.raises(ToolError, match=tool):
+            tool_read_file(name)
+    with pytest.raises(ToolError, match="save it as .docx"):
+        tool_read_file("old.doc")

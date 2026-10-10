@@ -23,6 +23,7 @@ MAX_PARALLEL = 4  # alternatives searched at the same time
 RRF_K = 60  # reciprocal rank fusion: how fast the weight of a rank falls
 INDEX_VERSION = 3  # 2: page text read by pdfium; 3: plain text files (.txt, .md) are indexed too
 TEXT_SUFFIXES = (".txt", ".md")
+OFFICE_SUFFIXES = (".docx", ".pptx")  # their text is read with the standard library: a slide is a page, a Word file is cut in blocks
 TEXT_CHUNK_CHARS = 1500       # prose is cut into records of whole paragraphs, about this long
 IN_TOOL_MAX_BYTES = 25_000_000  # a search call indexes new files up to this size itself (about 13 MB/s); bigger ones wait for `coding-agent --index`
 MAX_RESULTS = 30
@@ -53,8 +54,8 @@ def connect(root: Path) -> sqlite3.Connection:
 
 
 def documents_under(root: Path) -> list[Path]:
-    """The PDFs and the plain text files (.txt, .md) of a folder, hidden folders left out."""
-    return sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in (".pdf", *TEXT_SUFFIXES)
+    """The PDFs, the Word and PowerPoint files and the plain text files (.txt, .md) of a folder, hidden folders left out."""
+    return sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in (".pdf", *OFFICE_SUFFIXES, *TEXT_SUFFIXES)
                   and not any(part.startswith(".") for part in p.relative_to(root).parts))
 
 
@@ -64,6 +65,10 @@ def pdfs_under(root: Path) -> list[Path]:
 
 def is_text_file(path) -> bool:
     return Path(path).suffix.lower() in TEXT_SUFFIXES
+
+
+def is_office_file(path) -> bool:
+    return Path(path).suffix.lower() in OFFICE_SUFFIXES
 
 
 def _stale(db: sqlite3.Connection, p: Path) -> bool:
@@ -127,6 +132,37 @@ def _index_text_file(db: sqlite3.Connection, p: Path) -> tuple[int, int]:
     return len(records), 0
 
 
+def _office_records(p: Path) -> list[tuple[str, int]]:
+    """A Word file as (text, character where the block starts), a PowerPoint as (text with notes, slide number)."""
+    from .tools import office
+
+    if p.suffix.lower() == ".pptx":
+        return [(text, number) for number, text in office.powerpoint_slides(str(p)) if text.strip()]
+    records, buffer, first, size, offset = [], [], 0, 0, 0
+    for line in office.word_text(str(p)).split("\n"):
+        if buffer and size + len(line) > TEXT_CHUNK_CHARS:
+            records.append((" ".join(buffer), first))
+            buffer, size = [], 0
+        if not buffer:
+            first = offset
+        buffer.append(line)
+        size += len(line) + 1
+        offset += len(line) + 1
+    if buffer:
+        records.append((" ".join(buffer), first))
+    return records
+
+
+def _index_office_file(db: sqlite3.Connection, p: Path) -> tuple[int, int]:
+    records = _office_records(p)
+    stat = p.stat()
+    with db:
+        db.execute("DELETE FROM pages WHERE path = ?", (str(p),))
+        db.executemany("INSERT INTO pages (text, path, page) VALUES (?, ?, ?)", [(text, str(p), where) for text, where in records])
+        db.execute("INSERT OR REPLACE INTO docs VALUES (?, ?, ?, ?, ?)", (str(p), stat.st_size, stat.st_mtime_ns, len(records), 0))
+    return len(records), 0
+
+
 def index_document(db: sqlite3.Connection, p: Path, ocr_scans: bool = False, progress=None) -> tuple[int, int]:
     """(pages, scanned pages left without text): the text layer, plus the OCR text of the scans when it exists or ocr_scans is set.
     A plain text file gives records instead of pages (the number kept is the line where the record starts)."""
@@ -135,6 +171,8 @@ def index_document(db: sqlite3.Connection, p: Path, ocr_scans: bool = False, pro
 
     if is_text_file(p):
         return _index_text_file(db, p)
+    if is_office_file(p):
+        return _index_office_file(db, p)
     texts = pdf_page_texts(p)
     blank = [n for n, t in enumerate(texts, 1) if not t]
     done = ocr.cached(p)

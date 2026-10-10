@@ -477,13 +477,13 @@ TOOLS = [
     {
         "name": "search_library",
         "description": (
-            "Search ALL the documents of the library at once (PDFs and plain text files, in the read-only folders and the workspace) through a full-text index. Pages are "
+            "Search ALL the documents of the library at once (PDFs, Word .docx, PowerPoint .pptx and plain text files, in the read-only folders and the workspace) through a full-text index. Pages are "
             "ranked by how many of the query's words they contain, so write the query as a few distinctive words (\"delai prescription "
             "action assurance\"), not as a sentence you hope to find word for word. Case, accents, apostrophes and plurals are ignored. "
             "To try several phrasings or languages in ONE call, separate the alternatives with | (like grep -e a -e b): \"angels | malaika | ange\" "
             "returns the pages found by any of them, the ones found by several first. "
             "The documents may be in another language than the question (English or Arabic texts, for example): search with the words of the document's language too, not only with the words of the question. "
-            "You get the document, the page (or the line, for a text file) and a snippet for each result; then open the passages that matter with read_pdf or read_file. Scanned pages "
+            "You get the document, the page (the line for a text file, the slide for a PowerPoint, the character for a Word file) and a snippet for each result; then open the passages that matter with read_pdf, read_file, read_powerpoint or read_word. Scanned pages "
             "are searched through their OCR text once the library has been indexed with `coding-agent --index`."
         ),
         "input_schema": {
@@ -741,6 +741,7 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path of the .pptx file."},
+                "slide": {"type": "integer", "description": "Read only this slide (its number, from 1), for example one a search found."},
                 "start": {"type": "integer", "description": "Character to start from (default 0), to read the next part of a long presentation."},
             },
             "required": ["path"],
