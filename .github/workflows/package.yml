@@ -1,7 +1,8 @@
 # The codeagent package: test, build, and publish it to PyPI.
 #
 # - Every push and pull request: the tests on Linux and Windows (Python 3.10 and 3.14) with the
-#   locked versions (uv.lock), then with the newest versions pip would install today; the build
+#   locked versions (uv.lock) and every extra, Chromium installed (the browser tools are tested);
+#   then the wheel with the newest versions pip would install today; the build
 #   (sdist and wheel) is kept as an artifact.
 # - A tag v<version> (the version in pyproject.toml, e.g. v0.1.0): the same, then the package is
 #   published to PyPI (pip install codeagent) and attached to a GitHub Release.
@@ -32,11 +33,14 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.17"
-      - name: Tests (locked versions)
+      - name: Install (locked versions, with every extra: browser, excel)
         run: |
           uv python install ${{ matrix.python }}
-          uv sync --locked --python ${{ matrix.python }}
-          uv run --python ${{ matrix.python }} pytest -q
+          uv sync --locked --all-extras --python ${{ matrix.python }}
+      - name: Chromium for the browser tools (web_sign_in, screenshot_page)
+        run: uv run --all-extras --python ${{ matrix.python }} playwright install --with-deps chromium
+      - name: Tests (locked versions)
+        run: uv run --all-extras --python ${{ matrix.python }} pytest -q
 
   build:
     runs-on: ubuntu-latest
