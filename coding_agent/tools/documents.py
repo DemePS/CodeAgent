@@ -53,7 +53,7 @@ def render_pdf_pages(p: Path, selected: list[int]) -> list[tuple[bytes, str]]:
         import pypdfium2 as pdfium
     except ImportError:
         raise ToolError('Showing PDF pages as images needs the optional renderer. Install it with: '
-                        'pip install "seed-agent[pdf-image]" (or: uv sync --extra pdf-image)')
+                        'pip install "seedagent[pdf-image]" (or: uv sync --extra pdf-image)')
     try:
         document = pdfium.PdfDocument(str(p))
         out: list[tuple[bytes, str]] = []

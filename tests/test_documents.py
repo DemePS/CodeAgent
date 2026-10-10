@@ -286,7 +286,7 @@ def test_read_pdf_visual_deepseek_without_renderer_says_how_to_install_it(invoic
     monkeypatch.setattr(documents.state, "pdf_read_as_text", True)  # visual mode needs a text read first
     monkeypatch.setattr(documents, "uses_deepseek", lambda: True)
     monkeypatch.setitem(sys.modules, "pypdfium2", None)  # makes `import pypdfium2` raise ImportError
-    with pytest.raises(ToolError, match=r"seed-agent\[pdf-image\]"):
+    with pytest.raises(ToolError, match=r"seedagent\[pdf-image\]"):
         documents.tool_read_pdf("scan.pdf", mode="visual")
 
 

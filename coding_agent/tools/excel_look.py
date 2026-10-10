@@ -199,7 +199,7 @@ def screenshot(page: str) -> bytes:
         from playwright.sync_api import sync_playwright
     except ImportError:
         raise ToolError("Viewing a workbook without Excel needs the browser of screenshot_page: pip install "
-                        "\"seed-agent[browser]\", then playwright install chromium (or install Excel and xlwings).")
+                        "\"seedagent[browser]\", then playwright install chromium (or install Excel and xlwings).")
     from .browser import launch_browser
 
     with sync_playwright() as pw:

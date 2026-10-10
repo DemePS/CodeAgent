@@ -215,11 +215,11 @@ def test_view_under_deepseek_renders_the_printed_pages_to_pictures(workspace, ch
 
 def test_view_under_deepseek_without_the_renderer_says_how_to_install_it(workspace, charted, xl, monkeypatch):
     def missing(p, pages):
-        raise ToolError('needs the optional renderer: pip install "seed-agent[pdf-image]"')
+        raise ToolError('needs the optional renderer: pip install "seedagent[pdf-image]"')
 
     monkeypatch.setattr(excel_look, "uses_deepseek", lambda: True)
     monkeypatch.setattr(excel_look, "render_pdf_pages", missing)
-    with pytest.raises(ToolError, match=r"seed-agent\[pdf-image\]"):
+    with pytest.raises(ToolError, match=r"seedagent\[pdf-image\]"):
         excel_look.tool_view_excel("schools.xlsx")
 
 

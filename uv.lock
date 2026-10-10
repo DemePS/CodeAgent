@@ -1267,7 +1267,7 @@ wheels = [
 ]
 
 [[package]]
-name = "seed-agent"
+name = "seedagent"
 version = "0.7.0"
 source = { editable = "." }
 dependencies = [

@@ -1,14 +1,14 @@
-# The seed-agent package: test, build, and publish it to PyPI.
+# The seedagent package: test, build, and publish it to PyPI.
 #
 # - Every push and pull request: the tests on Linux and Windows (Python 3.10 and 3.14) with the
 #   locked versions (uv.lock) and every extra, Chromium installed (the browser tools are tested);
 #   then the wheel with the newest versions pip would install today; the build
 #   (sdist and wheel) is kept as an artifact.
 # - A tag v<version> (the version in pyproject.toml, e.g. v0.1.0): the same, then the package is
-#   published to PyPI (pip install seed-agent) and attached to a GitHub Release.
+#   published to PyPI (pip install seedagent) and attached to a GitHub Release.
 #
 # Publishing uses PyPI trusted publishing: no token is stored here. One-time setup on pypi.org:
-# Your account > Publishing > Add a pending publisher: project "seed-agent", owner DemePS, repository
+# Your account > Publishing > Add a pending publisher: project "seedagent", owner DemePS, repository
 # CodeAgent, workflow package.yml, environment "pypi".
 
 name: Package
@@ -88,4 +88,4 @@ jobs:
         with:
           files: dist/*
           body: |
-            seed-agent ${{ github.ref_name }}: `pip install seed-agent==${{ github.ref_name }}` (without the v).
+            seedagent ${{ github.ref_name }}: `pip install seedagent==${{ github.ref_name }}` (without the v).
