@@ -170,7 +170,10 @@ def test_the_environment_of_model_code_holds_no_secret(monkeypatch):
     env = scrubbed_env()
     for name in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "MY_SERVICE_PASSWORD", "SOME_VARIABLE", "AWS_SECRET_ACCESS_KEY"):
         assert name not in env, name
-    assert env["KEPT_SETTING"] == "fine" and "PATH" in env
+    assert env["KEPT_SETTING"] == "fine" and any(name.upper() == "PATH" for name in env)
+    monkeypatch.setenv("GITHUB_WORKSPACE", "/home/runner/work/some/project")        # a path, not a secret: not a reason to drop others
+    monkeypatch.setenv("WORKDIR_COPY", "/home/runner/work/some/project/sub")
+    assert scrubbed_env()["WORKDIR_COPY"] == "/home/runner/work/some/project/sub" and "GITHUB_WORKSPACE" not in scrubbed_env()
 
 
 def test_run_python_cannot_read_the_key_and_its_output_is_redacted(workspace, monkeypatch):

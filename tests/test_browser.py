@@ -30,7 +30,9 @@ def test_a_page_that_reloads_itself_still_gives_a_screenshot(workspace, ui):
     import pytest
 
     pytest.importorskip("playwright")
-    (workspace / "game.html").write_text("<canvas></canvas><script>setTimeout(() => location.reload(), 50)</script>")
+    # The game restarts once (not in a loop forever, which no screenshot could ever settle on).
+    (workspace / "game.html").write_text("<canvas></canvas><script>if (!sessionStorage.restarted) { sessionStorage.restarted = 1; "
+                                         "setTimeout(() => location.reload(), 50) }</script>")
     try:
         out = browser.tool_screenshot_page("game.html", wait_ms=300, full_page=True, include_text=True)
     except Exception as e:

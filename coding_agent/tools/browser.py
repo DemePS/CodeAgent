@@ -190,7 +190,7 @@ def tool_screenshot_page(url: str, width: int = 1280, height: int = 800, full_pa
                     total = settled(lambda: page.evaluate("document.documentElement.scrollHeight"))
                     for i in range(min(MAX_SCREENSHOT_TILES, -(-total // height))):
                         clip = {"x": 0, "y": i * height, "width": width, "height": min(height, total - i * height)}
-                        shots.append(page.screenshot(type="png", full_page=True, clip=clip))
+                        shots.append(settled(lambda clip=clip: page.screenshot(type="png", full_page=True, clip=clip)))
                 else:
                     shots.append(settled(lambda: page.screenshot(type="png")))
                 title = settled(page.title)

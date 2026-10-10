@@ -118,16 +118,21 @@ _SECRET_PREFIXES = ("ANTHROPIC_", "DEEPSEEK_", "OPENAI_", "AZURE_", "AWS_", "GIT
                     "GOOGLE_", "TWILIO_", "STRIPE_", "SLACK_", "NPM_", "PYPI_", "TWINE_", "UV_PUBLISH")
 
 
+def _says_secret(name: str) -> bool:
+    """The name itself says the value is a secret (KEY, TOKEN, SECRET, PASSWORD...)."""
+    return bool(set(name.upper().replace("-", "_").split("_")) & _SECRET_WORDS)
+
+
 def _is_secret_name(name: str) -> bool:
-    upper = name.upper()
-    return upper.startswith(_SECRET_PREFIXES) or bool(set(upper.replace("-", "_").split("_")) & _SECRET_WORDS)
+    return name.upper().startswith(_SECRET_PREFIXES) or _says_secret(name)
 
 
 def secret_values(env: dict | None = None) -> set[str]:
     """The values of the variables that hold secrets, and the API key in use (8 characters or more)."""
     from .config import current_api_key
     source = os.environ if env is None else env
-    values = {v for k, v in source.items() if _is_secret_name(k) and len(v) >= 8}
+    # only variables that say they are secrets: GITHUB_WORKSPACE or AZURE_REGION are not, and a path must not take PATH away
+    values = {v for k, v in source.items() if _says_secret(k) and len(v) >= 8}
     key = current_api_key()
     if key and len(key) >= 8:
         values.add(key)
