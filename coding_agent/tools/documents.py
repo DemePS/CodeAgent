@@ -633,6 +633,10 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
     p = excel_path(path, must_exist=False)
     if is_protected(p):
         raise ToolError(f"{path} is part of the coding agent's own files and cannot be modified.")
+    if state.excel_writable is not None and p.resolve() not in state.excel_writable:
+        chosen = ", ".join(sorted(w.name for w in state.excel_writable)) or "none"
+        raise ToolError(f"Only the workbook chosen for this job can be changed ({chosen}); {rel_name(p)} cannot, and no other workbook "
+                        "can be created. If another workbook really needs a change, ask the person.")
     if not changes and not create_sheets:
         raise ToolError("No changes given.")
     if len(changes) > EXCEL_MAX_CHANGES:

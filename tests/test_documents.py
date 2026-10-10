@@ -528,3 +528,28 @@ def test_a_path_typed_with_a_precomposed_accent_finds_a_file_stored_decomposed(w
     assert resolve_readable("absent é.pdf") == workspace / "absent é.pdf"                      # not found: unchanged
     with pytest.raises(ToolError, match="outside"):
         resolve_readable("../" + nfc)                                                          # the boundary still applies
+
+
+def test_only_the_chosen_workbook_can_be_changed(workspace, ui, monkeypatch):
+    import openpyxl
+    for name in ("journal.xlsx", "budget.xlsx"):
+        wb = openpyxl.Workbook()
+        wb.active.title = "Costs"
+        wb.active.append(["Item", "Qty"])
+        wb.save(workspace / name)
+    edit = lambda name: documents.tool_edit_excel(name, [{"sheet": "Costs", "cell": "A2", "value": "x"}])   # noqa: E731
+    ui.answers = ["yes", "yes", "yes"]
+    assert "1 cell(s) changed" in edit("budget.xlsx")                                                      # nothing set: as before
+    monkeypatch.setattr(state, "excel_writable", {(workspace / "journal.xlsx").resolve()})
+    with pytest.raises(ToolError, match=r"Only the workbook chosen for this job can be changed \(journal.xlsx\); budget.xlsx cannot"):
+        edit("budget.xlsx")
+    with pytest.raises(ToolError, match="no other workbook can be created"):
+        edit("new.xlsx")                                                                                   # a new file is refused too
+    assert not (workspace / "new.xlsx").exists()
+    assert "1 cell(s) changed" in edit("journal.xlsx")
+
+
+def test_a_new_conversation_forgets_the_chosen_workbook(workspace):
+    state.excel_writable = {workspace / "journal.xlsx"}
+    state.reset_conversation()
+    assert state.excel_writable is None

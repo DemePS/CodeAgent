@@ -36,6 +36,7 @@ tool_names: set[str] | None = None  # the enabled tools, or None for all
 # Workbook (resolved path) -> the only sheets edit_excel may change in it; set by an application
 # (e.g. the sheets the person ticked). Workbooks not listed: any sheet.
 excel_edit_sheets: dict[Path, set[str]] = {}
+excel_writable: set[Path] | None = None  # when set, edit_excel may change only these workbooks (an app that fills one)
 # Workbook (resolved path) -> {sheet: its number of columns}: edit_excel may not write beyond them (no
 # new helper columns); set by an application, e.g. from the workbook as the job started.
 excel_max_columns: dict[Path, dict[str, int]] = {}
@@ -73,11 +74,12 @@ context = {"tokens": 0, "chars": 0, "compactions": 0, "cleared": 0}  # size at t
 
 def reset_conversation() -> None:
     """Forget the bookkeeping of the previous conversation (a new project or a fresh start)."""
-    global memory_sent, mode_note, skills_note, compacted_this_turn, always_allow_python, stop_requested, pdf_read_as_text
+    global memory_sent, mode_note, skills_note, compacted_this_turn, always_allow_python, stop_requested, pdf_read_as_text, excel_writable
     memory_sent = compacted_this_turn = always_allow_python = stop_requested = pdf_read_as_text = False
     mode_note = skills_note = None
     pending_blocks.clear()
     turn.update(instruction="", excel_read=False)
+    excel_writable = None
     context.update(tokens=0, chars=0, compactions=0, cleared=0)
 
 
