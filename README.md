@@ -1,4 +1,4 @@
-# SeedAgent
+# CodeAgent
 
 A document and coding agent. It reads and edits files, Excel workbooks and PDFs (scans included) in a project
 folder, searches a library of documents, browses the web, writes mail drafts and code, asks before every
@@ -134,7 +134,7 @@ session.open_project(folder, ui=ui, tools=["read_file", "say_hello"])    # a too
 The handler gets one keyword argument per property of the `input_schema` and returns a string or a list of content blocks
 (`{"type": "text", ...}`, `{"type": "image", ...}`). To report a failure Claude should see, it raises `coding_agent.common.ToolError`; any other
 exception also reaches Claude as an error result and does not stop the agent. It runs in the agent's thread and can use `coding_agent.state`
-(`state.ui`, `state.workspace`). SeedAgent's path checks and confirmations guard only its own tools: what the handler does is the application's
+(`state.ui`, `state.workspace`). CodeAgent's path checks and confirmations guard only its own tools: what the handler does is the application's
 responsibility (to read a file the way the built-in tools do, `coding_agent.common.resolve_readable(path)` applies the same rules). A built-in
 tool cannot be replaced, registering the same handler twice does nothing, and a second handler under a taken name is an error.
 
