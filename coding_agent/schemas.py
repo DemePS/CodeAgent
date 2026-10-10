@@ -838,6 +838,9 @@ TOOLS = [
 # real isolation run the agent in a container.
 
 
+IMAGE_TOOLS = ("view_image", "screenshot_page", "web_look", "view_excel")  # tools whose result is an image: useless to a model that cannot see
+
+
 def text_only(tool: dict) -> dict:
     """The tool as a model that cannot see images gets it: read_pdf with text mode only (no page images to ask for)."""
     if tool["name"] != "read_pdf":

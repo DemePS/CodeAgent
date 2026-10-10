@@ -497,3 +497,15 @@ def test_visual_read_pdf_is_refused_for_a_model_that_cannot_see_images(scan, mon
     monkeypatch.setattr(documents, "model_sees_images", lambda: False)
     with pytest.raises(ToolError, match="cannot look at images"):
         documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")
+
+
+def test_a_model_that_cannot_see_images_is_not_offered_any_tool_that_returns_one(monkeypatch):
+    from coding_agent import loop
+    from coding_agent.schemas import IMAGE_TOOLS
+    monkeypatch.delenv("AGENT_VISION", raising=False)
+    monkeypatch.setattr(state, "tool_names", None)
+    monkeypatch.setenv("ANTHROPIC_MODEL", "deepseek-v4-pro")
+    blind = {t["name"] for t in loop.active_tools()}
+    assert not blind & set(IMAGE_TOOLS) and "read_pdf" in blind
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+    assert set(IMAGE_TOOLS) <= {t["name"] for t in loop.active_tools()}

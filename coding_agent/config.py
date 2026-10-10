@@ -96,7 +96,7 @@ def uses_deepseek() -> bool:
 
 # Models that do not take images, measured: DeepSeek's v4-pro answers "unsupported image" (8 input tokens) where deepseek-flash reads
 # the page. AGENT_VISION=on|off overrides this list for a model that is not in it (or that has changed).
-NO_IMAGE_MODELS = ("deepseek-v4-pro",)
+NO_IMAGE_MODELS = ("deepseek-v4-pro",)  # matched as a prefix on purpose: a dated or suffixed id of the same model is the same model
 
 
 def model_sees_images() -> bool:

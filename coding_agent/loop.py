@@ -22,7 +22,7 @@ from .conversation import save_conversation
 from .errors import describe as describe_error
 from .memory import memory_snapshot, queue_memory_update
 from .prompts import SYSTEM_PROMPT
-from .schemas import TOOLS, text_only
+from .schemas import IMAGE_TOOLS, TOOLS, text_only
 from .skills import skills_catalog
 from .tools import run_tool
 
@@ -57,7 +57,8 @@ def active_tools() -> list[dict]:
     if uses_deepseek():
         tools = [t for t in tools if t["name"] != "web_search"]
     if not model_sees_images():
-        tools = [text_only(t) for t in tools]  # read_pdf without its visual mode: the model cannot look at the pages
+        # No tool that returns an image, and read_pdf without its visual mode: the model cannot look at pages.
+        tools = [text_only(t) for t in tools if t["name"] not in IMAGE_TOOLS]
     return tools
 
 
