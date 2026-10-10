@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .config import INDEX_HOME
 
+RRF_K = 60  # reciprocal rank fusion: how fast the weight of a rank falls
 INDEX_VERSION = 3  # 2: page text read by pdfium; 3: plain text files (.txt, .md) are indexed too
 TEXT_SUFFIXES = (".txt", ".md")
 TEXT_CHUNK_CHARS = 1500       # prose is cut into records of whole paragraphs, about this long
@@ -234,7 +235,46 @@ def _coverage(text: str, weights: dict[str, float]) -> float:
     return sum(w for t, w in weights.items() if any(tok.startswith(t) for tok in tokens))
 
 
+def alternatives(query: str) -> list[str]:
+    """The phrasings of a query: alternatives separated by | (like grep -e a -e b); a part with no usable word is dropped."""
+    parts = [part.strip() for part in query.split("|")]
+    return [part for part in parts if words(part)] or [query]
+
+
 def search(roots: list[Path], query: str, document: str | None = None, limit: int = 10) -> dict:
+    """Like _search_one, for a query that may hold alternatives separated by | ("angel | malaika | ange"): every alternative is searched on its
+    own and the rankings are merged (reciprocal rank fusion), so a page found by several alternatives comes first."""
+    phrasings = alternatives(query)
+    if len(phrasings) == 1:
+        return _search_one(roots, phrasings[0], document, limit)
+    limit = int(limit or 10)
+    limit = 10 if limit < 1 else min(limit, MAX_RESULTS)
+    results = [_search_one(roots, phrasing, document, limit) for phrasing in phrasings]
+    score: dict[tuple, float] = {}
+    best: dict[tuple, tuple] = {}
+    found_by: dict[tuple, int] = {}
+    for result in results:
+        for rank, (path, page, snippet, mode) in enumerate(result["hits"]):
+            key = (path, page)
+            score[key] = score.get(key, 0.0) + 1.0 / (RRF_K + rank)
+            found_by[key] = found_by.get(key, 0) + 1
+            if key not in best or (mode == "all words" and best[key][3] != "all words"):
+                best[key] = (path, page, snippet, mode)
+    ordered = sorted(score, key=lambda k: (-score[k], k))[:limit]
+    hits = []
+    for key in ordered:
+        path, page, snippet, mode = best[key]
+        hits.append((path, page, snippet, f"{mode}, {found_by[key]} of {len(phrasings)} alternatives"))
+    words_used = []
+    for result in results:
+        words_used += [w for w in result["words"] if w not in words_used]
+    unread: dict = {}
+    for result in results:
+        unread.update(result["unread"])
+    return {"words": words_used, "phrasings": phrasings, "hits": hits, "unread": unread, "files": results[0]["files"]}
+
+
+def _search_one(roots: list[Path], query: str, document: str | None = None, limit: int = 10) -> dict:
     """{"words": [...], "hits": [(path, page, snippet, "all words" | "any word")], "unread": {path: scanned pages not in the index}, "files": n}
 
     Pages with all the words come first (best BM25 first). Then the pages with some of them, ranked by the summed rarity of the

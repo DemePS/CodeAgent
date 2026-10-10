@@ -353,7 +353,8 @@ def tool_search_library(query: str, document: str | None = None, max_results: in
     state.ui.status(f"[library] search {query!r}: {len(result['hits'])} page(s)")
     if not result["files"]:
         return "No PDF is indexed: there is no PDF in the workspace or the read-only folders."
-    lines = [f"{len(result['hits'])} page(s) for {query!r} in {result['files']} indexed PDF(s); words used: {', '.join(result['words']) or '(none)'}"]
+    alternatives = f"; alternatives: {' | '.join(result['phrasings'])}" if len(result.get("phrasings", [])) > 1 else ""
+    lines = [f"{len(result['hits'])} page(s) for {query!r} in {result['files']} indexed document(s); words used: {', '.join(result['words']) or '(none)'}{alternatives}"]
     for path, page, snippet, mode in result["hits"]:
         where = f"line {page}" if index.is_text_file(path) else f"page {page}"
         lines.append(f"{Path(path).name} {where} ({mode}) -- {path}\n   {snippet}")

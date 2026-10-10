@@ -143,3 +143,21 @@ def test_one_unreadable_file_does_not_stop_the_search_of_the_others(workspace):
 def test_a_binary_file_with_a_text_name_is_not_indexed(workspace):
     (workspace / "blob.txt").write_bytes(b"abc\x00def" + bytes(range(256)) * 20)
     assert index._text_records(workspace / "blob.txt") == []
+
+
+def test_alternatives_separated_by_a_bar_are_searched_together_and_the_page_found_by_several_comes_first(workspace):
+    (workspace / "quran.txt").write_text(
+        "2|1|the angels bow down\n2|2|a verse about the malaika and the angels together\n2|3|a verse about gardens and rivers\n2|4|the malaika alone", encoding="utf-8")
+    out = documents.tool_search_library("angels | malaika")
+    assert "alternatives: angels | malaika" in out
+    first = [line for line in out.splitlines() if "quran.txt line" in line]
+    assert "line 2 " in first[0] and "2 of 2 alternatives" in first[0]  # found by both: first
+    assert any("line 1 " in line for line in first) and any("line 4 " in line for line in first) and not any("line 3 " in line for line in first)
+
+
+def test_a_query_without_a_bar_is_searched_as_before_and_empty_alternatives_are_ignored(workspace):
+    (workspace / "a.txt").write_text("1|1|alpha beta\n1|2|gamma", encoding="utf-8")
+    single = index.search([workspace], "alpha")
+    assert index.alternatives("alpha") == ["alpha"] and index.alternatives("alpha | | ") == ["alpha"]
+    assert index.search([workspace], "alpha | | ")["hits"] == single["hits"]
+    assert "alternatives:" not in documents.tool_search_library("alpha")
