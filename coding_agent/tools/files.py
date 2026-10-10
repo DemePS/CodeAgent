@@ -57,6 +57,9 @@ def tool_change_directory(path: str) -> str:
     return f"Current directory is now: {'.' if rel == '.' else rel} (relative to the repository root)"
 
 
+MAX_MATCH_CHARS = 300  # of one matching line in the result of grep
+
+
 def tool_grep(
     pattern: str, path: str = ".", glob: str | None = None, ignore_case: bool = False, include_ignored: bool = False
 ) -> str:
@@ -85,13 +88,16 @@ def tool_grep(
             with open(f, encoding="utf-8") as fh:
                 for lineno, line in enumerate(fh, 1):
                     if regex.search(line):
-                        matches.append(f"{display(f)}:{lineno}: {line.rstrip()}")
+                        text = line.rstrip()
+                        if len(text) > MAX_MATCH_CHARS:  # a minified file is one line of hundreds of KB
+                            text = f"{text[:MAX_MATCH_CHARS]}... [line cut, {len(text) - MAX_MATCH_CHARS} more chars]"
+                        matches.append(f"{display(f)}:{lineno}: {text}")
                         if len(matches) >= 500:
                             matches.append("... [stopped after 500 matches; narrow the search]")
-                            return "\n".join(matches)
+                            return truncate("\n".join(matches))
         except (UnicodeDecodeError, OSError):
             continue  # binary or unreadable file
-    return "\n".join(matches) if matches else "No matches."
+    return truncate("\n".join(matches)) if matches else "No matches."
 
 
 def tool_read_file(path: str, start_line: int | None = None, end_line: int | None = None) -> str:

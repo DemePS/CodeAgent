@@ -144,3 +144,12 @@ def test_read_file_drops_the_byte_order_mark_and_refuses_binary(workspace):
     (workspace / "data.bin").write_bytes(b"\x81\x8d\x8f\x90\x9d")      # bytes Windows-1252 does not define
     with pytest.raises(ToolError, match="not a UTF-8 or Windows-1252"):
         files.tool_read_file("data.bin")
+
+
+def test_grep_does_not_return_a_whole_minified_line_nor_an_unbounded_result(workspace):
+    (workspace / "bundle.js").write_text("var a=1;" + "comptable " * 100_000 + "\n")          # one line of 1 MB
+    (workspace / "notes.txt").write_text("\n".join(f"comptable line {i} " + "x" * 200 for i in range(400)) + "\n")
+    result = files.tool_grep("comptable")
+    assert len(result) < 60_000                                                              # bounded, whatever the files hold
+    assert "bundle.js:1:" in result and "line cut" in result                                 # the long line is cut, not dropped
+    assert "var a=1;" in result
