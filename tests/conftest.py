@@ -73,6 +73,7 @@ def workspace(tmp_path, ui, monkeypatch):
     state.set_workspace(ws.resolve(), "test-project", tmp_path / "memory-home")
     monkeypatch.setattr(state, "auto_mode", False)
     monkeypatch.setattr(state, "always_allow_python", False)
+    monkeypatch.setattr(state, "pdf_read_as_text", False)
     monkeypatch.setattr(state, "tool_names", None)
     monkeypatch.setattr(state, "system_prompt", None)
     monkeypatch.setattr(state, "turn", {"instruction": "", "excel_read": False})

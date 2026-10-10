@@ -67,16 +67,6 @@ def test_pdf_text_and_page_subset(invoice, scan, monkeypatch):
         documents.tool_read_pdf("scan.pdf", pages="2-9", mode="visual")
 
 
-def test_visual_mode_is_refused_for_pages_that_have_a_text_layer(invoice, scan, monkeypatch):
-    for deepseek in (True, False):
-        monkeypatch.setattr(documents, "uses_deepseek", lambda d=deepseek: d)
-        with pytest.raises(ToolError, match=r"text layer: read them with mode='text'"):
-            documents.tool_read_pdf("invoice.pdf", pages="1-2", mode="visual")
-        with pytest.raises(ToolError, match="mode='text'"):
-            documents.tool_read_pdf("invoice.pdf", pages="1-2", mode="visual")
-    monkeypatch.setattr(documents, "uses_deepseek", lambda: False)
-    assert documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")[1]["type"] == "document"  # a scan is still read as pages
-    assert "page(s)" in documents.tool_read_pdf("invoice.pdf", pages="1-2")  # the default mode is text
 
 
 def test_spreadsheet_first_rule(invoice, workbook, monkeypatch):
@@ -283,6 +273,7 @@ def test_applications_can_protect_formulas_and_the_columns(workspace, ui, tmp_pa
 
 
 def test_read_pdf_visual_deepseek_uses_images(invoice, scan, monkeypatch):
+    monkeypatch.setattr(documents.state, "pdf_read_as_text", True)  # visual mode needs a text read first
     monkeypatch.setattr(documents, "uses_deepseek", lambda: True)
     monkeypatch.setattr(documents, "render_pdf_pages", lambda p, sel: [(b"png", "image/png")] * len(sel))
     blocks = documents.tool_read_pdf("scan.pdf", pages="1-2", mode="visual")
@@ -292,6 +283,7 @@ def test_read_pdf_visual_deepseek_uses_images(invoice, scan, monkeypatch):
 
 
 def test_read_pdf_visual_deepseek_without_renderer_says_how_to_install_it(invoice, scan, monkeypatch):
+    monkeypatch.setattr(documents.state, "pdf_read_as_text", True)  # visual mode needs a text read first
     monkeypatch.setattr(documents, "uses_deepseek", lambda: True)
     monkeypatch.setitem(sys.modules, "pypdfium2", None)  # makes `import pypdfium2` raise ImportError
     with pytest.raises(ToolError, match=r"codeagent\[pdf-image\]"):
@@ -414,18 +406,22 @@ def test_page_text_comes_from_pdfium_so_a_font_pypdf_mis_decodes_cannot_garble_i
     assert documents.pdf_page_texts(workspace / "invoice2.pdf") == ["Article 15 Aggravation du risque", "Article 16 Obligations"]
 
 
-def test_visual_mode_is_refused_for_a_scan_that_ocr_can_read_and_allowed_when_it_cannot(scan, fake_ocr, monkeypatch):
+def test_visual_mode_is_refused_until_a_page_was_read_in_text_mode_then_allowed_for_any_pdf(invoice, scan, monkeypatch):
+    for deepseek in (True, False):
+        monkeypatch.setattr(documents, "uses_deepseek", lambda d=deepseek: d)
+        monkeypatch.setattr(documents.state, "pdf_read_as_text", False)
+        with pytest.raises(ToolError, match=r"Read the document in text mode first"):
+            documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")
+        with pytest.raises(ToolError, match="text mode first"):
+            documents.tool_read_pdf("invoice.pdf", pages="1", mode="visual")  # a page that has text: the same rule, no other
+        documents.tool_read_pdf("invoice.pdf", pages="1", mode="text")        # one text read of any page of the conversation...
+        assert documents.state.pdf_read_as_text is True
     monkeypatch.setattr(documents, "uses_deepseek", lambda: False)
-    with pytest.raises(ToolError, match=r"read by OCR and their text is ready: read them with mode='text'"):
-        documents.tool_read_pdf("scan.pdf", pages="1-2", mode="visual")
-    assert fake_ocr.pages_read == 2                                   # read once, now cached
-    assert "prescription" in documents.tool_read_pdf("scan.pdf", pages="1-2", mode="text")
-    assert fake_ocr.pages_read == 2                                   # the text mode did not read them again
-    monkeypatch.setattr(documents.ocr, "available", lambda: False)    # no tesseract: the images are the only way
-    assert documents.tool_read_pdf("scan.pdf", pages="3", mode="visual")[1]["type"] == "document"
+    assert documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")[1]["type"] == "document"     # ...allows visual on another
+    assert documents.tool_read_pdf("invoice.pdf", pages="1", mode="visual")[1]["type"] == "document"  # and on a page with text
 
 
-def test_visual_mode_is_allowed_when_ocr_finds_no_text_on_the_page(scan, fake_ocr, monkeypatch):
-    monkeypatch.setattr(documents, "uses_deepseek", lambda: False)
-    monkeypatch.setattr(fake_ocr, "image_to_string", classmethod(lambda cls, image, lang=None: "  "))  # a drawing: nothing to read
-    assert documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")[1]["type"] == "document"
+def test_a_new_conversation_forgets_that_a_page_was_read_in_text_mode(workspace):
+    documents.state.pdf_read_as_text = True
+    documents.state.reset_conversation()
+    assert documents.state.pdf_read_as_text is False
