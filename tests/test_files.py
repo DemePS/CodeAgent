@@ -129,3 +129,18 @@ def test_a_new_file_uses_plain_newlines(workspace, ui):
     ui.answers = ["yes"]
     files.tool_write_file("new.txt", "a\nb\n")
     assert (workspace / "new.txt").read_bytes() == b"a\nb\n"
+
+
+def test_read_file_reads_a_windows_1252_export_and_says_so(workspace):
+    (workspace / "export.csv").write_bytes("Désignation;PU HT\nCafé équitable;12,50\n".encode("cp1252"))
+    text = files.tool_read_file("export.csv")
+    assert text.startswith("(this file is not UTF-8: read as Windows-1252)\n")
+    assert "Désignation;PU HT" in text and "Café équitable;12,50" in text
+
+
+def test_read_file_drops_the_byte_order_mark_and_refuses_binary(workspace):
+    (workspace / "bom.csv").write_bytes("﻿Facture;Date\nF1;03/09/2026\n".encode("utf-8"))
+    assert files.tool_read_file("bom.csv").splitlines()[0].split("\t")[1] == "Facture;Date"
+    (workspace / "data.bin").write_bytes(b"\x81\x8d\x8f\x90\x9d")      # bytes Windows-1252 does not define
+    with pytest.raises(ToolError, match="not a UTF-8 or Windows-1252"):
+        files.tool_read_file("data.bin")

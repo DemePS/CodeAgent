@@ -98,14 +98,20 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
     p = resolve_readable(path)
     if not p.is_file():
         raise ToolError(f"File not found: {path}")
+    note = ""
     try:
-        lines = p.read_text(encoding="utf-8").splitlines()
+        lines = p.read_text(encoding="utf-8-sig").splitlines()  # a BOM (Excel's "CSV UTF-8") is not part of the first word
     except UnicodeDecodeError:
-        raise ToolError(f"{path} is not a UTF-8 text file.")
+        # An export from Excel or an accounting program on Windows is Windows-1252, not UTF-8: read it that way and say so.
+        try:
+            lines = p.read_text(encoding="cp1252").splitlines()
+        except UnicodeDecodeError:
+            raise ToolError(f"{path} is not a UTF-8 or Windows-1252 text file.")
+        note = "(this file is not UTF-8: read as Windows-1252)\n"
     start = start_line or 1
     end = min(end_line or len(lines), len(lines))
     body = "\n".join(f"{i:>5}\t{lines[i - 1]}" for i in range(start, end + 1))
-    return truncate(body or "(empty file)")
+    return truncate(note + body if body else "(empty file)")
 
 
 def line_ending(p: Path) -> str:
