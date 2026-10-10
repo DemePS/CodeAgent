@@ -122,6 +122,11 @@ def tool_read_file(path: str, start_line: int | None = None, end_line: int | Non
     if not p.is_file():
         raise ToolError(f"File not found: {path}")
     note = ""
+    if p.suffix.lower() in _OTHER_TOOLS or p.suffix.lower() in (".doc", ".ppt", ".xls"):  # a format with its own tool: not read as text
+        raise ToolError(_not_text_message(path, p))
+    with open(p, "rb") as handle:
+        if b"\0" in handle.read(8192):  # a NUL byte: binary, whatever its name; Windows-1252 would decode it into junk
+            raise ToolError(_not_text_message(path, p))
     try:
         lines = p.read_text(encoding="utf-8-sig").splitlines()  # a BOM (Excel's "CSV UTF-8") is not part of the first word
     except UnicodeDecodeError:
