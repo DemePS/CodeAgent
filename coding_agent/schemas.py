@@ -437,7 +437,8 @@ TOOLS = [
             "tesseract is installed. Text from a scan is OCR: names and digits may be wrong. mode 'visual' gives you the pages themselves as "
             f"images, like looking at the document, at most {PDF_MAX_VISUAL_PAGES} pages per call: use it to check a page whose text is missing "
             "or doubtful (handwriting, drawings, a figure you must quote exactly). It is refused until a page of the conversation has been read "
-            "in text mode. pages selects pages, e.g. '3', "
+            "in text mode. When a name, a date or a number matters and it comes from a scan, check it against the page image and say "
+            "if the OCR text differs. pages selects pages, e.g. '3', "
             "'1-5' or '2,4,10-12' (default: all). The result starts with the page count."
         ),
         "input_schema": {
@@ -835,3 +836,16 @@ TOOLS = [
 # script or module. Audit hooks cannot be removed from Python code once installed.
 # Limits: this guards Python code, not native extensions that call the OS directly -- for
 # real isolation run the agent in a container.
+
+
+def text_only(tool: dict) -> dict:
+    """The tool as a model that cannot see images gets it: read_pdf with text mode only (no page images to ask for)."""
+    if tool["name"] != "read_pdf":
+        return tool
+    properties = {**tool["input_schema"]["properties"], "mode": {"type": "string", "enum": ["text"]}}
+    return {**tool, "input_schema": {**tool["input_schema"], "properties": properties},
+            "description": ("Read a PDF from the workspace. When the task is to fill a spreadsheet, call read_excel on it first to know "
+                            "which fields you are looking for. Returns the text of the pages, in reading order; for a scanned page it "
+                            "gives the OCR text when tesseract is installed. Text from a scan is OCR: names and digits may be wrong, so "
+                            "say when a name, a date or a number comes from a scan and may be misread. pages selects pages, e.g. '3', "
+                            "'1-5' or '2,4,10-12' (default: all). The result starts with the page count.")}

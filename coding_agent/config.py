@@ -94,6 +94,19 @@ def uses_deepseek() -> bool:
     return uses_anthropic_api() and "deepseek.com" in (os.environ.get("ANTHROPIC_BASE_URL") or "").lower()
 
 
+# Models that do not take images, measured: DeepSeek's v4-pro answers "unsupported image" (8 input tokens) where deepseek-flash reads
+# the page. AGENT_VISION=on|off overrides this list for a model that is not in it (or that has changed).
+NO_IMAGE_MODELS = ("deepseek-v4-pro",)
+
+
+def model_sees_images() -> bool:
+    """False when the model in use cannot look at images: the tools that return page images are not offered to it."""
+    setting = (os.environ.get("AGENT_VISION") or "").strip().lower()
+    if setting in ("on", "off"):
+        return setting == "on"
+    return not get_model().lower().startswith(NO_IMAGE_MODELS)
+
+
 def active_provider() -> str | None:
     """"anthropic", "deepseek", "foundry", or None when none is set up."""
     if uses_deepseek():

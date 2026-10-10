@@ -31,6 +31,7 @@ from ..config import (
     OCR_MAX_PAGES_PER_CALL,
     PDF_IMAGE_DPI,
     PDF_MAX_VISUAL_PAGES,
+    model_sees_images,
     uses_deepseek,
 )
 
@@ -132,6 +133,8 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "text") -> li
         state.pdf_read_as_text = True  # only now: a text read that failed delivered nothing, so it does not open visual mode
         return truncate(label + "\n" + "\n".join(parts))
 
+    if not model_sees_images():
+        raise ToolError("This model cannot look at images: read the pages with mode='text' (scanned pages come with their OCR text).")
     if not state.pdf_read_as_text:
         raise ToolError("Read the document in text mode first (read_pdf with mode='text', any page): it is cheaper and faster. "
                         "Visual mode is for checking a page afterwards, when its text is missing or doubtful.")

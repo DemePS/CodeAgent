@@ -5,7 +5,7 @@ import threading
 import anthropic
 
 from . import state, usage
-from .config import MAX_STEPS, MAX_TOKENS, get_cache_ttl, get_model, thinking_options, uses_deepseek
+from .config import MAX_STEPS, MAX_TOKENS, get_cache_ttl, get_model, model_sees_images, thinking_options, uses_deepseek
 from .context import (
     clear_old_tool_results,
     compact,
@@ -22,7 +22,7 @@ from .conversation import save_conversation
 from .errors import describe as describe_error
 from .memory import memory_snapshot, queue_memory_update
 from .prompts import SYSTEM_PROMPT
-from .schemas import TOOLS
+from .schemas import TOOLS, text_only
 from .skills import skills_catalog
 from .tools import run_tool
 
@@ -56,6 +56,8 @@ def active_tools() -> list[dict]:
     tools = TOOLS if state.tool_names is None else [t for t in TOOLS if t["name"] in state.tool_names]
     if uses_deepseek():
         tools = [t for t in tools if t["name"] != "web_search"]
+    if not model_sees_images():
+        tools = [text_only(t) for t in tools]  # read_pdf without its visual mode: the model cannot look at the pages
     return tools
 
 

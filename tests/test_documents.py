@@ -474,3 +474,26 @@ def test_a_resumed_conversation_that_read_a_pdf_in_text_mode_keeps_visual_mode_o
     assert had_text_read([{"role": "user", "content": "hello"}]) is False
     no_id = {"role": "assistant", "content": [{"type": "tool_use", "name": "read_pdf", "input": {}}]}
     assert had_text_read([no_id, {"role": "user", "content": [{"type": "tool_result", "content": "x"}]}]) is False  # malformed: no ids
+
+
+def test_a_model_that_cannot_see_images_gets_read_pdf_without_visual_mode(scan, monkeypatch):
+    from coding_agent import config, loop
+    monkeypatch.delenv("AGENT_VISION", raising=False)
+    for model, sees in (("deepseek-v4-pro", False), ("deepseek-flash", True), ("claude-sonnet-5-5", True)):
+        monkeypatch.setenv("ANTHROPIC_MODEL", model)
+        assert config.model_sees_images() is sees
+        tool = next(t for t in loop.active_tools() if t["name"] == "read_pdf")
+        assert tool["input_schema"]["properties"]["mode"]["enum"] == (["visual", "text"] if sees else ["text"])
+        assert ("mode 'visual'" in tool["description"]) is sees
+    monkeypatch.setenv("AGENT_VISION", "on")                      # the setting wins over the list
+    assert config.model_sees_images() is True
+    monkeypatch.setenv("AGENT_VISION", "off")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
+    assert config.model_sees_images() is False
+
+
+def test_visual_read_pdf_is_refused_for_a_model_that_cannot_see_images(scan, monkeypatch):
+    monkeypatch.setattr(documents.state, "pdf_read_as_text", True)       # even after a text read
+    monkeypatch.setattr(documents, "model_sees_images", lambda: False)
+    with pytest.raises(ToolError, match="cannot look at images"):
+        documents.tool_read_pdf("scan.pdf", pages="1", mode="visual")
