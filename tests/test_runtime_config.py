@@ -179,6 +179,7 @@ def test_defaults_are_thinking_off_and_effort_medium(env):
 
 def test_off_is_the_lowest_setting_the_model_accepts(env):
     assert options_for(env, "claude-sonnet-5-5")["thinking"] == {"type": "between_tools"}   # it answers 400 to disabled
+    assert options_for(env, "claude-opus-5-5")["thinking"] == {"type": "adaptive"}           # it answers 400 to disabled and to between_tools
     assert "thinking" not in options_for(env, "claude-fable-5-1")                             # its thinking cannot be turned off
     assert options_for(env, "claude-opus-5")["thinking"] == {"type": "disabled"}
 

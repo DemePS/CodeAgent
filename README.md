@@ -50,7 +50,8 @@ Models: `claude-sonnet-5` (the default, $2/$10 per million input/output tokens),
 | `CODEAGENT_THINKING` | thinking before the answer: `off` (the default), `adaptive`, `between_tools` or `disabled` |
 | `CODEAGENT_EFFORT` | how much the model thinks and writes: `medium` (the default), `low`, `high`, `xhigh`, `max`, or `default` (nothing is sent: the model's own default applies) |
 
-`off` means the lowest setting the model accepts: `disabled`, or `between_tools` on `claude-sonnet-5-5` (it answers 400 to `disabled`), and
+`off` means the lowest setting the model accepts: `disabled`, `between_tools` on `claude-sonnet-5-5` (it answers 400 to `disabled`), `adaptive` on
+`claude-opus-5-5` (it answers 400 to both), and
 no thinking field at all on `claude-fable-*` (its thinking cannot be turned off). On Foundry the model is a deployment name, so `off` may guess
 wrong: name `between_tools` or `disabled` yourself. `between_tools` does not work with effort `xhigh` or `max`, and `claude-haiku-*` has no effort
 setting (none is sent). A value that is not allowed is explained, never replaced. An application can also call `configure(effort=...)`.

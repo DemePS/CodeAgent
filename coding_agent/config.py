@@ -227,13 +227,15 @@ def get_thinking() -> str | None:
     """Thinking before the answer: CODEAGENT_THINKING, else DEFAULT_THINKING. One of THINKING_MODES, or None when no
     thinking field must be sent. "off" is the lowest setting the model accepts, decided from get_model(): none for
     claude-fable-* (its thinking cannot be turned off), "between_tools" for claude-sonnet-5-5 (it answers 400 to
-    disabled), else "disabled". On Foundry get_model() is a deployment name, so "off" may guess wrong: name
+    disabled), "adaptive" for claude-opus-5-5 (it answers 400 to disabled and to between_tools), else "disabled". On Foundry get_model() is a deployment name, so "off" may guess wrong: name
     between_tools or disabled yourself then."""
     value = (os.environ.get("CODEAGENT_THINKING") or DEFAULT_THINKING).strip().lower()
     if value == "off":
         model = get_model().lower()
         if "fable" in model:
             return None
+        if "opus-5-5" in model:  # answers 400 to disabled and to between_tools: adaptive is the lowest it accepts
+            return "adaptive"
         return "between_tools" if "sonnet-5-5" in model else "disabled"
     if value not in THINKING_MODES:
         raise SettingError(f"CODEAGENT_THINKING must be one of off, {', '.join(THINKING_MODES)} (got {value!r}).")
