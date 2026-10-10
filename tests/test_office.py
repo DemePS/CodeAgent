@@ -25,8 +25,12 @@ def pptx(path, slides, notes=None):
     with zipfile.ZipFile(path, "w") as z:
         for i, s in enumerate(slides, 1):
             z.writestr(f"ppt/slides/slide{i}.xml", xml(s))
-        for i, s in (notes or {}).items():
+        for i, s in (notes or {}).items():   # like PowerPoint: the slide points to its notes through its relationships
             z.writestr(f"ppt/notesSlides/notesSlide{i}.xml", xml(s))
+            z.writestr(f"ppt/slides/_rels/slide{i}.xml.rels",
+                       '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                       '<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" '
+                       f'Target="../notesSlides/notesSlide{i}.xml"/></Relationships>')
 
 
 def test_the_tools_are_built_in():
