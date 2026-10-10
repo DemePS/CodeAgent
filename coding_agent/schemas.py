@@ -432,10 +432,11 @@ TOOLS = [
         "name": "read_pdf",
         "description": (
             "Read a PDF from the workspace. When the task is to fill a spreadsheet, call read_excel "
-            "on it first to know which fields you are looking for. mode 'visual' (default) gives you the pages themselves -- "
-            "you see text, tables, layout and scanned pages, like reading the document; at most "
-            f"{PDF_MAX_VISUAL_PAGES} pages per call. mode 'text' returns the extracted text of the "
-            "pages (cheaper for long text documents; empty for scans). pages selects pages, e.g. '3', "
+            "on it first to know which fields you are looking for. mode 'text' (default) returns the text of the pages, in "
+            "reading order: use it for every page that has a text layer (it is cheaper and much faster, and long documents need it); for a "
+            "scanned page it gives the OCR text when tesseract is installed. mode 'visual' gives you the pages themselves as images, like looking at the "
+            f"document, at most {PDF_MAX_VISUAL_PAGES} pages per call: use it only for scanned pages without a text layer (a page "
+            "that has text is refused in visual mode). pages selects pages, e.g. '3', "
             "'1-5' or '2,4,10-12' (default: all). The result starts with the page count."
         ),
         "input_schema": {

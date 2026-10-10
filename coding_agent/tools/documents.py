@@ -89,7 +89,7 @@ def parse_pages(spec: str | None, count: int) -> list[int]:
 SPREADSHEET_WORDS = re.compile(r"\.xls[xm]?\b|excel|spreadsheet|workbook|tableur|classeur", re.I)
 
 
-def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> list | str:
+def tool_read_pdf(path: str, pages: str | None = None, mode: str = "text") -> list | str:
     # Only when the application asked for it (open_project(excel_first=True)) and can read workbooks.
     if (state.excel_first and state.tool_enabled("read_excel") and SPREADSHEET_WORDS.search(state.turn["instruction"])
             and not state.turn["excel_read"]):
@@ -131,6 +131,11 @@ def tool_read_pdf(path: str, pages: str | None = None, mode: str = "visual") -> 
             parts.append(f"({len(unread)} scanned page(s) were not OCR'd here: {_ocr_hint(unread)})")
         return truncate(label + "\n" + "\n".join(parts))
 
+    texts = pdf_page_texts(p)
+    if all(len(texts[n - 1]) >= VISUAL_MIN_TEXT_CHARS for n in selected):
+        raise ToolError(
+            f"Page(s) {pages or 'all'} of {path} have a text layer: read them with mode='text'. Visual mode is only for scanned pages "
+            f"(no text layer); the page images are slow to process and stay in the conversation for every later call.")
     if len(selected) > PDF_MAX_VISUAL_PAGES:
         raise ToolError(f"{path} has {count} pages; read at most {PDF_MAX_VISUAL_PAGES} at a time in visual mode "
                         f"(e.g. pages='1-{PDF_MAX_VISUAL_PAGES}'), or use mode='text' to skim all of it first.")
@@ -188,6 +193,7 @@ def scan_texts(p: Path, texts: list[str], selected: list[int]) -> tuple[dict[int
 _PDF_TEXT_CACHE: dict[Path, tuple[tuple[int, int], list[str]]] = {}
 _PDF_TEXT_CACHE_SIZE = 4
 SEARCH_PDF_DEFAULT_RESULTS = 20
+VISUAL_MIN_TEXT_CHARS = 10  # a page with at least this much text has a text layer; visual mode is refused for such pages
 SEARCH_PDF_MAX_RESULTS = 100
 SEARCH_PDF_SNIPPET_CHARS = 100  # characters kept on each side of a match
 

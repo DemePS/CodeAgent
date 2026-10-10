@@ -11,6 +11,7 @@ from .context import (
     compact,
     context_status,
     estimate_tokens,
+    forget_page_reads,
     is_context_overflow,
     learn_window,
     manage_context,
@@ -246,9 +247,11 @@ def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
         messages.append({"role": "user", "content": text})
     try:
         run_turn(client, messages)
+        turn = messages[checkpoint:]  # the turn as it was, for the memory curator
+        forget_page_reads(messages, checkpoint)  # the pages read in this turn stay out of the history: a reference is kept
         save_conversation(messages)
         # After a compaction the turn's start is gone; the whole (small) history stands in for it.
-        queue_memory_update(client, messages if state.compacted_this_turn else messages[checkpoint:])
+        queue_memory_update(client, messages if state.compacted_this_turn else turn)
         state.memory_sent = True
         state.mode_note = state.skills_note = state.read_roots_note = None
         state.pending_blocks.clear()

@@ -297,3 +297,24 @@ def test_the_system_prompt_has_its_own_cache_point(workspace, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_FOUNDRY_ENDPOINT", raising=False)
     assert loop.system_param() == f"You help. Workspace: {state.workspace}"   # DeepSeek: no cache_control
+
+
+def test_the_pages_read_in_a_turn_stay_out_of_the_history_but_not_out_of_the_turn(tmp_path, ui, claude, monkeypatch):
+    from test_documents import make_pdf
+    project = tmp_path / "docs"
+    project.mkdir()
+    make_pdf(project / "a.pdf", ["Total 642.00 EUR on page one", "Second page text"])
+    monkeypatch.setattr(config, "MEMORY_HOME", tmp_path / "mem")
+    monkeypatch.setattr(session, "MEMORY_HOME", tmp_path / "mem")
+    fake = claude([([("read_pdf", {"path": "a.pdf", "pages": "1", "mode": "text"})], "tool_use"), ([("text", "It is 642.00 EUR.")], "end_turn"),
+                   ([("text", "Same.")], "end_turn")])
+    session.open_project(project, ui=ui, tools=["read_pdf"])
+    assert session.send("What is the total?")
+    # inside the turn the model saw the page
+    seen = json.dumps(fake.requests[1]["messages"])
+    assert "Total 642.00 EUR on page one" in seen
+    # after the turn the history holds a reference only
+    kept = json.dumps(session.messages)
+    assert "Total 642.00 EUR on page one" not in kept and "a.pdf, pages 1" in kept and "read the pages again" in kept
+    assert session.send("Repeat.")
+    assert "Total 642.00 EUR on page one" not in json.dumps(fake.requests[2]["messages"])

@@ -100,6 +100,41 @@ def clearable_tokens(messages: list) -> int:
     return int(sum(history_chars([b]) for b in _clearable(messages)) / CHARS_PER_TOKEN)
 
 
+PAGE_READ_TOOLS = ("read_pdf",)
+
+
+def forget_page_reads(messages: list, start: int = 0) -> int:
+    """At the end of a turn, replace what the PDF pages read in it contained (page images, a PDF document, extracted text) with a reference:
+    which file and which pages. The text of a page is cached (pdf_page_texts, the OCR cache, the index), so reading it again is quick, while
+    images and long page texts would stay in the history and be sent again with every later model call (slow and costly).
+    New message objects are made: the lists that other code holds (the memory curator reads the turn) are not changed.
+    Returns how many results were replaced."""
+    calls = {}
+    for message in messages[start:]:
+        if message["role"] == "assistant" and isinstance(message["content"], list):
+            for block in message["content"]:
+                if block.get("type") == "tool_use":
+                    calls[block["id"]] = block
+    replaced = 0
+    for i in range(start, len(messages)):
+        message = messages[i]
+        if message["role"] != "user" or not isinstance(message["content"], list):
+            continue
+        blocks, changed = [], False
+        for block in message["content"]:
+            call = calls.get(block.get("tool_use_id")) if block.get("type") == "tool_result" else None
+            if call and call["name"] in PAGE_READ_TOOLS and not block.get("is_error"):
+                shown = call["input"]
+                block = {**block, "content": (f"[{call['name']} {shown.get('path')}, pages {shown.get('pages') or 'all'}: the content is not kept in "
+                                              f"the conversation; read the pages again if you need them (the text is cached, so it is quick)]")}
+                changed = True
+                replaced += 1
+            blocks.append(block)
+        if changed:
+            messages[i] = {**message, "content": blocks}
+    return replaced
+
+
 def clear_old_tool_results(messages: list) -> int:
     """Replace the output of older tool calls with a short note. Returns how many were cleared."""
     cleared = 0
