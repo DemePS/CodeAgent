@@ -1,6 +1,7 @@
 """Helpers shared by the tools: the error type, workspace-confined paths, output limits, approvals."""
 
 import os
+import unicodedata
 from pathlib import Path
 
 from . import state
@@ -11,9 +12,37 @@ class ToolError(Exception):
     """Raised by a tool to return an is_error tool_result to the model."""
 
 
+def as_stored(p: Path) -> Path:
+    """p spelled as it is on disk, when it does not exist as given. An accented letter can be one character (NFC, what a keyboard or a
+    model writes) or a letter plus a combining mark (NFD, what some tools store): to a Linux filesystem they are two different names.
+    Only the components that do not exist are looked up, in a folder that does; nothing is created, and when nothing matches p is
+    returned unchanged. Callers check the workspace boundary on the result."""
+    if p.exists():
+        return p
+    base, rest = p, []
+    while not base.exists() and base != base.parent:
+        rest.insert(0, base.name)
+        base = base.parent
+    cur = base
+    for part in rest:
+        nxt = cur / part
+        if not nxt.exists():
+            try:
+                names = os.listdir(cur)
+            except OSError:
+                return p
+            want = unicodedata.normalize("NFC", part)
+            match = next((n for n in names if unicodedata.normalize("NFC", n) == want), None)
+            if match is None:
+                return p
+            nxt = cur / match
+        cur = nxt
+    return cur
+
+
 def resolve(path: str) -> Path:
     """Resolve a path against the current directory and refuse anything outside the workspace."""
-    p = (state.cwd / path).resolve()
+    p = as_stored((state.cwd / path).resolve())
     if p != state.workspace and state.workspace not in p.parents:
         raise ToolError(f"Path '{path}' is outside the workspace.")
     return p
@@ -23,7 +52,7 @@ def resolve_readable(path: str) -> Path:
     """Resolve a path the agent may read: inside the workspace, inside a read-only folder the person
     added (state.read_roots), or -- in the terminal agent -- a folder the person agrees to when asked.
     Writing always goes through resolve(), workspace only."""
-    p = (state.cwd / path).resolve()  # an absolute path ignores the current directory
+    p = as_stored((state.cwd / path).resolve())  # an absolute path ignores the current directory
     if in_workspace(p):
         return p
     if is_sensitive(p):

@@ -509,3 +509,22 @@ def test_a_model_that_cannot_see_images_is_not_offered_any_tool_that_returns_one
     assert not blind & set(IMAGE_TOOLS) and "read_pdf" in blind
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
     assert set(IMAGE_TOOLS) <= {t["name"] for t in loop.active_tools()}
+
+
+def test_a_path_typed_with_a_precomposed_accent_finds_a_file_stored_decomposed(workspace):
+    import unicodedata
+    from coding_agent.common import resolve, resolve_readable
+    nfc = "DCG 10 comptabilité approfondie.pdf"
+    nfd = unicodedata.normalize("NFD", nfc)
+    assert nfc != nfd
+    (workspace / nfd).write_bytes(b"%PDF-1.4\n")
+    for lookup in (resolve_readable, resolve):
+        found = lookup(nfc)
+        assert found.name in (nfd, nfc) and found.exists() and found.parent == workspace      # the file as it is stored
+    folder = workspace / unicodedata.normalize("NFD", "relevés")
+    folder.mkdir()
+    (folder / unicodedata.normalize("NFD", "août.txt")).write_text("x")
+    assert resolve_readable("relevés/août.txt").exists()                                       # accents in a folder name too
+    assert resolve_readable("absent é.pdf") == workspace / "absent é.pdf"                      # not found: unchanged
+    with pytest.raises(ToolError, match="outside"):
+        resolve_readable("../" + nfc)                                                          # the boundary still applies
