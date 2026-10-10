@@ -33,7 +33,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.8.17"
-      - name: Install (locked versions, with every extra: browser, excel)
+      - name: Install (locked versions, with every extra)
         run: |
           uv python install ${{ matrix.python }}
           uv sync --locked --all-extras --python ${{ matrix.python }}
