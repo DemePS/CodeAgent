@@ -145,3 +145,22 @@ def test_the_cache_lifetime_setting(deepseek_env):
     deepseek_env.setenv("AGENT_CACHE_TTL", "2h")
     with pytest.raises(config.SettingError, match="5m or 1h"):
         loop.caching_options()
+
+
+def test_the_provider_setting_claude_never_uses_deepseek(deepseek_env):
+    deepseek_env.setenv("DEEPSEEK_API_KEY", "ds-key")
+    deepseek_env.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+    for value in ("claude", "Claude", "anthropic"):                      # "anthropic" is accepted as the same
+        deepseek_env.setenv("CODEAGENT_PROVIDER", value)
+        config.clear()
+        assert config.chosen_provider() == "claude"
+        assert config.active_provider() == "anthropic" and config.current_api_key() == "anthropic-key" and not config.uses_deepseek()
+    deepseek_env.delenv("ANTHROPIC_API_KEY")                              # only a DeepSeek key: the setting still wins
+    config.clear()
+    assert config.active_provider() is None and config.current_api_key() is None
+
+
+def test_an_unknown_provider_setting_is_ignored_and_the_keys_decide(deepseek_env):
+    deepseek_env.setenv("DEEPSEEK_API_KEY", "ds-key")
+    deepseek_env.setenv("CODEAGENT_PROVIDER", "openai")
+    assert config.chosen_provider() is None and config.active_provider() == "deepseek"

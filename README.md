@@ -63,7 +63,7 @@ A Foundry endpoint always wins: with `ANTHROPIC_FOUNDRY_ENDPOINT` set, the agent
 
 DeepSeek offers an Anthropic-compatible API (`https://api.deepseek.com/anthropic`), so the same client and the same tools work with a
 DeepSeek model. Set `DEEPSEEK_API_KEY` (and nothing else: no `ANTHROPIC_API_KEY`, no Foundry endpoint), or `CODEAGENT_PROVIDER=deepseek` to
-choose it over them. The model is `deepseek-flash` by default; `ANTHROPIC_MODEL=deepseek-v4-pro` selects the larger one. Setting
+choose it over them. `CODEAGENT_PROVIDER=claude` does the opposite: Claude (Anthropic's API or Foundry) is used even when a DeepSeek key is set. The model is `deepseek-flash` by default; `ANTHROPIC_MODEL=deepseek-v4-pro` selects the larger one. Setting
 `ANTHROPIC_API_KEY` to a DeepSeek key with `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` also works and is recognised.
 `coding-agent --check` tests the connection.
 

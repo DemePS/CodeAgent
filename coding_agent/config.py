@@ -57,13 +57,24 @@ def clear() -> None:
         _clients.clear()
 
 
+def chosen_provider() -> str | None:
+    """CODEAGENT_PROVIDER: "deepseek" or "claude" (Anthropic's API or Foundry); "anthropic" is accepted as "claude". None when it is
+    unset or holds anything else, and the keys decide."""
+    value = (os.environ.get("CODEAGENT_PROVIDER") or "").strip().lower()
+    return {"deepseek": "deepseek", "claude": "claude", "anthropic": "claude"}.get(value)
+
+
 def _deepseek_key() -> str | None:
     """DEEPSEEK_API_KEY, when DeepSeek is the service in use: CODEAGENT_PROVIDER=deepseek, or no other service is set up
-    (no key given to configure(), no Foundry endpoint, no ANTHROPIC_API_KEY: those keep their priority)."""
+    (no key given to configure(), no Foundry endpoint, no ANTHROPIC_API_KEY: those keep their priority).
+    CODEAGENT_PROVIDER=claude never uses it, whatever else is set."""
     key = os.environ.get("DEEPSEEK_API_KEY") or None
     if not key or _overrides.get("api_key"):
         return None
-    if (os.environ.get("CODEAGENT_PROVIDER") or "").strip().lower() == "deepseek":
+    chosen = chosen_provider()
+    if chosen == "claude":
+        return None
+    if chosen == "deepseek":
         return key
     if os.environ.get("ANTHROPIC_FOUNDRY_ENDPOINT") or os.environ.get("ANTHROPIC_API_KEY"):
         return None
