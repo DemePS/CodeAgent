@@ -480,8 +480,10 @@ TOOLS = [
             "Search ALL the documents of the library at once (PDFs, Word .docx, PowerPoint .pptx and plain text files, in the read-only folders and the workspace) through a full-text index. Pages are "
             "ranked by how many of the query's words they contain, so write the query as a few distinctive words (\"delai prescription "
             "action assurance\"), not as a sentence you hope to find word for word. Case, accents, apostrophes and plurals are ignored. "
-            "To try several phrasings or languages in ONE call, separate the alternatives with | (like grep -e a -e b): \"angels | malaika | ange\" "
-            "returns the pages found by any of them, the ones found by several first. "
+            "The character | is the separator of the query: write one alternative per thing you look for (a phrasing, a language, an account "
+            "number, a topic), like grep -e a -e b. \"angels | malaika | ange\" or \"6226 honoraires | 6251 voyages | 6257 receptions\" "
+            "returns the pages found by any of the alternatives, the ones found by several first. The words of ONE alternative are one topic "
+            "(the pages that have all of them come first): never put several topics in one alternative, split them with |. "
             "The documents may be in another language than the question (English or Arabic texts, for example): search with the words of the document's language too, not only with the words of the question. "
             "You get the document, the page (the line for a text file, the slide for a PowerPoint, the character for a Word file) and a snippet for each result; then open the passages that matter with read_pdf, read_file, read_powerpoint or read_word. Scanned pages "
             "are searched through their OCR text once the library has been indexed with `coding-agent --index`."
@@ -489,7 +491,7 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "A few distinctive words to look for."},
+                "query": {"type": "string", "description": "A few distinctive words to look for; separate different things to look for with | (one alternative per thing)."},
                 "document": {"type": "string", "description": "Only search the documents whose name or path contains this text (optional)."},
                 "max_results": {"type": "integer", "minimum": 1, "maximum": 30, "description": "Pages to list (default 10)."},
             },
