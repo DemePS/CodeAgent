@@ -155,6 +155,12 @@ def test_only_the_chosen_sheets_can_be_changed(workspace, three_sheets, ui, monk
         documents.tool_edit_excel("book.xlsx", [{"cell": "A2", "value": "x"}])
     with pytest.raises(ToolError, match="Not: Notes"):
         documents.tool_edit_excel("book.xlsx", [], create_sheets=["Notes"])
+    # A sheet cannot be added, even one whose name is in the chosen list (it cannot have been chosen: it does not exist),
+    # and the answer says so.
+    monkeypatch.setattr(state, "excel_edit_sheets", {three_sheets.resolve(): {"Costs", "Summary"}})
+    with pytest.raises(ToolError, match="Not: Summary.*cannot be added"):
+        documents.tool_edit_excel("book.xlsx", [{"sheet": "Costs", "cell": "A2", "value": "x"}], create_sheets=["Summary"])
+    monkeypatch.setattr(state, "excel_edit_sheets", {three_sheets.resolve(): {"Costs"}})
     ui.answers = ["yes"]
     assert "1 cell(s) changed" in documents.tool_edit_excel("book.xlsx", [{"sheet": "Costs", "cell": "A2", "value": "Sensors"}])
 

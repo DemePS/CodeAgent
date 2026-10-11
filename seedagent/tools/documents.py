@@ -655,11 +655,15 @@ def tool_edit_excel(path: str, changes: list, create_sheets: list | None = None)
     name = rel_name(p)
     allowed = state.excel_edit_sheets.get(p.resolve())
     if allowed:
-        others = sorted({s for s in create_sheets or []} | {c.get("sheet") or wb.sheetnames[0] for c in changes
-                                                              if isinstance(c, dict)} - allowed)
+        # The rule, stated once: when the person chose the sheets to fill, only those sheets change and no sheet is added
+        # (a sheet that does not exist yet cannot have been chosen).
+        changed = {c.get("sheet") or wb.sheetnames[0] for c in changes if isinstance(c, dict)}
+        added = set(create_sheets or [])
+        others = sorted((changed - allowed) | added)
         if others:
+            adding = " A new sheet cannot be added when the sheets to fill were chosen." if added else ""
             raise ToolError(f"Only these sheets of {name} may be filled: {', '.join(sorted(allowed))} (the person chose "
-                            f"them). Not: {', '.join(others)}. If a value really belongs there, ask the person.")
+                            f"them). Not: {', '.join(others)}.{adding} If a value really belongs there, ask the person.")
 
     for sheet_name in create_sheets or []:
         if sheet_name in wb.sheetnames:
