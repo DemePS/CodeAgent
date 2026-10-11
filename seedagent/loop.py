@@ -100,7 +100,7 @@ def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int
             check_stop()
             ticks += 1
             if not call.started and ticks % (WAIT_NOTICE_SECONDS * 10) == 0:
-                state.ui.message(f"[still waiting for Claude: {ticks // 10} s]")
+                state.ui.message(f"[still waiting for {get_model()}: {ticks // 10} s]")  # the model really in use
     except BaseException:  # Stop, or Ctrl+C in the terminal
         call.cancelled = True
         if call.stream is not None:

@@ -215,6 +215,7 @@ def test_stop_is_immediate_while_claude_has_not_answered_yet(tmp_path, claude, m
 
 
 def test_a_slow_first_answer_is_reported(tmp_path, claude, monkeypatch):
+    from seedagent.config import get_model
     # Claude (or the SDK's quiet retries of a timeout) takes long: the person sees it is still waiting.
     import time
 
@@ -231,7 +232,8 @@ def test_a_slow_first_answer_is_reported(tmp_path, claude, monkeypatch):
     ui.message = notes.append
     session.open_project(project, ui=ui)
     assert session.send("hello") is True
-    assert [n for n in notes if "still waiting" in n] == ["[still waiting for Claude: 1 s]", "[still waiting for Claude: 2 s]"]
+    model = get_model()  # the notice names the model really in use, not a fixed provider
+    assert [n for n in notes if "still waiting" in n] == [f"[still waiting for {model}: 1 s]", f"[still waiting for {model}: 2 s]"]
 
 
 def test_the_request_carries_thinking_and_effort(tmp_path, ui, claude, monkeypatch):
