@@ -891,28 +891,33 @@ TOOLS = [
     {
         "name": "run_uv",
         "description": (
-            "Install packages into the project's environment with `uv add` (adds them to pyproject.toml "
-            "and uv.lock, then installs). Pass `packages`: one or more names, optionally with a version "
-            "specifier, e.g. [\"requests\"], [\"pandas>=2\", \"numpy\"]. dev=true adds them as development "
-            "dependencies instead of runtime ones. The user must approve every run, since it changes the "
-            "project's dependency files."
+            "Manage the project's Python environment with `uv`. command='add': install `packages` (adds "
+            "them to pyproject.toml and uv.lock), e.g. [\"requests\"], [\"pandas>=2\", \"numpy\"]; dev=true "
+            "adds them as development dependencies. command='sync': install exactly what pyproject.toml/"
+            "uv.lock already pin (no `packages`). command='venv': create the project's virtual environment "
+            "(.venv), optionally python='3.11' to pick the interpreter, clear=true to recreate it from "
+            "scratch. The user must approve every run, since it changes the project's dependency files "
+            "or environment."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
+                "command": {"type": "string", "enum": ["add", "sync", "venv"]},
                 "packages": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Package names to install, e.g. [\"requests\", \"pandas>=2\"].",
+                    "description": "add only: package names, e.g. [\"requests\", \"pandas>=2\"].",
                 },
-                "dev": {"type": "boolean", "description": "Add as development dependencies."},
+                "dev": {"type": "boolean", "description": "add: install as development dependencies."},
+                "python": {"type": "string", "description": "venv: the Python version or interpreter to use, e.g. '3.11'."},
+                "clear": {"type": "boolean", "description": "venv: remove the existing .venv first."},
                 "timeout": {
                     "type": "integer",
                     "minimum": 1,
                     "description": f"Seconds before the run is killed (default {RUN_TIMEOUT_SECONDS}).",
                 },
             },
-            "required": ["packages"],
+            "required": ["command"],
         },
     },
 ] + (
