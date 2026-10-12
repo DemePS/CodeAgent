@@ -888,6 +888,33 @@ TOOLS = [
             "required": ["args"],
         },
     },
+    {
+        "name": "run_uv",
+        "description": (
+            "Install packages into the project's environment with `uv add` (adds them to pyproject.toml "
+            "and uv.lock, then installs). Pass `packages`: one or more names, optionally with a version "
+            "specifier, e.g. [\"requests\"], [\"pandas>=2\", \"numpy\"]. dev=true adds them as development "
+            "dependencies instead of runtime ones. The user must approve every run, since it changes the "
+            "project's dependency files."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "packages": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Package names to install, e.g. [\"requests\", \"pandas>=2\"].",
+                },
+                "dev": {"type": "boolean", "description": "Add as development dependencies."},
+                "timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": f"Seconds before the run is killed (default {RUN_TIMEOUT_SECONDS}).",
+                },
+            },
+            "required": ["packages"],
+        },
+    },
 ] + (
     [] if WEB_SEARCH == "off"
     else [{"type": f"web_search_{WEB_SEARCH}", "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES}]
