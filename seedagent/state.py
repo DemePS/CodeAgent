@@ -64,6 +64,7 @@ memory_sent = False  # memory and the skill list go with the first instruction o
 pending_blocks: list[str] = []  # e.g. a summary from /compact, sent with the next instruction
 compacted_this_turn = False  # a compaction replaced the history during the current instruction
 always_allow_python = False  # the user answered [a]lways to a run_python prompt
+always_allow_az = False  # the user answered [a]lways to a tool_az prompt
 stop_requested = False  # set by session.stop() from another thread (e.g. a Stop button)
 pdf_read_as_text = False  # a PDF page was read in text mode in this conversation: only then is read_pdf's visual mode allowed
 
@@ -74,8 +75,8 @@ context = {"tokens": 0, "chars": 0, "compactions": 0, "cleared": 0}  # size at t
 
 def reset_conversation() -> None:
     """Forget the bookkeeping of the previous conversation (a new project or a fresh start)."""
-    global memory_sent, mode_note, skills_note, compacted_this_turn, always_allow_python, stop_requested, pdf_read_as_text, excel_writable
-    memory_sent = compacted_this_turn = always_allow_python = stop_requested = pdf_read_as_text = False
+    global memory_sent, mode_note, skills_note, compacted_this_turn, always_allow_python, always_allow_az, stop_requested, pdf_read_as_text, excel_writable
+    memory_sent = compacted_this_turn = always_allow_python = always_allow_az = stop_requested = pdf_read_as_text = False
     mode_note = skills_note = None
     pending_blocks.clear()
     turn.update(instruction="", excel_read=False)

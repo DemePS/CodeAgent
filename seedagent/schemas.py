@@ -1,6 +1,7 @@
 """Tool definitions sent to Claude (names, descriptions, input schemas)."""
 
 from .config import (
+    AZ_TIMEOUT_SECONDS,
     EXCEL_MAX_CELLS,
     MAX_SCREENSHOT_TILES,
     PDF_MAX_VISUAL_PAGES,
@@ -858,6 +859,33 @@ TOOLS = [
                             "description": f"Seconds before the run is stopped (default {RUN_TIMEOUT_SECONDS})."},
             },
             "required": ["path", "code"],
+        },
+    },
+    {
+        "name": "run_az",
+        "description": (
+            "Run an Azure CLI (`az`) command and return the exit code, stdout and stderr. Pass `args`: "
+            "the command and its options, without the leading 'az', e.g. [\"group\", \"list\"], "
+            "[\"vm\", \"list\", \"--output\", \"table\"], [\"account\", \"show\"]. Output is requested as "
+            "JSON unless the command overrides it. Uses whatever Azure account `az` is already signed "
+            "into (az login is not run by this tool). The user must approve every run, since commands "
+            "can create, change or delete real cloud resources."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The az command and its options, e.g. [\"group\", \"list\"].",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": f"Seconds before the run is killed (default {AZ_TIMEOUT_SECONDS}).",
+                },
+            },
+            "required": ["args"],
         },
     },
 ] + (

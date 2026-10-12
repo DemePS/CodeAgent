@@ -49,6 +49,7 @@ from ..tools.web import (
     tool_web_type,
 )
 from ..tools.python_runner import tool_run_python
+from ..tools.az import tool_run_az
 
 TOOL_HANDLERS = {
     "list_directory": tool_list_directory,
@@ -93,6 +94,7 @@ TOOL_HANDLERS = {
     "send_sms": tool_send_sms,
     "clone_repo": tool_clone_repo,
     "run_python": tool_run_python,
+    "run_az": tool_run_az,
     "run_python_excel": tool_run_python_excel,
     "load_skill": tool_load_skill,
 }

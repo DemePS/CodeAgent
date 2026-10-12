@@ -320,6 +320,8 @@ EXCEL_CELL_CHARS = 200  # a long cell is cut in a sheet read; reading that one c
 EXCEL_VIEW_MAX_CELLS = 2000  # cells drawn by view_excel without Excel (openpyxl backend)
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
 UV = shutil.which("uv")  # None when uv is not installed
+AZ = shutil.which("az")  # None when the Azure CLI is not installed
+AZ_TIMEOUT_SECONDS = 120
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
 
 MAX_LISTING_ENTRIES = 500
