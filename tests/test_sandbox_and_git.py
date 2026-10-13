@@ -50,6 +50,36 @@ def test_run_python_asks_first(workspace, ui):
     assert ui.of("confirm")[0][2] == ("yes", "no", "always for this session")
 
 
+def test_run_python_suppresses_the_console_window_on_windows(workspace, allow_python, monkeypatch):
+    """A windowed app (e.g. ComptaIA.exe) has no console; spawning the interpreter must not flash one."""
+    calls = []
+    real_run = subprocess.run
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs.get("creationflags"))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    monkeypatch.setattr(python_runner.sys, "platform", "win32")
+    monkeypatch.setattr(python_runner.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    run("print(1)")
+    assert calls == [0x08000000]
+
+
+def test_run_python_passes_no_creationflags_off_windows(workspace, allow_python, monkeypatch):
+    calls = []
+    real_run = subprocess.run
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs.get("creationflags"))
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    monkeypatch.setattr(python_runner.sys, "platform", "linux")
+    run("print(1)")
+    assert calls == [0]
+
+
 @pytest.fixture
 def repo(workspace):
     if not shutil.which("git"):

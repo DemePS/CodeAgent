@@ -69,10 +69,14 @@ def tool_run_python(code: str | None = None, args: list[str] | None = None, time
                 + (f" User feedback: {feedback}" if feedback else "")
             )
 
+    # On Windows, spawning a console-subsystem interpreter (e.g. a frozen app's console sibling,
+    # see ComptaIA's launch.py) from a windowed parent would otherwise flash a new console window
+    # open and closed for every calculation.
+    creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
     try:
         proc = subprocess.run(
             cmd, cwd=state.cwd, capture_output=True, text=True, timeout=timeout,
-            env=project_env(),
+            env=project_env(), creationflags=creationflags,
         )
     except subprocess.TimeoutExpired:
         raise ToolError(f"Timed out after {timeout}s.")
