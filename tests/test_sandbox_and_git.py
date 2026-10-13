@@ -51,13 +51,17 @@ def test_run_python_asks_first(workspace, ui):
 
 
 def test_run_python_suppresses_the_console_window_on_windows(workspace, allow_python, monkeypatch):
-    """A windowed app (e.g. ComptaIA.exe) has no console; spawning the interpreter must not flash one."""
+    """A windowed app (e.g. ComptaIA.exe) has no console; spawning the interpreter must not flash one.
+
+    creationflags is a Windows-only subprocess.run argument: the real call is faked here (rather than
+    delegated like test_run_python_passes_no_creationflags_off_windows does) because passing a nonzero
+    value to the real POSIX subprocess.Popen raises ValueError, even under a faked sys.platform.
+    """
     calls = []
-    real_run = subprocess.run
 
     def spy(*args, **kwargs):
         calls.append(kwargs.get("creationflags"))
-        return real_run(*args, **kwargs)
+        return subprocess.CompletedProcess(args, 0, stdout="1\n", stderr="")
 
     monkeypatch.setattr(subprocess, "run", spy)
     monkeypatch.setattr(python_runner.sys, "platform", "win32")
