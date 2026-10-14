@@ -9,12 +9,18 @@
 An application built on the agent can narrow what Claude sees: `tools` enables a subset of the
 tools (see seedagent.schemas.TOOLS for the names) and `system_prompt` replaces the coding
 agent's instructions ({workspace} in it is replaced by the project path).
+
+Two sessions side by side: open_project returns the Session and binds it to the calling thread, so
+each front-end thread drives the project it opened. A worker thread that runs a session opened
+elsewhere calls state.bind(session) first (see seedagent.state.Session).
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import sys
+import types
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -30,7 +36,25 @@ from .tools import register_tool  # noqa: F401  (re-exported: session.register_t
 from .logs import LoggedUI
 from .ui import UI
 
-messages: list = []  # the conversation of the open project
+
+class _SessionModule(types.ModuleType):
+    """`seedagent.session.messages` is the *current* session's conversation, so a front end (cli.py) reads
+    the history of the session it is driving, and two sessions in one process keep their own histories.
+    Other attributes of the module are untouched."""
+
+    def __getattr__(self, name: str):
+        if name == "messages":
+            return state.current().messages
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value) -> None:
+        if name == "messages":
+            state.current().messages = value
+        else:
+            object.__setattr__(self, name, value)
+
+
+sys.modules[__name__].__class__ = _SessionModule
 
 
 def project_id(workspace: Path) -> str:
@@ -59,26 +83,35 @@ def had_text_read(history: list) -> bool:
 
 def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
                  system_prompt: str | None = None, resume: bool = False, auto: bool = False,
-                 excel_first: bool = False) -> Path:
-    """Point the agent at a project folder. Returns the resolved workspace path."""
+                 excel_first: bool = False, session: state.Session | None = None) -> state.Session:
+    """Point a session at a project folder and bind it to the calling thread; returns the session.
+
+    The session is tied to this thread (state.bind), so a later send() from here drives *this* project
+    even if another thread opened another one meanwhile. A worker thread that runs a session opened
+    elsewhere calls state.bind(session) itself. Without `session`, the current session is configured
+    (the terminal's one session per process)."""
     workspace = Path(path).expanduser().resolve()
     if not workspace.is_dir():
         raise NotADirectoryError(f"Not a directory: {workspace}")
     if (cleaned := cleanup.run_once(memory=MEMORY_HOME)) and cleaned != "Clean-up: nothing to delete":
         logging.getLogger("seedagent.cleanup").info(cleaned)  # old backups, unused memories, old conversations (before resume)
-    state.ui = LoggedUI(ui)
-    state.set_workspace(workspace, project_id(workspace), MEMORY_HOME)
-    logs.attach(state.conversation_file.parent / "agent.log")
-    state.reset_conversation()
-    state.tool_names = set(tools) if tools is not None else None
-    state.system_prompt = system_prompt
-    state.excel_first = excel_first
-    state.skills = discover_skills()
-    messages[:] = load_conversation() if resume else []
-    state.pdf_read_as_text = had_text_read(messages)  # a resumed conversation that already read a PDF in text mode
+    if session is None:
+        session = state.current()
+    state.bind(session)  # this thread runs this session from now on
+    state.set_current(session)
+    session.ui = LoggedUI(ui)
+    session.set_workspace(workspace, project_id(workspace), MEMORY_HOME)
+    logs.attach(session.conversation_file.parent / "agent.log")
+    session.reset_conversation()
+    session.tool_names = set(tools) if tools is not None else None
+    session.system_prompt = system_prompt
+    session.excel_first = excel_first
+    session.skills = discover_skills()
+    session.messages[:] = load_conversation() if resume else []
+    session.pdf_read_as_text = had_text_read(session.messages)  # a resumed conversation that already read a PDF in text mode
     if auto:
         set_auto_mode(True)
-    return workspace
+    return session
 
 
 def add_read_folder(path: str | Path) -> Path:
@@ -93,8 +126,12 @@ def add_read_folder(path: str | Path) -> Path:
 
 
 def send(text: str) -> bool:
-    """Run one instruction to completion (tools, approvals, streaming). False if it failed."""
-    return _send(_get_client(), messages, text)
+    """Run one instruction to completion (tools, approvals, streaming). False if it failed.
+
+    Drives the session this thread opened (state.bind), or the current one; loop.send makes that
+    session current for the whole turn, so tools and approvals resolve its workspace."""
+    session = state.bound() or state.current()
+    return _send(_get_client(), session.messages, text)
 
 
 def check_connection() -> tuple[bool, str]:
@@ -113,7 +150,7 @@ def check_connection() -> tuple[bool, str]:
 def stop() -> None:
     """Ask the running instruction to stop (from another thread): it ends at the next model call
     or streamed chunk, and is rolled back like Ctrl+C. Pending questions must be answered by the UI."""
-    state.stop_requested = True
+    state.running().stop_requested = True
 
 
 def close() -> None:

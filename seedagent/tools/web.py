@@ -18,6 +18,7 @@ tool calls may come from different threads (a desktop app runs the agent in a wo
 from __future__ import annotations
 
 import atexit
+import contextvars
 import html
 import os
 import queue
@@ -126,12 +127,15 @@ class _Browser:
 
     # --- the thread -------------------------------------------------------------------------------
     def call(self, fn, timeout: int = 120):
+        # The tool closures read state (state.ui.status/confirm): capture this turn's session so the
+        # helper thread, which starts with an empty context, resolves the session that made the call.
+        ctx = contextvars.copy_context()
         with self._lock:
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._loop, name="agent-browser", daemon=True)
                 self._thread.start()
             fut: Future = Future()
-            self._tasks.put((fn, fut))
+            self._tasks.put((lambda browser: ctx.run(fn, browser), fut))
             try:
                 return fut.result(timeout)
             except FutureTimeout:

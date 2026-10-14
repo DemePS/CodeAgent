@@ -1,5 +1,6 @@
 """The agent loop: stream a response, run the requested tools, repeat; one instruction at a time."""
 
+import contextvars
 import threading
 
 import anthropic
@@ -93,7 +94,11 @@ def stream_response(client: anthropic.Anthropic, messages: list, max_tokens: int
         finally:
             call.done.set()
 
-    threading.Thread(target=run, name="claude-call", daemon=True).start()
+    # The call runs in a helper thread, which starts with a fresh, empty context: copy_context().run makes it
+    # inherit this turn's session, so record_usage and the tools it triggers (a server-side web search) write
+    # to the session that owns the turn, not to the default one.
+    ctx = contextvars.copy_context()
+    threading.Thread(target=lambda: ctx.run(run), name="claude-call", daemon=True).start()
     ticks = 0  # of 0.1 s
     try:
         while not call.done.wait(0.1):
@@ -228,7 +233,17 @@ def run_turn(client: anthropic.Anthropic, messages: list) -> None:
 
 
 def send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
-    """Run one user instruction through the agent loop. Returns False if it failed."""
+    """Run one user instruction through the agent loop. Returns False if it failed.
+
+    The session that owns `messages` is made current for the whole turn, so every tool call and approval
+    resolves that session's workspace, UI and tools -- two sessions in two threads stay independent."""
+    session = state.for_messages(messages)
+    with state.activate(session):
+        return _send(client, messages, text)
+
+
+def _send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
+    """The turn itself; send() has already made this session current."""
     checkpoint = len(messages)
     mark = usage.snapshot()
     state.compacted_this_turn = False

@@ -171,8 +171,9 @@ def _memory_worker() -> None:
         try:
             if item is None:
                 return
-            client, digest = item  # the client of the moment the turn finished: a key changed since is respected
-            status = update_memory(client, digest)
+            client, digest, session = item  # the client and session of the moment the turn finished: a key changed since is respected
+            with state.activate(session):  # so update_memory writes this project's notes and reports on its UI
+                status = update_memory(client, digest)
             if status:
                 _memory_report(status)
         except Exception as e:  # never let a memory problem reach the agent
@@ -189,7 +190,9 @@ def queue_memory_update(client: anthropic.Anthropic, new_messages: list) -> None
     if _memory_thread is None:
         _memory_thread = threading.Thread(target=_memory_worker, name="memory", daemon=True)
         _memory_thread.start()
-    _memory_queue.put((client, turn_digest(new_messages)))
+    # The worker thread is long-lived and starts with an empty context, so the session travels with the
+    # item: the curator then writes this project's notes.md and reports through this project's UI.
+    _memory_queue.put((client, turn_digest(new_messages), state.current()))
 
 
 def finish_memory_updates() -> None:

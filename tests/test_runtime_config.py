@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 import seedagent
-from seedagent import config, diagnose, errors, memory
+from seedagent import config, diagnose, errors, memory, state
 
 FOUNDRY = "https://x.services.ai.azure.com/anthropic"
 KEY = "sk-ant-api03-abcdefghijklmnop"
@@ -145,8 +145,9 @@ def test_memory_worker_uses_the_client_of_its_item(env, monkeypatch):
     used = []
     monkeypatch.setattr(memory, "update_memory", lambda client, digest: used.append((client, digest)) and None)
     monkeypatch.setattr(memory, "_memory_queue", queue.Queue())
-    memory._memory_queue.put(("one", "d1"))
-    memory._memory_queue.put(("two", "d2"))
+    session = state.current()
+    memory._memory_queue.put(("one", "d1", session))
+    memory._memory_queue.put(("two", "d2", session))
     memory._memory_queue.put(None)
     memory._memory_worker()
     assert used == [("one", "d1"), ("two", "d2")]
