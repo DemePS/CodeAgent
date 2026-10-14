@@ -53,8 +53,10 @@ class Session:
     def __init__(self, workspace: Path | str = ".", *, reach_outside: bool = False) -> None:
         path = Path(workspace).expanduser().resolve()
         _sessions_registry.add(self)
-        from .ui import UI as _UI  # imported here: ui.py imports this module (a module-level import would be circular)
-        self.ui: "UI" = _UI()
+        # The UI is attached by the front end (session.open_project sets a LoggedUI); a Session can be built
+        # before one exists (state.py builds a default Session at import, when ui.py may be mid-import), so
+        # importing UI here would be a circular import. Everything that uses state.ui runs inside a turn.
+        self.ui: "UI | None" = None
         self.workspace: Path = path  # the project the agent works in
         self.cwd: Path = path  # the agent's current directory inside the workspace; see change_directory
         self.auto_mode = False  # autonomous mode: no approval prompts (deletions and network still ask)
