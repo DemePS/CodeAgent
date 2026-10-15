@@ -24,6 +24,7 @@ in (shared across threads), which is what a Stop button from any thread reaches.
 
 from __future__ import annotations
 
+import atexit
 import contextvars
 import sys
 import threading
@@ -36,6 +37,7 @@ from typing import TYPE_CHECKING
 from .config import DEFAULT_CONTEXT_WINDOW, OWN_FILES
 
 if TYPE_CHECKING:
+    from .tools.web import _Browser
     from .ui import UI
 
 # Every session alive in this process, weak references so a discarded session is not kept alive.
@@ -57,6 +59,15 @@ class Session:
         # before one exists (state.py builds a default Session at import, when ui.py may be mid-import), so
         # importing UI here would be a circular import. Everything that uses state.ui runs inside a turn.
         self.ui: "UI | None" = None
+        # The session's headless browser (seedagent.tools.web._Browser), created on the first web_* call and
+        # kept while the session runs. A browser per session: its own thread, its own Chromium and page, so
+        # two sessions never share or close each other's browser. Imported only for the annotation: web.py
+        # imports this module (a module-level import would be circular).
+        self.browser: "_Browser | None" = None
+        # The sites this session may browse without asking again. They live on the session, not on the browser
+        # object, so web_close (which drops the browser) does not make the person approve the same site twice.
+        self.web_approved: set[str] = set()  # hosts approved by answering "yes" to web_open
+        self.web_all_sites = False  # the person answered "all sites for this session"
         self.workspace: Path = path  # the project the agent works in
         self.cwd: Path = path  # the agent's current directory inside the workspace; see change_directory
         self.auto_mode = False  # autonomous mode: no approval prompts (deletions and network still ask)
@@ -160,10 +171,26 @@ def bound() -> Session | None:
 
 
 def close_session(session: Session) -> None:
-    """Drop a session's thread binding when it is done, so a worker thread does not hold it alive."""
+    """Drop a session's thread binding when it is done, so a worker thread does not hold it alive; close
+    its browser if one is open (close() is idempotent). Doing so releases the browser slot (see
+    AGENT_MAX_BROWSERS), so a front end that finished with a session should call this."""
     for thread, bound_session in list(_bound.items()):
         if bound_session is session:
             del _bound[thread]
+    browser = session.browser
+    if browser is not None:
+        session.browser = None  # first: even if close() raises, the session no longer points at it
+        try:
+            browser.close()
+        except Exception:
+            pass  # a browser already gone (process ending) must not break closing a session
+
+
+@atexit.register
+def _close_browsers() -> None:
+    """Close every session's browser when the process ends (replaces the old global atexit)."""
+    for session in list(_sessions_registry):
+        close_session(session)
 
 
 def current() -> Session:

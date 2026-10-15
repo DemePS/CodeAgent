@@ -12,6 +12,7 @@ import pytest
 
 pytest.importorskip("playwright")
 
+from seedagent import state  # noqa: E402
 from seedagent.common import ToolError  # noqa: E402
 from seedagent.schemas import TOOLS  # noqa: E402
 from seedagent.tools import TOOL_HANDLERS, web  # noqa: E402
@@ -89,16 +90,24 @@ def site():
 
 @pytest.fixture(autouse=True)
 def browser(workspace):
-    """A clean browser for each test; skipped when none can be started."""
-    web._B.close()
+    """A clean browser and clean approvals for each test; skipped when none can be started.
+
+    The approved sites and the "all sites" answer belong to the *session*, not to the browser, so closing the
+    browser does not forget them (that is the point: web_close must not make the person approve a site twice).
+    Every test here shares the default session, so the fixture clears them itself, or a site approved by one
+    test would be silently allowed in the next."""
+    session = state.current()
+    session.web_approved = set()
+    session.web_all_sites = False
+    web._browser().close()
     try:
-        web._B.call(lambda b: b.ensure_page())
+        web._browser().call(lambda b: b.ensure_page())
     except ToolError as e:
         if "No browser could be started" in str(e):
             pytest.skip("no browser here (set AGENT_BROWSER_PATH)")
         raise
     yield
-    web._B.close()
+    web._browser().close()
 
 
 @pytest.fixture
@@ -254,7 +263,7 @@ def test_a_page_that_sends_you_to_another_site_stays_put(site, ui, public):
 
 
 def test_answering_all_sites_stops_the_questions_for_the_session(site, ui, public, monkeypatch):
-    monkeypatch.setattr(web._B, "all_sites", False)
+    monkeypatch.setattr(web._browser(), "all_sites", False)
     ui.answers = ["all sites for this session"]
     web.tool_web_open(f"http://127.0.0.2:{site[1]}/")
     assert web.ALL_SITES in ui.of("confirm")[-1][2]                              # offered as a third answer
@@ -268,7 +277,7 @@ def test_answering_all_sites_stops_the_questions_for_the_session(site, ui, publi
 
 def test_approve_off_opens_public_sites_without_asking(site, ui, public, monkeypatch):
     monkeypatch.setattr(web, "WEB_APPROVE", False)
-    monkeypatch.setattr(web._B, "all_sites", False)
+    monkeypatch.setattr(web._browser(), "all_sites", False)
     out = web.tool_web_open(f"http://127.0.0.2:{site[1]}/")                     # no answers scripted: a question would refuse
     assert "Page: 'Home'" in out and ui.of("confirm") == []
     assert "Page: 'About'" in web.tool_web_open(f"http://127.0.0.3:{site[1]}/about")
@@ -276,16 +285,20 @@ def test_approve_off_opens_public_sites_without_asking(site, ui, public, monkeyp
         web.tool_web_open("http://169.254.169.254/latest/meta-data/")           # metadata addresses stay refused
 
 
-def test_closing_forgets_the_approved_sites(site, ui, public):
+def test_closing_keeps_the_approved_sites(site, ui, public):
+    """web_close drops the Chromium, not the approvals: the sites live on the session, so the person is asked
+    once per site and not again after a close (see state.Session.web_approved)."""
     url = f"http://127.0.0.2:{site[1]}/"
     ui.answers = ["yes"]
     web.tool_web_open(url)
+    asked = len(ui.of("confirm"))
     assert "closed" in web.tool_web_close() and web.tool_web_close() == "No browser was open."
-    ui.answers = ["no", ""]
+    assert "Page: 'Home'" in web.tool_web_open(url)                             # reopens, still allowed
+    assert len(ui.of("confirm")) == asked                                       # and no second question
+    web.tool_web_close()
+    # A site never approved is still refused after a close: closing does not allow everything.
     with pytest.raises(ToolError, match="refused"):
-        web.tool_web_open(url)                                                  # asked again
-    ui.answers = ["yes"]
-    assert "Page: 'Home'" in web.tool_web_open(url)                             # and it opens again after a close
+        web.tool_web_open(f"http://127.0.0.3:{site[1]}/about")
 
 
 # --- how it is wired
