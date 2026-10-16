@@ -23,8 +23,8 @@ class FakeBrowser(web._Browser):
 
     made = 0
 
-    def __init__(self):
-        super().__init__()          # real _tasks/_lock/all_sites/_slot/last_used
+    def __init__(self, session=None):
+        super().__init__(session=session)          # real _tasks/_lock/all_sites/_slot/last_used
         FakeBrowser.made += 1
         self.this = FakeBrowser.made
         self.closed = 0
