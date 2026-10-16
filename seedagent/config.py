@@ -316,6 +316,12 @@ EXCEL_MAX_CHANGES = 1000  # cells changed per edit_excel call
 EXCEL_BACKEND = (os.environ.get("AGENT_EXCEL_BACKEND") or "auto").strip().lower()
 WEB_PAGE_CHARS = 5000  # page text shown per web_open / web_click / web_page; the rest is read with web_page(offset=...)
 WEB_MAX_CONTROLS = 100  # links and controls listed per page
+# Each session gets its own browser (its own Chromium). That costs memory, so only this many may be open at
+# once; a session that asks for one when the limit is reached waits, then is told to try again shortly.
+WEB_MAX_BROWSERS = int(float(os.environ.get("AGENT_MAX_BROWSERS") or 4))
+# A browser with no web_* call for this many seconds is closed (its approved sites and tokens are kept, so the
+# next call reopens it). 0 disables it. A browser that is still open holds its slot until it is closed.
+WEB_IDLE_SECONDS = int(float(os.environ.get("AGENT_WEB_IDLE_SECONDS") or 300))
 EXCEL_CELL_CHARS = 200  # a long cell is cut in a sheet read; reading that one cell shows it whole
 EXCEL_VIEW_MAX_CELLS = 2000  # cells drawn by view_excel without Excel (openpyxl backend)
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}

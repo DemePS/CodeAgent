@@ -107,9 +107,12 @@ Usage:
 
 As a library (other front ends, e.g. a desktop app), see seedagent.session:
     from seedagent import session
-    session.open_project(path, ui=MyUI(), tools=[...], system_prompt="...")
+    opened = session.open_project(path, ui=MyUI(), tools=[...], system_prompt="...")  # binds it to this thread
     session.send("instruction")
     seedagent.register_tool(schema, handler)  # the application's own tool (see the README)
+open_project returns the Session and ties it to the calling thread, so send() drives that project; a
+worker thread meant to run a session opened elsewhere calls state.bind(session) first (or passes
+session=Session(path) and drives it there). See seedagent.state for the Session class.
 The package layout: config (settings), state (the session), ui (the UI interface and the
 terminal), loop (the agent loop), tools/ (one module per tool family), guard (the run_python
 sandbox), skills, memory, context (context window management), cli (the terminal front end).

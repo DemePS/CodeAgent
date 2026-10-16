@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -21,6 +23,9 @@ from .config import AGENT_HOME
 
 SESSIONS_DIR = AGENT_HOME / "web-sessions"
 WEB_SESSION_DAYS = int(os.environ.get("AGENT_WEB_SESSION_DAYS") or 30)
+# Two sessions may sign in at the same time: writing a file in place would let one read a half-written file.
+# Every write goes through this lock to a temporary file next to the target, then os.replace (atomic).
+_WRITE_LOCK = threading.Lock()
 
 
 def site_name(host: str) -> str:
@@ -36,27 +41,31 @@ def _file(host: str) -> Path:
 def save(host: str, storage: dict) -> Path:
     """Keep the session the browser reports (Playwright's storage_state), for this site only."""
     path = _file(host)
-    path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps({"cookies": storage.get("cookies", []), "origins": storage.get("origins", [])})
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as f:
-        f.write(data)
-    try:
-        path.chmod(0o600)  # a file that already existed keeps its old mode otherwise
-    except OSError:
-        pass
+    _write_private(path, data)
     return path
 
 
 def _write_private(path: Path, data: str) -> None:
+    """Write a file the owner alone may read, atomically: a temporary file in the same folder, then
+    os.replace. Two sessions writing at once never leave a half-written file, and a reader always sees
+    either the old or the new content, never a mix."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as f:
-        f.write(data)
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+    with _WRITE_LOCK:
+        descriptor, name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
+                f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(name, 0o600)   # a file holding a session or a token is readable by the owner only
+            os.replace(name, path)  # atomic: a reader sees the old file or the new one, never a half one
+        except BaseException:
+            try:
+                os.unlink(name)
+            except OSError:
+                pass
+            raise
 
 
 def save_token(host: str, header: str, value: str) -> Path:

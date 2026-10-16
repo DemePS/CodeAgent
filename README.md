@@ -106,6 +106,12 @@ session.close()
 `session.open_project(..., excel_first=True)` (for an application that fills workbooks) refuses `read_pdf`
 until `read_excel` has run, when the instruction mentions a spreadsheet; it is off by default.
 
+`open_project` returns the `Session` it configured and ties it to the calling thread: a later `session.send()`
+from that thread drives that project. Two sessions therefore run side by side in one process, each with its
+own workspace, conversation, UI and tools -- give each its own thread. A worker thread that runs a session
+opened elsewhere calls `state.bind(session)` (or builds it there: `state.Session(path)`), because the session
+a thread drives is per-thread. `session.stop()`, from any thread, stops the running one.
+
 An application that fills one workbook can also set, after `open_project`: `state.excel_writable = {path}` (no other workbook can be changed
 or created), `state.excel_protect_formulas = True` (a formula can be neither replaced nor cleared), and `state.excel_edit_sheets[path] = {"Sheet1"}`
 (only those sheets). They are checked by the tool, not asked of the model.

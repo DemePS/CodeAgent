@@ -1,8 +1,14 @@
 """Browsing: web_open, web_click, web_type, web_back, web_page, web_look, web_close.
 
-One headless browser stays open for the session, so Claude can go through a site step by step. After
-each step Claude gets the page's text and a numbered list of its links and controls; it acts on a
+One headless browser per session stays open while it is used, so Claude can go through a site step by step.
+After each step Claude gets the page's text and a numbered list of its links and controls; it acts on a
 number (web_click 3, web_type 5) and gets the next page back.
+
+Each session has its own browser (its own Chromium, its own approved sites, its own page), created on the
+first web_* call and closed when the session closes or is idle: two sessions never share or close each
+other's browser. The terminal has one session, so it behaves as before. Only AGENT_MAX_BROWSERS may be
+open at once (a session waits for a free one); a browser not used for AGENT_WEB_IDLE_SECONDS is closed,
+and reopened on the next call with its approved sites kept.
 
 Safety, in the tools and not only in the prompt:
 - a site not opened before needs the user's approval (shown with the full URL), and the agent only
@@ -11,26 +17,27 @@ Safety, in the tools and not only in the prompt:
   sends and asks first; downloads are blocked; metadata addresses are refused;
 - page text is handed over marked as untrusted content, never as instructions.
 
-The browser runs in its own thread: Playwright's sync API belongs to the thread that started it, and
+Each browser runs in its own thread: Playwright's sync API belongs to the thread that started it, and
 tool calls may come from different threads (a desktop app runs the agent in a worker thread).
 """
 
 from __future__ import annotations
 
-import atexit
+import contextvars
 import html
 import os
 import queue
 import re
 import sys
 import threading
+import time
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeout
 from urllib.parse import urlsplit
 
 from .. import state, websessions
 from ..common import ToolError, resolve, truncate
-from ..config import MAX_IMAGE_BYTES, WEB_APPROVE, WEB_MAX_CONTROLS, WEB_PAGE_CHARS
+from ..config import MAX_IMAGE_BYTES, WEB_APPROVE, WEB_IDLE_SECONDS, WEB_MAX_BROWSERS, WEB_MAX_CONTROLS, WEB_PAGE_CHARS
 from .browser import NAVIGATED, file_url_path, launch_browser, request_allowed
 from .documents import image_block
 from .network import check_host, confirm_network
@@ -97,8 +104,8 @@ TEXT_TYPES = {"", "text", "search", "email", "url", "tel", "number", "date", "da
 ALL_SITES = "all sites for this session"
 
 
-def _approved(host: str, approved: set) -> bool:
-    if not WEB_APPROVE or _B.all_sites:  # AGENT_WEB_APPROVE=off, or the person answered "all sites"
+def _approved(host: str, all_sites: bool, approved: set) -> bool:
+    if not WEB_APPROVE or all_sites:  # AGENT_WEB_APPROVE=off, or the person answered "all sites"
         return True
     return any(host == a or host.endswith("." + a) or a.endswith("." + host) for a in approved)   # www.x.com and x.com are one site
 
@@ -106,16 +113,46 @@ def _approved(host: str, approved: set) -> bool:
 class _Browser:
     """The session's browser, in its own thread. call() runs a function there and returns its result."""
 
-    def __init__(self):
+    def __init__(self, session=None):
         self._tasks: queue.Queue = queue.Queue()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
-        self.all_sites = False  # the person allowed every public site for this session (kept when the browser closes)
+        # The approved sites belong to the session, not to this Chromium: web_close drops this object, and the
+        # next call builds another one that must not ask again. Without a session (a bare _Browser in a test)
+        # they fall back to a private set/flag.
+        self._session = session
+        self._own_all_sites = False
+        self._own_approved: set[str] = set()
+        self._slot = None  # the semaphore whose slot this browser holds, or None (see _take_slot)
+        self.last_used = time.monotonic()  # for the idle close (WEB_IDLE_SECONDS)
         self._reset()
 
+    @property
+    def all_sites(self) -> bool:
+        return self._session.web_all_sites if self._session is not None else self._own_all_sites
+
+    @all_sites.setter
+    def all_sites(self, value: bool) -> None:
+        if self._session is not None:
+            self._session.web_all_sites = value
+        else:
+            self._own_all_sites = value
+
+    @property
+    def approved(self) -> set[str]:
+        return self._session.web_approved if self._session is not None else self._own_approved
+
+    @approved.setter
+    def approved(self, value: set[str]) -> None:
+        if self._session is not None:
+            self._session.web_approved = value
+        else:
+            self._own_approved = value
+
     def _reset(self):
+        """Drop everything the closed Chromium held. The approvals are not here: they live on the session
+        (see the properties above), so a browser closed by web_close or by idleness does not ask again."""
         self.pw = self.browser = self.context = self.page = None
-        self.approved: set[str] = set()
         self.text = ""
         self.blocked: list[str] = []
         self.notes: list[str] = []
@@ -126,12 +163,15 @@ class _Browser:
 
     # --- the thread -------------------------------------------------------------------------------
     def call(self, fn, timeout: int = 120):
+        # The tool closures read state (state.ui.status/confirm): capture this turn's session so the
+        # helper thread, which starts with an empty context, resolves the session that made the call.
+        ctx = contextvars.copy_context()
         with self._lock:
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._loop, name="agent-browser", daemon=True)
                 self._thread.start()
             fut: Future = Future()
-            self._tasks.put((fn, fut))
+            self._tasks.put((lambda browser: ctx.run(fn, browser), fut))
             try:
                 return fut.result(timeout)
             except FutureTimeout:
@@ -161,9 +201,25 @@ class _Browser:
                 thread.join(timeout=15)
             self._thread = None
             self._reset()
+            self._release_slot()  # give the AGENT_MAX_BROWSERS slot back for another session
             return was_open
 
     # --- inside the thread ------------------------------------------------------------------------
+    def _take_slot(self) -> None:
+        """Take one slot of the AGENT_MAX_BROWSERS limit (waiting a little if they are all taken)."""
+        slots = _BROWSER_SLOTS
+        if not slots.acquire(timeout=30):
+            raise ToolError("Too many browsers are open; try again shortly.")
+        # Remember *which* semaphore gave the slot, not just that one was taken: _BROWSER_SLOTS is looked
+        # up again at release time otherwise, and releasing a different one (a test that swaps it, or a
+        # reload) corrupts the count.
+        self._slot = slots
+
+    def _release_slot(self) -> None:
+        if self._slot is not None:
+            slots, self._slot = self._slot, None
+            slots.release()
+
     def ensure_page(self):
         if self.browser is None:
             try:
@@ -171,12 +227,18 @@ class _Browser:
             except ImportError:
                 raise ToolError("Playwright is not installed. Tell the user to run: pip install playwright "
                                 "(or: uv sync --extra browser), then: playwright install chromium")
-            self.pw = sync_playwright().start()
+            if self._slot is None:  # one Chromium per session is costly: only AGENT_MAX_BROWSERS may run at once
+                self._take_slot()
             try:
-                self.browser, _ = launch_browser(self.pw)
+                self.pw = sync_playwright().start()
+                try:
+                    self.browser, _ = launch_browser(self.pw)
+                except BaseException:
+                    self.pw.stop()
+                    self.pw = None
+                    raise
             except BaseException:
-                self.pw.stop()
-                self.pw = None
+                self._release_slot()  # the launch failed: never keep the slot
                 raise
             saved = websessions.load_all()  # sites the person signed in to themselves earlier
             self.tokens = websessions.load_tokens()
@@ -207,7 +269,7 @@ class _Browser:
         if u.scheme not in ("http", "https"):
             return True
         host = u.hostname or ""
-        return self._is_private(host) or _approved(host, self.approved)
+        return self._is_private(host) or _approved(host, self.all_sites, self.approved)
 
     def _route(self, route):
         req = route.request
@@ -272,8 +334,48 @@ class _Browser:
         return info
 
 
-_B = _Browser()
-atexit.register(_B.close)
+# --- one browser per session --------------------------------------------------------------------------
+
+# One Chromium per session costs memory, so only WEB_MAX_BROWSERS may be open at once. A browser holds a
+# slot from its first Chromium launch until close(), and releases it for another session.
+_BROWSER_SLOTS = threading.BoundedSemaphore(max(1, WEB_MAX_BROWSERS))
+_BROWSER_LOCK = threading.Lock()  # guards creating a session's browser, so two threads of one session get the same one
+
+
+def _browser() -> _Browser:
+    """The current session's browser, created on first use.
+
+    Each session gets its own `_Browser` (its own thread, Chromium, approved sites and page), so two
+    sessions never share or close each other's browser. A browser with no call for WEB_IDLE_SECONDS is
+    closed here (kept: its approved sites), so an idle session does not keep a slot."""
+    session = state.current()
+    browser = session.browser
+    if browser is None:
+        with _BROWSER_LOCK:  # two threads of one session calling at once must not create two browsers
+            browser = session.browser
+            if browser is None:
+                browser = _Browser(session=session)
+                session.browser = browser
+    if WEB_IDLE_SECONDS and browser is not None and time.monotonic() - browser.last_used > WEB_IDLE_SECONDS:
+        _close_idle(browser)
+    browser.last_used = time.monotonic()
+    return browser
+
+
+def _open_browser() -> _Browser | None:
+    """The current session's browser when it already has one, else None (nothing is created). For tool calls
+    that read what an earlier call left behind: with no browser there is nothing to read, and they should say
+    so rather than start a Chromium."""
+    return state.current().browser
+
+
+def _close_idle(browser: _Browser) -> None:
+    """Close a browser that has not been used for WEB_IDLE_SECONDS (its approved sites are kept, so the next
+    call reopens it). Runs in whichever thread found it idle."""
+    with _BROWSER_LOCK:
+        if time.monotonic() - browser.last_used <= WEB_IDLE_SECONDS:
+            return  # just used by another thread
+        browser.close()
 
 
 # --- what the model reads ----------------------------------------------------------------------------
@@ -333,7 +435,8 @@ def _check_link(href: str) -> None:
     u = urlsplit(href)
     if u.scheme in ("http", "https"):
         host = u.hostname or ""
-        if not check_host(host) and not _approved(host, _B.approved):
+        b = _browser()
+        if not check_host(host) and not _approved(host, b.all_sites, b.approved):
             raise ToolError(f"This link leads to {host}, a site the user has not approved yet. Call web_open with "
                             f"{href} to ask them.")
 
@@ -378,16 +481,17 @@ def _target(url: str) -> str:
     parts = urlsplit(url)
     if parts.scheme in ("http", "https"):
         host = parts.hostname or ""
+        b = _browser()
         note = check_host(host)
-        if not note and not _approved(host, _B.approved):    # a public site: the user decides, once per site
+        if not note and not _approved(host, b.all_sites, b.approved):    # a public site: the user decides, once per site
             answer = confirm_network("Browse a web site", [
                 f"url: {url}",
                 f"the agent opens it in a hidden browser, reads it, and can click links and fill in forms on {host}",
                 "never passwords or payment details; it asks you before it sends a form",
                 f"answer 'a' to let it open any public site for the rest of this session"], ("yes", "no", ALL_SITES))
             if answer == ALL_SITES:
-                _B.all_sites = True
-        _B.approved.add(host)
+                b.all_sites = True
+        b.approved.add(host)
         return url
     if parts.scheme in ("", "file"):
         page_file = resolve(file_url_path(parts.path) if parts.scheme == "file" else url)
@@ -399,6 +503,7 @@ def _target(url: str) -> str:
 
 def tool_web_open(url: str) -> str:
     PlaywrightError = _playwright_error()
+    b = _browser()
     target = _target(url)
     state.ui.status(f"[web] {target}")
 
@@ -411,12 +516,13 @@ def tool_web_open(url: str) -> str:
             raise _friendly(e, target, b.blocked)
         b.settle(page)
         return b.snapshot(response.status if response else None)
-    return _render(_B.call(go))
+    return _render(b.call(go))
 
 
 def tool_web_click(ref: int) -> str:
     PlaywrightError = _playwright_error()
-    info = _B.call(lambda b: b.inspect(ref))
+    b = _browser()
+    info = b.call(lambda br: br.inspect(ref))
     if info["disabled"]:
         raise ToolError("That control is disabled.")
     if info["tag"] == "a" and info["href"]:
@@ -441,12 +547,13 @@ def tool_web_click(ref: int) -> str:
             raise ToolError(f"Could not click [{ref}]: {first}")
         b.settle(b.ensure_page())
         return b.snapshot()
-    return _render(_B.call(click))
+    return _render(b.call(click))
 
 
 def tool_web_type(ref: int, text: str, submit: bool = False) -> str:
     PlaywrightError = _playwright_error()
-    info = _B.call(lambda b: b.inspect(ref))
+    b = _browser()
+    info = b.call(lambda br: br.inspect(ref))
     if info["tag"] == "select":
         wanted = next((o for o in info["options"] if o.lower() == text.strip().lower()), None) or \
             next((o for o in info["options"] if text.strip().lower() in o.lower()), None)
@@ -476,10 +583,12 @@ def tool_web_type(ref: int, text: str, submit: bool = False) -> str:
             raise ToolError(f"Could not use [{ref}]: {next((l.strip() for l in str(e).splitlines() if l.strip()), 'failed')[:240]}")
         b.settle(b.ensure_page())
         return b.snapshot()
-    return _render(_B.call(fill))
+    return _render(b.call(fill))
 
 
 def tool_web_back() -> str:
+    b = _browser()
+
     def back(b: _Browser):
         page = b.ensure_page()
         b.blocked.clear()
@@ -490,13 +599,17 @@ def tool_web_back() -> str:
         b.settle(page)
         return b.snapshot()
     state.ui.status("[web] back")
-    return _render(_B.call(back))
+    return _render(b.call(back))
 
 
 def tool_web_page(offset: int | None = None) -> str:
     if offset is None:
-        return _render(_B.call(lambda b: b.snapshot()))
-    text = _B.text.strip()
+        b = _browser()
+        return _render(b.call(lambda br: br.snapshot()))
+    b = _open_browser()  # reading the text of the page an earlier call left needs no new browser
+    if b is None:
+        raise ToolError("No page is open: call web_open first.")
+    text = b.text.strip()
     offset = max(0, int(offset))
     if not text:
         raise ToolError("No page is open: call web_open first.")
@@ -509,10 +622,12 @@ def tool_web_page(offset: int | None = None) -> str:
 
 
 def tool_web_look(full_page: bool = False) -> list:
-    def shot(b: _Browser):
-        page = b.ensure_page()
+    b = _browser()
+
+    def shot(br: _Browser):
+        page = br.ensure_page()
         return page.screenshot(type="png", full_page=bool(full_page)), page.title(), page.url
-    data, title, url = _B.call(shot)
+    data, title, url = b.call(shot)
     if len(data) > MAX_IMAGE_BYTES:
         raise ToolError("The screenshot is too large: call web_look without full_page.")
     state.ui.status(f"[web] screenshot of {url}")
@@ -526,6 +641,7 @@ MAILBOX_HOSTS = ("mail.google.com", "gmail.com", "accounts.google.com", "outlook
 def tool_web_sign_in(url: str) -> str:
     """Open a visible window where the PERSON signs in; the agent keeps only the resulting session."""
     PlaywrightError = _playwright_error()
+    b = _browser()
     host = urlsplit(url if "//" in url else "https://" + url).hostname or ""
     if host.lower().removeprefix("www.") in MAILBOX_HOSTS:
         raise ToolError(f"{host} refuses sign-ins from a browser driven by a program (\"This browser or app may not be secure\"): nothing was opened. "
@@ -562,13 +678,13 @@ def tool_web_sign_in(url: str) -> str:
         return storage
 
     try:
-        _B.call(open_window)
+        b.call(open_window)
     except PlaywrightError as e:
-        if _B.signin_browser is not None:
-            _B.call(lambda b: close_window(b, False))
+        if b.signin_browser is not None:
+            b.call(lambda br: close_window(br, False))
         raise _friendly(e, target, [])
     answer = state.ui.confirm(f"Sign in to {host} in the window that opened, then answer", ("done", "cancel"))
-    storage = _B.call(lambda b: close_window(b, answer == "done"))
+    storage = b.call(lambda br: close_window(br, answer == "done"))
     if answer != "done":
         raise ToolError("The user cancelled the sign-in; nothing was kept.")
     if not storage or not storage.get("cookies"):
@@ -590,6 +706,7 @@ NOT_A_TOKEN_HEADER = {"host", "content-length", "content-type", "connection", "t
 
 def tool_web_set_token(url: str) -> str:
     """The PERSON types a header name and a token for a site; the agent keeps only that, and never sees it."""
+    b = _browser()
     if "://" in (url or "") and not _token_transport_ok(url.strip()):
         raise ToolError("web_set_token needs the https address of the site: a token is never sent in clear.")
     target = _target(url)
@@ -610,10 +727,15 @@ def tool_web_set_token(url: str) -> str:
     if not value or any(c in value for c in "\r\n\0"):
         raise ToolError("No usable token was given; nothing was kept.")
     websessions.save_token(host, header, value)
-    _B.call(lambda b: b.tokens.__setitem__(websessions.site_name(host), (header, value)))
+    b.call(lambda br: br.tokens.__setitem__(websessions.site_name(host), (header, value)))
     return (f"The user gave {host} a token: header {header}, kept for {websessions.WEB_SESSION_DAYS} days; you never saw "
             f"the token. Now call web_open on a page of {host} to use it.")
 
 
 def tool_web_close() -> str:
-    return "The browser was closed. Sites approved earlier will be asked about again." if _B.close() else "No browser was open."
+    browser = state.current().browser  # only this session's browser; another session keeps its own
+    if browser is None:
+        return "No browser was open."
+    state.current().browser = None  # the session keeps its approved sites (see state.Session.web_approved)
+    return "The browser was closed. The sites approved this session are remembered and it reopens on the next call." \
+        if browser.close() else "No browser was open."
