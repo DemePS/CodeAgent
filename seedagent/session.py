@@ -30,9 +30,11 @@ from .config import MEMORY_HOME, _get_client, get_model
 from .conversation import load_conversation
 from .loop import send as _send
 from .loop import set_auto_mode
+from .mcp_config import load_server_configs
 from .memory import finish_memory_updates
 from .skills import discover_skills
 from .tools import register_tool  # noqa: F401  (re-exported: session.register_tool)
+from .tools.mcp_bridge import connect_configured_servers
 from .logs import LoggedUI
 from .ui import UI
 
@@ -107,6 +109,8 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
     session.system_prompt = system_prompt
     session.excel_first = excel_first
     session.skills = discover_skills()
+    if configs := load_server_configs(workspace):
+        connect_configured_servers(configs)
     session.messages[:] = load_conversation() if resume else []
     session.pdf_read_as_text = had_text_read(session.messages)  # a resumed conversation that already read a PDF in text mode
     if auto:

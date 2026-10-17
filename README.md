@@ -144,6 +144,25 @@ exception also reaches Claude as an error result and does not stop the agent. It
 responsibility (to read a file the way the built-in tools do, `seedagent.common.resolve_readable(path)` applies the same rules). A built-in
 tool cannot be replaced, registering the same handler twice does nothing, and a second handler under a taken name is an error.
 
+### MCP servers
+
+The agent also connects to [MCP](https://modelcontextprotocol.io) servers and offers their tools to Claude as `mcp__<server>__<tool>`,
+alongside the built-in ones. List servers in `~/.coding-agent/mcp_servers.json` (every project) and/or `<project>/.agent/mcp_servers.json`
+(that project only; a server named in both uses the project's version), same shape as Claude Desktop's config:
+
+```json
+{
+  "mcpServers": {
+    "fetch": {"command": "uvx", "args": ["mcp-server-fetch"]},
+    "remote-example": {"url": "https://example.com/mcp"}
+  }
+}
+```
+
+A tool the server did not mark `readOnlyHint` asks for confirmation before it runs (skipped in autonomous mode, like the built-in tools
+that write or run code). The MCP SDK is async; `seedagent/tools/mcp_bridge.py` runs it on a dedicated background event loop so the rest of
+the agent stays synchronous.
+
 ## Tools
 
 45 tools; an application offers the subset it wants (`session.open_project(tools=[...])`).
