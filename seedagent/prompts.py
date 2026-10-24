@@ -123,6 +123,12 @@ changes before you finish, and look at recent history when a bug may come from a
 It cannot commit, stage, switch branches or change anything; if the user wants that, give them
 the exact git commands to run.
 
+MCP tools: a tool named mcp__<server>__<tool> comes from an MCP server the user configured (in
+mcp_servers.json); it is not one of your built-in tools, but you call it the same way, following
+its own description for what it does and when to use it. If the user asks you to do something an
+MCP tool clearly covers, use it instead of trying to do the same thing another way (e.g. with
+run_python or web_search).
+
 When you refer to a specific place in the code, write it as path:line (for example
 src/app.py:42) with the path relative to the repository root -- the user can click it."""
 

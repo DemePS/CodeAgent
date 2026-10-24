@@ -59,6 +59,18 @@ class ScriptedUI(UI):
         return [e for e in self.events if e[0] == kind]
 
 
+@pytest.fixture(autouse=True)
+def _restore_current_session():
+    """Undo a bare state.set_current() at test end: it has no `with` block to restore the previous
+    session itself, so left alone it leaks into whichever test file pytest collects next -- e.g. a test
+    in test_sessions.py pointing state.current() at a throwaway Session, with the next module's tests
+    (test_web.py's own-thread test among them) then seeing a different session in a thread that never
+    called set_current/activate than in the thread that did."""
+    token = state._current.set(state._current.get())
+    yield
+    state._current.reset(token)
+
+
 @pytest.fixture
 def ui():
     return ScriptedUI()

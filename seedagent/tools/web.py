@@ -354,7 +354,7 @@ def _browser() -> _Browser:
         with _BROWSER_LOCK:  # two threads of one session calling at once must not create two browsers
             browser = session.browser
             if browser is None:
-                browser = _Browser()
+                browser = _Browser(session=session)
                 session.browser = browser
     if WEB_IDLE_SECONDS and browser is not None and time.monotonic() - browser.last_used > WEB_IDLE_SECONDS:
         _close_idle(browser)

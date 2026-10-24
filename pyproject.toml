@@ -1,6 +1,6 @@
 [project]
 name = "seedagent"
-version = "1.2.0"
+version = "1.3.0"
 description = "A coding and document agent on Claude (Azure / Microsoft Foundry): tools, safety rules, memory and context management, usable from the terminal or as a library"
 readme = "README.md"
 license = "MIT"
@@ -32,6 +32,7 @@ dependencies = [
     "pypdfium2>=4.30,<5", # renders PDF pages to images: for OCR and for models that take images but not PDFs
     "pillow>=10", # the rendered pages
     "pytesseract>=0.3.10,<1", # OCR of scanned PDF pages (needs the tesseract program and its language packs installed)
+    "mcp>=2.3.0,<3", # MCP client: connects to the servers in mcp_servers.json, runs on its own asyncio loop (tools/mcp_bridge.py)
     "truststore>=0.10.0,<1", # HTTPS behind a company proxy: the operating system's certificates
 ]
 
