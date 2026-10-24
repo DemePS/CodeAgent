@@ -1,12 +1,21 @@
 """The agent loop: stream a response, run the requested tools, repeat; one instruction at a time."""
 
 import contextvars
+import os
 import threading
 
 import anthropic
 
 from . import state, usage
-from .config import MAX_STEPS, MAX_TOKENS, get_cache_ttl, get_model, model_sees_images, thinking_options, uses_deepseek
+from .config import (
+    MAX_STEPS,
+    MAX_TOKENS,
+    get_cache_ttl,
+    get_model,
+    model_sees_images,
+    thinking_options,
+    uses_deepseek,
+)
 from .context import (
     clear_old_tool_results,
     compact,
@@ -26,6 +35,12 @@ from .prompts import SYSTEM_PROMPT
 from .schemas import IMAGE_TOOLS, TOOLS, text_only
 from .skills import skills_catalog
 from .tools import run_tool
+
+if os.environ.get("CODEAGENT_PROVIDER", "").strip().lower() == "deepseek":
+    from .tools.search import reset_turn_budget
+else:
+    def reset_turn_budget() -> None:  # Anthropic's web_search is capped by the API itself (max_uses)
+        """Nothing to reset: nothing of ours counts the searches."""
 
 
 def check_stop() -> None:
@@ -52,11 +67,13 @@ def system_param() -> str | list[dict]:
 
 
 def active_tools() -> list[dict]:
-    """The tool definitions sent to Claude: all of them, or the subset the front end enabled. DeepSeek has no server-side
-    web_search: it is left out there."""
+    """The tool definitions sent to Claude: all of them, or the subset the front end enabled. DeepSeek's API
+    refuses Anthropic's *server-side* web_search ({'type': 'web_search_...'}), so that one is left out there;
+    ours, an ordinary tool with an input_schema (schemas.TOOLS_DEEPSEEK_WEB_SEARCH), is a normal tool and
+    stays."""
     tools = TOOLS if state.tool_names is None else [t for t in TOOLS if t["name"] in state.tool_names]
     if uses_deepseek():
-        tools = [t for t in tools if t["name"] != "web_search"]
+        tools = [t for t in tools if not (t["name"] == "web_search" and "input_schema" not in t)]
     if not model_sees_images():
         # No tool that returns an image, and read_pdf without its visual mode: the model cannot look at pages.
         tools = [text_only(t) for t in tools if t["name"] not in IMAGE_TOOLS]
@@ -247,6 +264,7 @@ def _send(client: anthropic.Anthropic, messages: list, text: str) -> bool:
     checkpoint = len(messages)
     mark = usage.snapshot()
     state.compacted_this_turn = False
+    reset_turn_budget()  # the per-instruction cap on our own web_search (tools.search) starts fresh
     state.turn.update(instruction=text, excel_read=False)
     state.stop_requested = False
     # Memory and the skill list go with the first instruction (skills only when load_skill is enabled).

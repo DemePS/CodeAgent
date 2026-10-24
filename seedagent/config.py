@@ -21,6 +21,9 @@ DEFAULT_MODEL = "claude-sonnet-5"
 # DeepSeek's Anthropic-compatible API (DEEPSEEK_API_KEY): same client, another base URL and model.
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
 DEEPSEEK_MODEL = "deepseek-flash"
+# DeepSeek's own Search and Fetch API (POST /v1/tools/search and /v1/tools/fetch): the web_search tool under DeepSeek,
+# whose chat API refuses Anthropic's server-side one. One async pipeline behind it, no http_proxy for it.
+DEEPSEEK_TOOLS_URL = "https://api.deepseek.com/v1/tools"
 DEFAULT_EFFORT = "medium"   # how much the model thinks and writes (CODEAGENT_EFFORT)
 DEFAULT_THINKING = "off"    # thinking before the answer (CODEAGENT_THINKING)
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
@@ -99,7 +102,8 @@ def uses_anthropic_api() -> bool:
 
 def uses_deepseek() -> bool:
     """DeepSeek's Anthropic-compatible API: DEEPSEEK_API_KEY in use, or an ANTHROPIC_BASE_URL on deepseek.com. It does not
-    take the web_search tool, cache_control or PDF `document` blocks (see active_tools, the loop and read_pdf)."""
+    take Anthropic's server-side web_search tool (ours is offered there instead, tools.search), cache_control or PDF
+    `document` blocks (see active_tools, the loop and read_pdf)."""
     if _deepseek_key():
         return True
     return uses_anthropic_api() and "deepseek.com" in (os.environ.get("ANTHROPIC_BASE_URL") or "").lower()

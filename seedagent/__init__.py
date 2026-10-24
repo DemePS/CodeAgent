@@ -62,7 +62,9 @@ Tools:
   - web_search  : Anthropic's server-side web search (runs on Anthropic's side; nothing executes
                   locally). AGENT_WEB_SEARCH=20250305 (default; the only version on Foundry
                   deployments hosted on Azure), 20260209 (better filtering; Anthropic-hosted
-                  deployments), or off.
+                  deployments), or off. On DeepSeek it is ours instead (tools/search.py, DeepSeek's
+                  Search API with DEEPSEEK_API_KEY): the same name, the same job; at most
+                  AGENT_WEB_SEARCHES_PER_TURN=4 searches per question.
 
 Skills are folders with a SKILL.md (a `name` / `description` header, then instructions), found in:
     seedagent/skills/                 -- shipped with the agent

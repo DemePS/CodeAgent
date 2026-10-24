@@ -1,5 +1,6 @@
 """The tools Claude can call, by name."""
 
+import os
 import re
 from collections.abc import Callable
 
@@ -100,6 +101,15 @@ TOOL_HANDLERS = {
     "run_python_excel": tool_run_python_excel,
     "load_skill": tool_load_skill,
 }
+
+# Our own web_search, for DeepSeek only -- and imported only there, so a run on Anthropic (which has
+# web_search server-side) neither loads the search module nor carries a second handler under a name
+# Anthropic's tool already uses. active_tools() sends one or the other, never both; the schema for ours
+# is in schemas.py (TOOLS_DEEPSEEK_WEB_SEARCH).
+if os.environ.get("CODEAGENT_PROVIDER", "").strip().lower() == "deepseek":
+    from ..tools.search import tool_web_search
+
+    TOOL_HANDLERS["web_search"] = tool_web_search
 
 
 BUILTIN_TOOLS = frozenset(TOOL_HANDLERS) | {t["name"] for t in TOOLS}

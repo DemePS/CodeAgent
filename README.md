@@ -67,7 +67,10 @@ choose it over them. `CODEAGENT_PROVIDER=claude` does the opposite: Claude (Anth
 `ANTHROPIC_API_KEY` to a DeepSeek key with `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` also works and is recognised.
 `coding-agent --check` tests the connection.
 
-What DeepSeek does not take, and what the agent does about it: no `web_search` tool (it is left out, `Web search: off`); no `cache_control`
+What DeepSeek does not take, and what the agent does about it: not Anthropic's *server-side* `web_search` tool (DeepSeek's API refuses it),
+so on DeepSeek `web_search` is ours instead: the same name, an ordinary tool the model calls with keywords, answered by DeepSeek's own
+Search API (`DEEPSEEK_API_KEY`, same key, $0.75 per 1,000 searches, at most `AGENT_WEB_SEARCHES_PER_TURN`=4 per question -- `AGENT_WEB_SEARCH=off`
+still turns all searching off, and `coding-agent --check` shows `Web search: deepseek`). No `cache_control`
 (DeepSeek caches by itself); no PDF `document` blocks, so `read_pdf` sends pages as rendered images instead (pypdfium2) and scans are read
 by OCR or by looking at the page; thinking is sent as `disabled` for `CODEAGENT_THINKING=off`. `deepseek-flash` looks at images;
 `deepseek-v4-pro` does not (it answers "unsupported image"): the tools that return an image are then not offered and `read_pdf` has no visual
