@@ -1,6 +1,5 @@
 """The tools Claude can call, by name."""
 
-import os
 import re
 from collections.abc import Callable
 
@@ -36,6 +35,7 @@ from ..tools.files import (
 from ..tools.git import tool_git
 from ..tools.interaction import tool_ask_human
 from ..tools.mail import tool_mail_draft, tool_mail_login, tool_send_mail
+from ..tools.search import tool_web_search
 from ..tools.sms import tool_send_sms
 from ..tools.network import tool_clone_repo, tool_download_file
 from ..tools.web import (
@@ -100,17 +100,16 @@ TOOL_HANDLERS = {
     "run_uv": tool_run_uv,
     "run_python_excel": tool_run_python_excel,
     "load_skill": tool_load_skill,
+    # Our own web_search, for DeepSeek (Anthropic's is server-side and never reaches here: see
+    # web_search_tool_result in loop.py, handled entirely by the streaming event loop). Registered
+    # unconditionally like every other tool above, not gated on the provider at import time: a host
+    # application can choose DeepSeek well after this module is first imported (applying a saved key
+    # during its own start-up, for instance), so a one-time check here used to miss it -- "Unknown
+    # tool: web_search" however the provider was actually chosen. active_tools() already decides which
+    # web_search schema (if any) to actually send the model, fresh on every call; this entry just sits
+    # unused when Anthropic is in use.
+    "web_search": tool_web_search,
 }
-
-# Our own web_search, for DeepSeek only -- and imported only there, so a run on Anthropic (which has
-# web_search server-side) neither loads the search module nor carries a second handler under a name
-# Anthropic's tool already uses. active_tools() sends one or the other, never both; the schema for ours
-# is in schemas.py (TOOLS_DEEPSEEK_WEB_SEARCH).
-if os.environ.get("CODEAGENT_PROVIDER", "").strip().lower() == "deepseek":
-    from ..tools.search import tool_web_search
-
-    TOOL_HANDLERS["web_search"] = tool_web_search
-
 
 BUILTIN_TOOLS = frozenset(TOOL_HANDLERS) | {t["name"] for t in TOOLS}
 _TOOL_NAME = re.compile(r"[A-Za-z0-9_-]{1,64}")
