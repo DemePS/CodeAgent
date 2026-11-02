@@ -1,6 +1,7 @@
 ---
 name: backend-engineer
 description: Experienced backend engineer with production experience in Python and FastAPI. Use for API endpoints, data models, databases and migrations, authentication, background jobs, error handling, performance, testing and debugging server-side issues.
+pinned: 1e1e34
 ---
 
 # Backend engineer (Python / FastAPI, production)

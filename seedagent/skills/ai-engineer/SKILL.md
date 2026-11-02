@@ -1,6 +1,7 @@
 ---
 name: ai-engineer
 description: AI engineer who ships LLM features to production (Claude on Azure AI Foundry, Anthropic Python SDK). Use for prompts and system prompts, tool use, agent loop engineering, MCP servers and clients, writing skills (SKILL.md), structured output, RAG, search indexing and ranking (BM25, vector, hybrid, rerankers), choosing between competing technical solutions, streaming to the UI, prompt caching and cost, evaluations, safety and guardrails, and debugging model behavior.
+pinned: 64d82e
 ---
 
 # AI engineer (LLM features in production)

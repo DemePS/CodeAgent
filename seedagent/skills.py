@@ -1,5 +1,6 @@
 """Skills: folders with a SKILL.md, discovered, listed for Claude and loaded on demand."""
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -28,6 +29,23 @@ def read_skill_header(skill_md: Path) -> dict[str, str]:
     return header
 
 
+def _skill_body(text: str) -> str:
+    """The SKILL.md text with the leading `---` header removed."""
+    if text.startswith("---"):
+        end = text.find("\n---", 3)
+        text = text[end + 4:] if end != -1 else text
+    return text.strip()
+
+
+def skill_body_hash(skill_md: Path) -> str:
+    """A short, stable fingerprint of a skill's body (header excluded), so a transcript can
+    record which skill text was in force. Hashed as decoded text (normalized line endings),
+    not raw bytes, so CRLF and LF checkouts of the same skill agree."""
+    body = _skill_body(skill_md.read_text(encoding="utf-8"))
+    normalized = "\n".join(body.splitlines())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:6]
+
+
 def skill_roots() -> list[tuple[str, Path]]:
     """Where skills are looked up, in override order (a later one wins for the same name)."""
     return [("bundled", BUNDLED_SKILLS), ("personal", PERSONAL_SKILLS), ("project", state.workspace / ".agent" / "skills")]
@@ -54,6 +72,16 @@ def skill_problems(root: Path) -> list[str]:
                 problems.append(f"{entry} has no SKILL.md{hint}")
             elif not read_skill_header(find_skill_file(entry)).get("description"):
                 problems.append(f"{find_skill_file(entry)} has no 'description:' in its --- header, so Claude cannot tell when to use it")
+            else:
+                skill_md = find_skill_file(entry)
+                pinned = read_skill_header(skill_md).get("pinned")
+                if pinned:
+                    current = skill_body_hash(skill_md)
+                    if current != pinned:
+                        problems.append(
+                            f"{skill_md} changed since it was pinned (pinned {pinned}, now {current}); "
+                            f"review the edit and update pinned: -- a skill edit changes agent behaviour on every run"
+                        )
     return problems
 
 
@@ -102,10 +130,14 @@ def searched_folders() -> str:
 
 
 def skills_catalog() -> str:
-    """Names and descriptions only -- the full instructions are loaded on demand."""
+    """Names, descriptions and a content hash -- the full instructions are loaded on demand.
+    The hash lets a session transcript record which skill text was in force."""
     if not state.skills:
         return f"<skills>\n(none found; searched {searched_folders()})\n</skills>"
-    lines = [f"- {name}: {read_skill_header(p).get('description', '')}" for name, p in sorted(state.skills.items())]
+    lines = [
+        f"- {name} [{skill_body_hash(p)}]: {read_skill_header(p).get('description', '')}"
+        for name, p in sorted(state.skills.items())
+    ]
     return "<skills>\n" + "\n".join(lines) + "\n</skills>"
 
 
@@ -130,8 +162,4 @@ def bundled_skill(name: str) -> str:
     skill_md = find_skill_file(BUNDLED_SKILLS / name) if (BUNDLED_SKILLS / name).is_dir() else None
     if skill_md is None:
         raise KeyError(f"No bundled skill {name!r} in {BUNDLED_SKILLS}")
-    text = skill_md.read_text(encoding="utf-8")
-    if text.startswith("---"):
-        end = text.find("\n---", 3)
-        text = text[end + 4:] if end != -1 else text
-    return text.strip()
+    return _skill_body(skill_md.read_text(encoding="utf-8"))

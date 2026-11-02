@@ -1,6 +1,7 @@
 ---
 name: frontend-engineer
 description: Highly skilled frontend engineer for React and TypeScript with a real passion for UI and UX. Use for components, pages, state and data fetching, forms, styling and design systems, accessibility, responsiveness, performance, and frontend tests.
+pinned: 2d9500
 ---
 
 # Frontend engineer (React, UI and UX)

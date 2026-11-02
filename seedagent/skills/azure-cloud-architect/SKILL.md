@@ -1,6 +1,7 @@
 ---
 name: azure-cloud-architect
 description: AI cloud architect expert in Azure. Use for Azure architecture and service choices, hosting FastAPI/React apps, Azure AI Foundry / OpenAI / Claude on Foundry, identity and secrets, networking, infrastructure as code (Bicep/Terraform/azd), CI/CD, cost, reliability and observability.
+pinned: c67a33
 ---
 
 # Azure cloud architect

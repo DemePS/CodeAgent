@@ -39,3 +39,24 @@ Plan:
 4. If a call would prompt (`ask_read_outside` and a new folder), run that batch sequentially.
 5. Exceptions of one call stay in its own result (an `is_error` tool result), as today.
 6. Measure before/after on a batch of 4 reads; add tests: order of results, one failing call, a batch with `change_directory`.
+
+## Skills: pin a hash, and fix a false line in the prompt (done)
+
+Status: done. `skills.skill_body_hash()` hashes a skill's body (header stripped, decoded text with
+line endings normalized, so CRLF and LF checkouts agree) to a 6-hex-char `sha256` prefix.
+
+- `skills_catalog()` now renders `- name [hash]: description` for every skill, so a session
+  transcript records which skill text was in force. Measured: the catalog grew from 2016 to 2070
+  chars for the 6 bundled skills (+54 chars, exactly `" [xxxxxx]"` x 6) -- the lazy-load saving
+  this was meant to protect is untouched.
+- Each bundled `seedagent/skills/*/SKILL.md` carries a `pinned: <hash>` header line.
+  `skill_problems()` reports a mismatch (`"... changed since it was pinned (pinned X, now Y); review
+  the edit and update pinned: ..."`) when a skill's current body hash no longer matches its
+  `pinned:` header; personal and project skills have no `pinned:` key, so the check is silent for
+  them (no root-identity check needed -- the key's absence already does it).
+- `prompts.py:44-45` said "Skills live outside the repository" -- false for bundled and project
+  skills, true only for personal ones (`PERSONAL_SKILLS`, under the user's home folder). Reworded
+  to name the personal folder specifically.
+- Tests: `tests/test_skill_pinning.py` (catalog hash format, a skill with no `pinned:` key, every
+  bundled skill's pin matches its body, a drifted pin is reported, CRLF/LF bodies hash the same).
+- No zip/archive extractor added -- no zip path exists in seedagent yet, so none was needed.

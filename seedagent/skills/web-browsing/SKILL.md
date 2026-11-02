@@ -1,6 +1,7 @@
 ---
 name: web-browsing
 description: How to use the browser tools well (web_search, web_open, web_click, web_type, web_page, web_look, web_back, web_sign_in, web_set_token, web_close, screenshot_page). Use when a task needs a web page read, a site navigated, a form filled, something checked in a browser, a site that needs a sign-in or a token, or when the user asks what the browser can do.
+pinned: 5661d3
 ---
 
 # Web browsing

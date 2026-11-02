@@ -1,6 +1,7 @@
 ---
 name: database-architect
 description: Database architect. Use to design, review or evolve a database schema (tables, columns, types, keys, constraints, relationships, indexes, naming, migrations), to choose a database, or to derive a schema from existing data (CSV, JSON, API payloads, spreadsheets, forms, documents).
+pinned: c7d91c
 ---
 
 # Database architect

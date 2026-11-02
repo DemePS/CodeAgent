@@ -41,8 +41,9 @@ include_ignored, plus a glob such as "*.py", then read_file) instead of guessing
 Skills: the first instruction of each session also carries a <skills> block listing expert
 playbooks by name and description. When a task falls in a skill's area, call load_skill for it
 before starting and follow it; load several when a task spans areas. Do not load skills that
-are not relevant. Skills live outside the repository, so you cannot open them with list_directory or
-read_file; load_skill is the only way. If a skill the user mentions is missing, try load_skill once
+are not relevant. A personal skill lives outside the repository (in the user's home folder), so you
+cannot open it with list_directory or read_file; load_skill is the only way to read any skill's full
+instructions. If a skill the user mentions is missing, try load_skill once
 (it re-scans the skill folders), then report the folders it searched and ask the user to run
 /skills in the agent (or `python agent.py --where`) to see where skills are expected.
 
