@@ -82,6 +82,13 @@ def test_missing_or_malformed_config_files_are_ignored(tmp_path, monkeypatch):
     assert load_server_configs(tmp_path) == {}
 
 
+def test_status_report_names_every_server_and_marks_failed_ones():
+    import seedagent.mcp_config as mcp_config
+    assert mcp_config.status_report({}, []) == "MCP servers: (none configured)"
+    report = mcp_config.status_report({"fetch": {}, "calc": {}}, ["fetch"])
+    assert report == "MCP servers: calc, fetch (failed to connect)"
+
+
 def test_entries_missing_command_or_url_are_dropped(tmp_path, monkeypatch):
     import seedagent.mcp_config as mcp_config
     monkeypatch.setattr(mcp_config, "USER_CONFIG", tmp_path / "mcp_servers.json")
@@ -140,3 +147,15 @@ def test_connecting_again_is_a_no_op_and_an_unreachable_server_is_reported_not_r
     assert again == []
     failed = mcp_bridge.connect_configured_servers({"broken": {"command": "no-such-program-xyz"}})
     assert failed == ["broken"]
+
+
+def test_a_cleanup_failure_after_a_bad_connection_does_not_crash_the_agent(monkeypatch):
+    """Regression: a server that fails session.initialize() can leave its transport in a state where
+    closing it also raises (seen with a real stdio server returning a protocol error). That second
+    failure must stay contained -- connecting must still just report the server as failed."""
+    async def raising_aclose(self):
+        raise RuntimeError("cleanup also failed")
+
+    monkeypatch.setattr(mcp_bridge.contextlib.AsyncExitStack, "aclose", raising_aclose)
+    failed = mcp_bridge.connect_configured_servers({"broken2": {"command": "no-such-program-xyz2"}})
+    assert failed == ["broken2"]

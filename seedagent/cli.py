@@ -12,6 +12,7 @@ from .errors import connection_summary
 from .context import compact_between_instructions, context_status, reset_usage
 from .conversation import save_conversation
 from .loop import send, set_auto_mode
+from .mcp_config import status_report as mcp_status_report
 from .memory import print_memory_status
 from .skills import discover_skills, locations_report, skills_catalog
 from .tools.browser import check_browser
@@ -130,6 +131,7 @@ def main() -> None:
         raise SystemExit(str(e))
     print(f"{provider_label()}: {connection_summary()}")
     print(locations_report(verbose=False))
+    print(mcp_status_report(state.mcp_configs, state.mcp_failed))
     print(f"Web search: {'off' if WEB_SEARCH == 'off' else 'deepseek (Search API)' if uses_deepseek() else 'web_search_' + WEB_SEARCH}")
 
     try:

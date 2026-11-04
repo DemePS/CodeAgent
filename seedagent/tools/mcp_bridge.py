@@ -143,7 +143,10 @@ def connect_configured_servers(configs: dict[str, dict]) -> list[str]:
         except Exception as e:
             log.warning("MCP server %r: could not connect (%s: %s)", name, type(e).__name__, e)
             failed.append(name)
-            _run(stack.aclose(), timeout=CONNECT_TIMEOUT_SECONDS)
+            try:
+                _run(stack.aclose(), timeout=CONNECT_TIMEOUT_SECONDS)
+            except Exception:
+                pass  # the half-opened transport may already be broken; connecting must not crash on it
             continue
         _sessions[name] = session
         _stacks[name] = stack

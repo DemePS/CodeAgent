@@ -41,3 +41,13 @@ def load_server_configs(workspace: Path | None = None) -> dict[str, dict]:
         name: cfg for name, cfg in servers.items()
         if isinstance(cfg, dict) and isinstance(name, str) and ("command" in cfg or "url" in cfg)
     }
+
+
+def status_report(configs: dict[str, dict], failed: list[str]) -> str:
+    """One banner line naming every configured server and whether it connected, so a bad server (e.g.
+    its command missing from PATH) is visible instead of only reaching agent.log."""
+    if not configs:
+        return "MCP servers: (none configured)"
+    failed_set = set(failed)
+    parts = [f"{name} (failed to connect)" if name in failed_set else name for name in sorted(configs)]
+    return "MCP servers: " + ", ".join(parts)

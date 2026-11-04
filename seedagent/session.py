@@ -110,7 +110,8 @@ def open_project(path: str | Path, ui: UI, tools: Iterable[str] | None = None,
     session.excel_first = excel_first
     session.skills = discover_skills()
     if configs := load_server_configs(workspace):
-        connect_configured_servers(configs)
+        session.mcp_configs = configs
+        session.mcp_failed = connect_configured_servers(configs)
     session.messages[:] = load_conversation() if resume else []
     session.pdf_read_as_text = had_text_read(session.messages)  # a resumed conversation that already read a PDF in text mode
     if auto:
