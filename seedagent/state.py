@@ -97,6 +97,8 @@ class Session:
         # Require read_excel before read_pdf when the instruction mentions a spreadsheet.
         self.excel_first = False
         self.system_prompt: str | None = None  # replaces the coding agent's system prompt ({workspace} is filled in)
+        self.mcp_configs: dict[str, dict] = {}  # servers configured for this workspace (mcp_config.load_server_configs)
+        self.mcp_failed: list[str] = []  # names from mcp_configs that could not connect (see tools.mcp_bridge)
 
         # Paths the agent must never modify: its own files, plus the project's .agent/skills folder.
         self.protected_paths: list[Path] = list(OWN_FILES)
